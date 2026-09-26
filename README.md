@@ -156,6 +156,11 @@ git push -u origin main
 等 1 分钟，地址就是 `https://你的用户名.github.io/vocab/`。
 
 > 免费账号的 Pages 需要仓库是 **public**。词表数据存在浏览器里，**不会**跟着代码上传。
+>
+> 如果 `git push` 报 `Connection was reset`（这台机器直连 GitHub 偶尔会这样），走本地代理再来一次：
+> ```powershell
+> git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main
+> ```
 
 ---
 
