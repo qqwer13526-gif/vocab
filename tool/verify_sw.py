@@ -29,11 +29,12 @@ from headless import Report, body_flag, main_guard, read_result, run_dom  # noqa
 
 ROOT = Path(__file__).resolve().parent.parent
 PORT = 5181
+PREFIX = ""  # --prefix=/vocab 时，模拟 GitHub Pages 的子路径部署
 
 
 def start_server(port: int):
     """测试服务器（带 /__slow 与 /__shutdown，见 tool/testserver.py）。"""
-    return testserver.start(port)
+    return testserver.start(port, PREFIX)
 
 
 def get(url: str) -> tuple[int, bytes]:
@@ -47,7 +48,7 @@ def get(url: str) -> tuple[int, bytes]:
 
 
 def check() -> int:
-    reps = Report("任务1 · PWA 外壳")
+    reps = Report(f"任务1 · PWA 外壳{PREFIX or ''}")
     httpd, base = start_server(PORT)
     profile = tempfile.mkdtemp(prefix="dsh-sw-")
 
@@ -135,4 +136,7 @@ def check() -> int:
 
 
 if __name__ == "__main__":
+    for a in sys.argv[1:]:
+        if a.startswith("--prefix="):
+            PREFIX = a.split("=", 1)[1].rstrip("/")
     main_guard(check)

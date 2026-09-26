@@ -21,6 +21,7 @@ NODE_BIN = "node"
 STEPS: list[tuple[str, list[str], str]] = [
     ("① 纯逻辑单元测试（SRS / 判定 / 解析）", [NODE_BIN, "--test", "tests/**/*.test.js"], "unit"),
     ("② PWA 外壳与离线可用", [PY, "tool/verify_sw.py"], "sw"),
+    ("②b PWA 挂在子路径下（模拟 GitHub Pages 的 /vocab/）", [PY, "tool/verify_sw.py", "--prefix=/vocab"], "sw"),
     ("③ 数据层 db.js（浏览器内）", [PY, "tool/browser_test.py", "tests/browser/db.test.html"], "ui"),
     ("④ 界面：库列表", [PY, "tool/browser_test.py", "tests/browser/ui-home.test.html"], "ui"),
     ("⑤ 界面：练习", [PY, "tool/browser_test.py", "tests/browser/ui-practice.test.html"], "ui"),
@@ -36,6 +37,7 @@ CHECKLIST: list[tuple[str, list[int] | None]] = [
     ("浏览器内测试页全绿（IndexedDB 增删改查、软删除、事务原子性）", [3]),
     ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", [4, 5, 6, 7]),
     ("断网后刷新仍能用（service worker 生效）", [2]),
+    ("部署到子路径（GitHub Pages 的 /vocab/）后 service worker 仍正常", [11]),
     ("手机与桌面尺寸都不出现横向滚动、不溢出", [8]),
     ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", [9, 10]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
