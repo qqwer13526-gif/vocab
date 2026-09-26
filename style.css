@@ -283,3 +283,70 @@ body[data-view='practice'] #tabbar { display: none; }
 .import-result[data-kind='ok'] { color: var(--ok); }
 .import-result[data-kind='warn'] { color: var(--warn); }
 .import-result[data-kind='bad'] { color: var(--bad); }
+
+/* ---------------------------------------------------------------- 词条 */
+
+.word-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.word-head .page-title { margin: 0; }
+.word-tools { display: grid; gap: 8px; margin-bottom: 12px; }
+.word-search {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+}
+.word-count { color: var(--muted); font-size: 13px; }
+
+.word-list { display: grid; gap: 8px; }
+.word-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+}
+.word-row-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.word-term { font-weight: 600; }
+.word-mean {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.box-pill {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.box-pill[data-box='6'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+
+.word-edit { display: grid; gap: 10px; }
+.field {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.word-status { min-height: 20px; font-size: 14px; }
+.word-status[data-kind='ok'] { color: var(--ok); }
+.word-status[data-kind='bad'] { color: var(--bad); }
+.ghost.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }

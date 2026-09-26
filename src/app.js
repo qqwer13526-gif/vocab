@@ -7,6 +7,7 @@
 import { renderHome } from './ui-home.js';
 import { renderPractice } from './ui-practice.js';
 import { renderImport } from './ui-import.js';
+import { renderWord } from './ui-word.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -85,21 +86,10 @@ export function route() {
 }
 
 // ---------------------------------------------------------------- 各界面
-// 任务 6–9 会陆续把真实界面接上来；还没做的先用占位卡片。
-function placeholder(text) {
-  return (params, view) => {
-    const v = view || $(VIEWS[current.name]);
-    if (v && !v.dataset.filled) {
-      v.replaceChildren(el('div', { className: 'card placeholder' }, text));
-      v.dataset.filled = '1';
-    }
-  };
-}
-
 register('home', renderHome);
 register('practice', renderPractice);
 register('import', renderImport);
-register('word', placeholder('词条界面施工中（任务 9）'));
+register('word', renderWord);
 
 // ---------------------------------------------------------------- service worker
 function markSW() {

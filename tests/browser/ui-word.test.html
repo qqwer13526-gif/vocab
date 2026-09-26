@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>词条界面 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 词条界面（任务 9）：列表、搜索、编辑、换库、重置进度、删除。
+   跑法：python tool/browser_test.py tests/browser/ui-word.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+const WORDS = [
+  ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'əbˈsɔːb'],
+  ['acceptable', 'adj.', ['可接受的，合意的'], 'əkˈseptəbl'],
+  ['access', 'v./n.', ['存取（信息）', '接近'], 'ˈækses'],
+  ['accomplish', 'v.', ['完成', '实现'], 'əˈkʌmplɪʃ']
+];
+
+async function seed() {
+  await db.wipeAll();
+  const a = 'lib-4ji';
+  const b = 'lib-kaoyan';
+  await db.put('libs', { id: a, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: b, name: '考研', color: '#ff9f0a', order: 1, updatedAt: NOW });
+  let i = 0;
+  for (const [term, pos, meanings, phonetic] of WORDS) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic, pos, meanings, example: '', note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${a}`, wordId: id, libId: a, addedAt: NOW, updatedAt: NOW });
+  }
+  // 给 access 一点学习进度
+  await db.put('prog', { wordId: 'w-access', box: 2, dueAt: NOW + 86400000, streak: 1, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
+  return { a, b };
+}
+
+try {
+  db = await import('../../src/db.js');
+  const { a: libA, b: libB } = await seed();
+
+  // ---------------- 1. 列表 ----------------
+  let frame = await openApp({ hash: `#/word?lib=${libA}`, sel: '[data-testid="word-row"]' });
+  let rows = qa(frame, '[data-testid="word-row"]');
+  eq('列出这个词库里的 4 个词', rows.length, 4);
+  ok('第一行是 absorb', rows[0].textContent.includes('absorb'), rows[0].textContent.replace(/\s+/g, ' '));
+  ok('行里带释义摘要', rows[0].textContent.includes('吸收'), rows[0].textContent.replace(/\s+/g, ' '));
+  const accessRow = rows.find((r) => r.dataset.id === 'w-access');
+  eq('有学习进度的词显示盒子号', accessRow.querySelector('[data-testid="box-pill"]').dataset.box, '2');
+  const absorbRow = rows.find((r) => r.dataset.id === 'w-absorb');
+  eq('没学过的词显示"新"', absorbRow.querySelector('[data-testid="box-pill"]').dataset.box, '0');
+
+  // ---------------- 2. 搜索 ----------------
+  type(q(frame, '[data-testid="word-search"]'), 'acc');
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 3, { label: '搜到 3 个' });
+  ok('搜索能筛出 3 个 acc 开头的词', true);
+  type(q(frame, '[data-testid="word-search"]'), 'zzz');
+  await waitFor(() => !!q(frame, '[data-testid="word-empty"]'), { label: '出现空提示' });
+  ok('搜不到时给提示', t(frame, '[data-testid="word-empty"]').includes('没有'), t(frame, '[data-testid="word-empty"]'));
+  type(q(frame, '[data-testid="word-search"]'), '');
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '清空搜索后恢复 4 条' });
+
+  // ---------------- 3. 打开词条编辑 ----------------
+  click(qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-absorb'));
+  await waitFor(() => q(frame, '[data-testid="word-edit"]'), { label: '进入编辑' });
+  ok('URL 带上词条 id', frame.contentWindow.location.hash.includes('id=w-absorb'), frame.contentWindow.location.hash);
+  eq('释义框里一条一行', q(frame, '[data-testid="word-meanings"]').value, 'take in or soak up吸收\n使专心');
+  eq('音标回填', q(frame, '[data-testid="word-phonetic"]').value, 'əbˈsɔːb');
+  ok('有词库勾选', qa(frame, '[data-testid="word-lib-check"]').length === 2);
+  eq('当前所属词库已勾上', qa(frame, '[data-testid="word-lib-check"]').filter((c) => c.checked).map((c) => c.value), [libA]);
+
+  // ---------------- 4. 改释义并保存 ----------------
+  const before = (await db.get('words', 'w-absorb')).updatedAt;
+  type(q(frame, '[data-testid="word-meanings"]'), '吸收\n使专心\n全神贯注');
+  type(q(frame, '[data-testid="word-note"]'), '名词形式 absorption');
+  click(q(frame, '[data-testid="btn-save"]'));
+  await waitFor(async () => (await db.get('words', 'w-absorb')).meanings.length === 3, { label: '释义写库' });
+  const saved = await db.get('words', 'w-absorb');
+  eq('释义按行存', saved.meanings, ['吸收', '使专心', '全神贯注']);
+  eq('笔记也存了', saved.note, '名词形式 absorption');
+  ok('updatedAt 被刷新', saved.updatedAt > before, `${before} → ${saved.updatedAt}`);
+
+  // ---------------- 5. 换库 ----------------
+  const checks = qa(frame, '[data-testid="word-lib-check"]');
+  click(checks[0]); // 取消原库
+  click(checks[1]); // 勾上新库
+  click(q(frame, '[data-testid="btn-save"]'));
+  await waitFor(async () => {
+    const ls = await db.byIndex('links', 'by_word', 'w-absorb');
+    return ls.some((l) => l.libId === libB && !l.deleted);
+  }, { label: '新库归属写库' });
+  const links = await db.byIndex('links', 'by_word', 'w-absorb');
+  const oldLink = links.find((l) => l.libId === libA);
+  ok('取消的库被软删除（记录留着）', oldLink && oldLink.deleted === true, JSON.stringify(oldLink));
+  ok('新库归属已建立', links.some((l) => l.libId === libB && !l.deleted));
+  eq('词本身没被删', (await db.get('words', 'w-absorb')).deleted, undefined);
+
+  // 换回去，别影响后面的用例
+  click(qa(frame, '[data-testid="word-lib-check"]')[0]);
+  click(qa(frame, '[data-testid="word-lib-check"]')[1]);
+  click(q(frame, '[data-testid="btn-save"]'));
+  await waitFor(async () => (await db.byIndex('links', 'by_word', 'w-absorb')).some((l) => l.libId === libA && !l.deleted), { label: '换回原库' });
+
+  // ---------------- 6. 重置进度 ----------------
+  frame.contentWindow.location.hash = '#/word?id=w-access&lib=' + libA;
+  await waitFor(() => q(frame, '[data-testid="word-edit"]') && t(frame, '[data-testid="word-term"]') === 'access', { label: '打开 access' });
+  click(q(frame, '[data-testid="btn-reset-progress"]'));
+  await waitFor(async () => (await db.get('prog', 'w-access')).box === 1, { label: '进度被重置' });
+  const p = await db.get('prog', 'w-access');
+  eq('重置后回到盒子 1、连对清零', [p.box, p.streak, p.lapses], [1, 0, 0]);
+  ok('重置后马上可以再练', p.dueAt <= Date.now() + 1000, String(p.dueAt - Date.now()));
+
+  // ---------------- 7. 删除 ----------------
+  click(q(frame, '[data-testid="btn-delete"]'));
+  await waitFor(async () => (await db.get('words', 'w-access')).deleted === true, { label: '软删除写库' });
+  ok('删除是软删除（记录还在）', !!(await db.get('words', 'w-access')));
+  await waitFor(() => frame.contentWindow.location.hash.startsWith('#/word') && !q(frame, '[data-testid="word-edit"]'), { label: '回到列表' });
+  const after = qa(frame, '[data-testid="word-row"]');
+  eq('列表里少了一个词', after.length, 3);
+  ok('删掉的词不在列表里', !after.some((r) => r.dataset.id === 'w-access'));
+} catch (e) {
+  ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

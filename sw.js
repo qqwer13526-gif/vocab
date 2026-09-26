@@ -27,7 +27,8 @@ const ASSETS = [
   './src/parse.js',
   './src/ui-home.js',
   './src/ui-practice.js',
-  './src/ui-import.js'
+  './src/ui-import.js',
+  './src/ui-word.js'
 ];
 
 self.addEventListener('install', (e) => {

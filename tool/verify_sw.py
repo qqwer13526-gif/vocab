@@ -82,6 +82,11 @@ def check() -> int:
         missing = [p for p in listed if get(base + "/" + p.removeprefix("./"))[0] != 200]
         reps.check("sw 预缓存清单里的文件都存在", bool(listed) and not missing, f"清单 {len(listed)} 项，缺失 {missing}")
 
+        # 反向检查：src 下每个模块都得登记（不然离线时会缺文件）
+        src_files = sorted(p.name for p in (ROOT / "src").glob("*.js"))
+        not_listed = [f"./src/{n}" for n in src_files if f"./src/{n}" not in listed]
+        reps.check("src 下每个模块都在预缓存清单里", not not_listed, f"漏了：{not_listed}")
+
         for name in ("icon-192.png", "icon-512.png", "apple-touch-icon.png"):
             st, blob = get(base + "/" + name)
             reps.check(f"{name} 是 PNG", st == 200 and blob[:8] == b"\x89PNG\r\n\x1a\n", f"HTTP {st}")
