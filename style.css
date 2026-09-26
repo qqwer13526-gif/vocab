@@ -247,6 +247,7 @@ body[data-view='practice'] #tabbar { display: none; }
   resize: vertical;
 }
 .import-hint { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.file-hint { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .file-name { align-self: center; color: var(--muted); font-size: 13px; }
 
 .import-work { display: grid; gap: 12px; margin-top: 12px; }

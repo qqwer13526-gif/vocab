@@ -150,6 +150,8 @@ try {
   ok('文件里的词写进去了', (await db.all('words')).some((w) => w.termNorm === 'apple'));
 
   // ---------------- 8. 导完能直接去练 ----------------
+  // 注意：写库比界面更新早一点点，所以这里必须等结果条出现，不能查完库就断言按钮
+  await waitFor(() => t(frame, '[data-testid="import-result"]').includes('新增 2'), { label: '结果条出现' });
   ok('结果条里有"去练习"的入口', !!q(frame, '[data-testid="btn-go-practice"]'));
   click(q(frame, '[data-testid="btn-go-practice"]'));
   await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习' });
@@ -169,6 +171,26 @@ try {
   ok(`200 个词 + 200 条归属在一个事务里写完（${Date.now() - t0}ms）`, (await db.count('links')) >= 200);
   const sample = await db.get('words', (await db.all('words')).find((w) => w.termNorm === 'word199')?.id);
   ok('最后一个词也在，且释义拆成了两条', sample && sample.meanings.length === 2, JSON.stringify(sample?.meanings));
+
+  // ---------------- 10. 选了 Excel 文件（.xlsx）要说清楚为什么读不了 ----------------
+  frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  ok('界面上写明了只认哪些格式', t(frame, '[data-testid="file-hint"]').includes('xlsx'), t(frame, '[data-testid="file-hint"]'));
+  const n0 = await db.count('words');
+  const xls = q(frame, '[data-testid="import-file"]');
+  const dt2 = new DataTransfer();
+  dt2.items.add(
+    new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00])], '英语词汇背诵检查表（一）.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
+  );
+  xls.files = dt2.files;
+  xls.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => t(frame, '[data-testid="import-result"]').length > 0, { label: '给出 Excel 的提示' });
+  const xmsg = t(frame, '[data-testid="import-result"]');
+  ok('明确说 Excel 读不了', xmsg.includes('Excel'), xmsg);
+  ok('并给出可操作的出路（转成 tsv / 复制粘贴）', xmsg.includes('tsv') && xmsg.includes('复制'), xmsg);
+  eq('没有把二进制垃圾当成词写进库', await db.count('words'), n0);
+  ok('粘贴框保持空着（没塞进乱码）', q(frame, '[data-testid="import-text"]').value === '');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

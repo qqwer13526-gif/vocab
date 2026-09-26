@@ -63,6 +63,8 @@ export async function renderImport() {
     hidden: true
   });
   const fileBtn = el('button', { className: 'ghost', type: 'button', onclick: () => file.click() }, '选择文件…');
+  const fileHint = el('div', { className: 'file-hint', dataset: { testid: 'file-hint' } },
+    '只认 .csv / .tsv / .txt。Excel 的 .xlsx 读不了（浏览器里没有 Excel 解析器）——先在电脑上跑 python tool\\xlsx_to_tsv.py 转成 .tsv，或者直接在 Excel 里选中单词和释义两列复制粘贴。');
   const hint = el('div', { className: 'import-hint', dataset: { testid: 'import-hint' } },
     '在 Excel 里选中「单词」和「释义」两列 → Ctrl+C → 粘到上面的框里；也可以直接选 .csv / .tsv 文件。前三行的标题、统计、空行会自动跳过，表头和列会自动识别。');
 
@@ -143,7 +145,13 @@ export async function renderImport() {
 
   view.replaceChildren(
     el('h2', { className: 'page-title' }, '导入词表'),
-    el('div', { className: 'card' }, [ta, el('div', { className: 'row-2' }, [fileBtn, el('span', { className: 'file-name', dataset: { testid: 'file-name' } }, '')]), file, hint]),
+    el('div', { className: 'card' }, [
+      ta,
+      el('div', { className: 'row-2' }, [fileBtn, el('span', { className: 'file-name', dataset: { testid: 'file-name' } }, '')]),
+      file,
+      fileHint,
+      hint
+    ]),
     work
   );
 
@@ -275,10 +283,26 @@ export async function renderImport() {
   }
 
   ta.addEventListener('input', recompute);
+
+  /** Excel 的二进制格式浏览器读不了：选到它要明确说清楚，而不是默默显示"新词 0" */
+  const SHEET_RE = /\.(xlsx|xls|xlsm|xlsb|ods)$/i;
   file.addEventListener('change', async () => {
     const f = file.files && file.files[0];
     if (!f) return;
     view.querySelector('[data-testid="file-name"]').textContent = f.name;
+
+    if (SHEET_RE.test(f.name) || /spreadsheet|ms-excel/i.test(f.type || '')) {
+      ta.value = '';
+      recompute(); // 先清掉上一次的预览（它会把结果条也清空）
+      showResult(
+        `这是 Excel 文件（${f.name.split('.').pop().toLowerCase()}），浏览器里的应用读不了它。两个办法：` +
+          '① 在电脑上先转成 .tsv（项目目录里跑 python tool\\xlsx_to_tsv.py）；' +
+          '② 用手机上的 WPS / Excel 打开它，选中「单词」和「释义」两列，复制后粘到上面的框里。',
+        'bad'
+      );
+      return;
+    }
+
     ta.value = decodeText(await f.arrayBuffer());
     recompute();
   });
