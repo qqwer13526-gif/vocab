@@ -131,6 +131,60 @@ try {
   const after = qa(frame, '[data-testid="word-row"]');
   eq('列表里少了一个词', after.length, 3);
   ok('删掉的词不在列表里', !after.some((r) => r.dataset.id === 'w-access'));
+
+  // ---------------- 8. 熟记 / 生疏：徽章与筛选 ----------------
+  await db.wipeAll();
+  const libX = 'lib-lvl';
+  await db.put('libs', { id: libX, name: '分级测试', color: '#34c759', order: 0, updatedAt: NOW });
+  const lvlWords = [
+    ['alpha', 'known'],
+    ['beta', 'unfamiliar'],
+    ['gamma', null],
+    ['delta', null]
+  ];
+  let li = 0;
+  for (const [term, level] of lvlWords) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic: '', pos: '', meanings: [term + '的意思'], example: '', note: '', createdAt: NOW + li++, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${libX}`, wordId: id, libId: libX, addedAt: NOW, updatedAt: NOW });
+    if (level) {
+      await db.put('prog', {
+        wordId: id, box: level === 'known' ? 6 : 1,
+        dueAt: level === 'known' ? NOW + 60 * 86400000 : NOW,
+        streak: 0, lapses: 0, lastDir: null, level, levelAt: NOW, updatedAt: NOW
+      });
+    }
+  }
+  frame = await openApp({ hash: `#/word?lib=${libX}`, sel: '[data-testid="word-row"]' });
+  const rowAlpha = qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-alpha');
+  const rowGamma = qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-gamma');
+  eq('标了熟记的词显示徽章', rowAlpha.querySelector('[data-testid="level-pill"]').dataset.level, 'known');
+  eq('徽章文字是中文', rowAlpha.querySelector('[data-testid="level-pill"]').textContent.trim(), '熟记');
+  ok('没标级的词不显示徽章', !rowGamma.querySelector('[data-testid="level-pill"]'));
+  const rowBeta = qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-beta');
+  eq('生疏的词显示生疏徽章', rowBeta.querySelector('[data-testid="level-pill"]').dataset.level, 'unfamiliar');
+
+  const chipText = t(frame, '[data-testid="level-filter"]');
+  ok('筛选条带数量：熟记 1 / 生疏 1 / 未标 2', /熟记\s*1/.test(chipText) && /生疏\s*1/.test(chipText) && /未标\s*2/.test(chipText), chipText);
+  const chips = qa(frame, '[data-testid="level-filter"] .chip');
+  eq('筛选条有 4 个选项', chips.length, 4);
+
+  click(chips.find((c) => c.dataset.level === 'known'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 1, { label: '筛出熟记' });
+  eq('点"熟记"只剩 1 个词', qa(frame, '[data-testid="word-row"]')[0].dataset.id, 'w-alpha');
+  ok('筛选状态进了 URL', frame.contentWindow.location.hash.includes('level=known'), frame.contentWindow.location.hash);
+
+  click(qa(frame, '[data-testid="level-filter"] .chip').find((c) => c.dataset.level === 'unfamiliar'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 1, { label: '筛出生疏' });
+  eq('点"生疏"只剩 1 个词', qa(frame, '[data-testid="word-row"]')[0].dataset.id, 'w-beta');
+
+  click(qa(frame, '[data-testid="level-filter"] .chip').find((c) => c.dataset.level === 'none'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 2, { label: '筛出未标' });
+  ok('点"未标"剩 2 个词', true);
+
+  click(qa(frame, '[data-testid="level-filter"] .chip').find((c) => c.dataset.level === 'all'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '回到全部' });
+  eq('点"全部"恢复 4 个', qa(frame, '[data-testid="word-row"]').length, 4);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

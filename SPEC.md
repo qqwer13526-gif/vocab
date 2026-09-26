@@ -30,7 +30,7 @@
 | `words` | `id` (uuid) | `id` `term` `termNorm` `phonetic?` `pos?` `meanings:string[]` `example?` `note?` `createdAt` `updatedAt` `deleted?` | `by_termNorm`（unique） |
 | `libs` | `id` | `id` `name` `color` `order` `updatedAt` `deleted?` | `by_order` |
 | `links` | `id` = `${wordId}\|${libId}` | `id` `wordId` `libId` `addedAt` `updatedAt` `deleted?` | `by_word` `by_lib` |
-| `prog` | `wordId` | `wordId` `box`(1–6) `dueAt` `streak` `lapses` `lastDir`(`en2zh`\|`zh2en`\|null) `updatedAt` | `by_dueAt` |
+| `prog` | `wordId` | `wordId` `box`(1–6) `dueAt` `streak` `lapses` `lastDir`(`en2zh`\|`zh2en`\|null) `level`(`known`\|`unfamiliar`\|null) `levelAt` `updatedAt` | `by_dueAt` |
 | `meta` | `key` | `key` `value` | — |
 
 **不变量**
@@ -58,6 +58,15 @@
 - 新词初始 `box=1, dueAt=now`（立刻可学）
 - **每日队列** = `dueAt <= now` 的复习词（按 `dueAt` 升序） + 新词（`box=1 且 streak=0`，每天上限 `dailyNewLimit`，默认 10）
 - **"到期"只在打开应用时结算**（PWA 没有可靠后台通知）；离线期间欠的复习，打开时一次性排入
+
+### 4.1 手动定级：熟记 / 生疏（抽查时自己点）
+
+- 抽查界面上常驻两个按钮：**熟记** / **生疏**，点完自动进下一题
+- **熟记** → 直接进盒子 6（60 天后再见）；**生疏** → 回盒子 1（10 分钟后再见）
+- 手动判断**优先**于答题结果：这题就算已经答过、盒子已按对错变过，手动一点就覆盖
+- 有意**不动** `lapses` / `streak`（那是答题统计，不该混进手动判断）
+- 等级存在 `prog.level`，跟词走（一个词在任何库里标一次就是标了）
+- 词条界面能按它筛选（全部 / 熟记 / 生疏 / 未标，带数量），筛选项进 URL
 
 ## 5. 判定规则
 
@@ -143,6 +152,14 @@
 - **纯 HTML + CSS + 原生 ES 模块**，零运行时依赖，**零 CDN**（离线与大陆访问都稳）
 - PWA：`manifest.webmanifest` + `sw.js`（预缓存全部静态资源；导航请求走缓存优先，静态资源走 stale-while-revalidate）
 - 图标：192 / 512 / apple-touch-icon（PNG）
+- **音标**：数据来自 `ipa-dict`。**主库英式**（1.3MB），**美式兜底**（2.5MB）——英式库不全（6.5 万条 vs 12.6 万条），
+  实测某份 187 词的四级词表英式只覆盖 169 个（缺的都是名词/动词重音不同的词：apply / research / conduct …），
+  补一次美式就到 **187/187（100%）**，首次下载共约 3.8MB。
+  两个库都是**应用内一次性下载**，存进 IndexedDB 的 `meta` 表，之后完全离线。
+  匹配时不做"全量字典 Map"（手机上吃内存），而是把"缺音标的词"放进集合，一次扫过音标库、找齐就提前停；
+  查不到的词记进 `meta.phoneticMiss`，免得"补齐音标"按钮永远挂着。地址可指向镜像
+  （`localStorage.vocab.dictUrl` / `vocab.dictUrlFallback`）
+- **直接读 Excel**：`.xlsx` 就是个 zip + XML，用浏览器自带的 `DecompressionStream` + `DOMParser` 自己解（零依赖、不联网）
 - 数据：IndexedDB（`src/db.js` 提供极小 API：`open/put/getAll/getByIndex/delete/softDelete/tx`）
 - **纯逻辑与 DOM 分离**：`srs.js` `judge.js` `parse.js` 不碰 DOM，可在 Node 里跑测试
 - 路由：hash 路由（`#/`、`#/practice?lib=xxx`、`#/import`、`#/word?id=xxx`）——**状态进 URL**，可直接分享/回退
@@ -182,6 +199,7 @@
 |---|---|---|
 | 2026-09-26 | 1–5 项全部通过 | `python tool/verify_all.py` → 11 步全绿；线上 17/17 文件与本地验证过的逐字节一致 |
 | 2026-09-26 | 第 6 项通过（真机确认） | https://qqwer13526-gif.github.io/vocab/ → Safari「添加到主屏幕」→ 离线可用 |
+| 2026-09-26 | 第 1 版增补：直接读 `.xlsx`、一键补音标、抽查时手动定级（熟记/生疏） | `verify_all.py` → 13 步全绿（含 Excel 读取、音标下载匹配、手动定级与筛选） |
 
 > 第 1 版的验收到此结束。以后每改一版，先跑 `python tool\verify_all.py` 再 `git push`（Pages 会自动重建）。
 

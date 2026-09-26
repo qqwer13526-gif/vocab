@@ -6,6 +6,7 @@
 
 import { $, el } from './app.js';
 import { put } from './db.js';
+import { countMissing, fillPhonetics } from './phonetic.js';
 import { buildQueue } from './srs.js';
 import { DEFAULT_NEW_LIMIT, PALETTE, libStats, loadAll, nextLibOrder } from './store.js';
 
@@ -128,7 +129,35 @@ export async function renderHome() {
     )
   ]);
 
-  view.replaceChildren(head, list, foot);
+  // 有词缺音标时，底部多一个入口（补完自己就消失）
+  const missing = await countMissing(data.words);
+  const phoneticBtn = missing
+    ? el('button', {
+        className: 'ghost home-phonetic',
+        dataset: { testid: 'btn-home-phonetic' },
+        type: 'button',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          try {
+            await fillPhonetics({
+              words: data.words,
+              onProgress: (p) => {
+                const which = p.dict === 'fallback' ? '美式兜底' : '英式';
+                btn.textContent = p.phase === 'download' ? `下载${which}音标库 ${Math.round((p.ratio || 0) * 100)}%` : '匹配中…';
+              }
+            });
+          } catch (err) {
+            btn.textContent = `补齐失败：${err && err.message ? err.message : err}`;
+            btn.disabled = false;
+            return;
+          }
+          await renderHome();
+        }
+      }, `补齐音标（还差 ${missing} 个）`)
+    : null;
+
+  view.replaceChildren(head, list, foot, phoneticBtn);
 }
 
 /** 内联的新建词库表单（不用浏览器 prompt：难看、手机上体验也差） */

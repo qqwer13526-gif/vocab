@@ -11,7 +11,7 @@
 import { $, el } from './app.js';
 import { put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
-import { buildQueue, grade, newProg } from './srs.js';
+import { buildQueue, grade, markLevel, newProg } from './srs.js';
 import { loadAll } from './store.js';
 
 const DIRS = [
@@ -19,6 +19,8 @@ const DIRS = [
   { key: 'zh2en', label: '中→英' },
   { key: 'mix', label: '混合' }
 ];
+
+const EMPTY_STATS = () => ({ ok: 0, bad: 0, near: 0, nearPass: 0, marked: 0, known: 0, unfamiliar: 0 });
 
 const hashStr = (s) => {
   let h = 0;
@@ -45,7 +47,7 @@ export async function renderPractice(params = {}) {
     retried: false,
     nearCounted: false,
     curDir: 'en2zh',
-    stats: { ok: 0, bad: 0, near: 0, nearPass: 0 },
+    stats: EMPTY_STATS(),
     ended: false
   };
 
@@ -64,7 +66,7 @@ export async function renderPractice(params = {}) {
     s.retried = false;
     s.nearCounted = false;
     s.ended = false;
-    s.stats = { ok: 0, bad: 0, near: 0, nearPass: 0 };
+    s.stats = EMPTY_STATS();
   }
   buildSession();
 
@@ -100,7 +102,34 @@ export async function renderPractice(params = {}) {
   const feedback = el('div', { className: 'feedback', dataset: { testid: 'feedback' }, hidden: true, role: 'status', 'aria-live': 'polite' }, '');
   const btnForce = el('button', { className: 'ghost', dataset: { testid: 'btn-force-ok' }, type: 'button', hidden: true, onclick: () => forceOk() }, '算我对');
   const btnNext = el('button', { className: 'primary', dataset: { testid: 'btn-next' }, type: 'button', hidden: true, onclick: () => next() }, '下一题');
-  const card = el('div', { className: 'card prac-card' }, [prompt, hint, input, submit, feedback, el('div', { className: 'fb-actions' }, [btnForce, btnNext])]);
+
+  // 抽查时的自我判断：熟记 / 生疏（点了就自动进下一题）
+  const btnUnfamiliar = el('button', {
+    className: 'ghost lvl lvl-unfamiliar',
+    dataset: { testid: 'btn-level-unfamiliar' },
+    type: 'button',
+    onclick: () => markAndNext('unfamiliar')
+  }, '生疏');
+  const btnKnown = el('button', {
+    className: 'ghost lvl lvl-known',
+    dataset: { testid: 'btn-level-known' },
+    type: 'button',
+    onclick: () => markAndNext('known')
+  }, '熟记');
+  const levelRow = el('div', { className: 'level-block' }, [
+    el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown]),
+    el('div', { className: 'level-hint' }, '自己定：熟记 → 60 天后再见；生疏 → 10 分钟后再见')
+  ]);
+
+  const card = el('div', { className: 'card prac-card' }, [
+    prompt,
+    hint,
+    input,
+    submit,
+    feedback,
+    el('div', { className: 'fb-actions' }, [btnForce, btnNext]),
+    levelRow
+  ]);
 
   const summary = el('div', { className: 'card session-summary', dataset: { testid: 'session-summary' }, hidden: true }, [
     el('div', { className: 'summary-text', dataset: { testid: 'summary-text' } }, ''),
@@ -199,6 +228,25 @@ export async function renderPractice(params = {}) {
     finish(true);
   }
 
+  /**
+   * 手动定级：熟记 → 盒子 6（60 天）；生疏 → 盒子 1（10 分钟）。
+   * 就算这题已经答过（盒子已按对错变过），手动判断**优先覆盖**。
+   * 点完直接进下一题。
+   */
+  async function markAndNext(level) {
+    const w = s.queue[s.i];
+    if (!w || s.ended) return;
+    const now = Date.now();
+    const next_prog = markLevel(data.progs[w.id] || newProg(w.id, now), level, { now });
+    await put('prog', next_prog);
+    data.progs[w.id] = next_prog;
+    s.stats.marked++;
+    if (level === 'known') s.stats.known++;
+    else s.stats.unfamiliar++;
+    s.answered = true; // 已经处理过这题，回车不应该再判一次
+    next();
+  }
+
   async function onEnter() {
     if (s.answered) return next();
     const w = s.queue[s.i];
@@ -248,11 +296,12 @@ export async function renderPractice(params = {}) {
     s.ended = true;
     card.hidden = true;
     summary.hidden = false;
-    // 复习完的词下次什么时候见，给个提示
-    const total = s.stats.ok + s.stats.bad;
+    // "练了 N 题"把"自己标级"的也算进去，否则标完的题会显得凭空少掉
+    const total = s.stats.ok + s.stats.bad + s.stats.marked;
     summary.querySelector('[data-testid="summary-text"]').textContent =
       `练了 ${total} 题 · 对 ${s.stats.ok} · 错 ${s.stats.bad} · 差点 ${s.stats.near}` +
-      (s.stats.nearPass ? `（其中 ${s.stats.nearPass} 个算你对）` : '');
+      (s.stats.nearPass ? `（其中 ${s.stats.nearPass} 个算你对）` : '') +
+      (s.stats.marked ? ` · 手动标了 ${s.stats.marked} 个（熟记 ${s.stats.known} / 生疏 ${s.stats.unfamiliar}）` : '');
   }
 
   async function again() {

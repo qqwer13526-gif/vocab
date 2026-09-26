@@ -51,7 +51,6 @@ export function grade(prog, correct, { now, dir = null }) {
 
 /**
  * 组今天的练习队列：先复习到期的，再上新词。
- *
  * @param words   全部词（含软删除的，函数内部会过滤）
  * @param progs   wordId → prog 的字典
  * @param links   词与库的归属关系
@@ -81,4 +80,24 @@ export function buildQueue({ words, progs, links, libIds = null, now, newLimit =
     review: review.map((r) => r.id),
     fresh: fresh.slice(0, Math.max(0, newLimit)).map((w) => w.id)
   };
+}
+
+/** 抽查时自己定的两个等级 */
+export const LEVELS = ['known', 'unfamiliar'];
+
+export const LEVEL_LABEL = { known: '熟记', unfamiliar: '生疏' };
+
+/**
+ * 手动给一个词定级（抽查时点的「熟记 / 生疏」）。
+ *   熟记   → 直接进盒子 6（60 天后再见）
+ *   生疏   → 回盒子 1（10 分钟后再见）
+ * 有意**不动** lapses / streak：那是答题统计，不该混进手动判断。
+ * 返回新对象，不改传进来的那个。
+ */
+export function markLevel(prog, level, { now }) {
+  if (!LEVELS.includes(level)) throw new Error(`未知的等级：${level}`);
+  const p = { ...prog, level, levelAt: now, updatedAt: now };
+  p.box = level === 'known' ? MAX_BOX : 1;
+  p.dueAt = now + INTERVALS[p.box];
+  return p;
 }

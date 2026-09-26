@@ -8,6 +8,7 @@
 import { $, el } from './app.js';
 import { all, applyImport, put } from './db.js';
 import { guessColumns, parseTable, planImport, rowsToWords } from './parse.js';
+import { fillPhonetics, loadDict } from './phonetic.js';
 import { PALETTE, loadAll, nextLibOrder } from './store.js';
 import { readXlsx, rowsToTsv } from './xlsx.js';
 
@@ -280,6 +281,16 @@ export async function renderImport() {
       s.existing = await all('words');
       computeItems(); // 统计会立刻变成"已存在 N"
       showResult(`新增 ${res.created} · 合并 ${res.merged} · 跳过 ${plan.skip}`, 'ok');
+      // 音标库已经缓存过的话，顺手把新词的音标补上（不会联网、不打扰）
+      try {
+        const dict = await loadDict();
+        if (dict && dict.value) {
+          const fr = await fillPhonetics({ words: await all('words') });
+          if (fr.filled) showResult(`新增 ${res.created} · 合并 ${res.merged} · 跳过 ${plan.skip} · 顺手补了 ${fr.filled} 个音标`, 'ok');
+        }
+      } catch {
+        /* 补音标失败不影响导入 */
+      }
     } catch (err) {
       showResult('导入失败了：' + (err && err.message ? err.message : err), 'bad');
     }

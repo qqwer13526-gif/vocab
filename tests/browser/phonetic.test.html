@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>补音标 · 浏览器内测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 测"给词库补音标"：下载 → 匹配 → 写库 三步，以及词条页上的那个按钮。
+   真库有 1.7MB，测试用 tests/fixtures/ipa-sample.txt（格式完全一样），
+   通过 localStorage.vocab.dictUrl 把地址指过去（这也是给用户留的镜像入口）。
+   跑法：python tool/browser_test.py tests/browser/phonetic.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+let ph = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+const WORDS = [
+  ['absorb', ''],           // 库里有 → 能补
+  ['acceptable', ''],       // 库里有 → 能补
+  ['access', ''],           // 库里有 → 能补
+  ['artist', ''],           // 库里有 → 能补
+  ['apply', ''],            // 库里有 → 能补
+  ['ice cream', ''],        // 带空格的词条 → 能补
+  ['zzznotaword', ''],      // 库里没有 → 未收录
+  ['notab', ''],            // 库里那行没音标 → 未收录
+  ['read', '/riːd/']        // 已经有音标 → 不该被覆盖
+];
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-a';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  let i = 0;
+  for (const [term, phonetic] of WORDS) {
+    const id = `w-${term}`;
+    await db.put('words', {
+      id, term, termNorm: term, phonetic, pos: 'v.', meanings: ['意思' + i], example: '', note: '',
+      createdAt: NOW + i++, updatedAt: NOW
+    });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  }
+  return lib;
+}
+
+try {
+  localStorage.setItem('vocab.dictUrl', '/tests/fixtures/ipa-sample.txt');
+  localStorage.setItem('vocab.dictUrlFallback', '/tests/fixtures/ipa-sample-us.txt');
+  db = await import('../../src/db.js');
+  ph = await import('../../src/phonetic.js');
+
+  eq('音标库地址可以被指到镜像（测试用的就是这条）', ph.dictUrl(), '/tests/fixtures/ipa-sample.txt');
+  eq('兜底库地址也能指', ph.dictUrl('fallback'), '/tests/fixtures/ipa-sample-us.txt');
+  const lib = await seed();
+  const all = await db.all('words');
+
+  // ---------------- 1. 下载 + 匹配 + 写库（英式为主，美式兜底）----------------
+  const phases = [];
+  const r1 = await ph.fillPhonetics({ words: all, onProgress: (p) => phases.push(`${p.phase}:${p.dict || ''}`) });
+  ok('第一次会去下载', r1.downloaded === true);
+  eq('补上 7 个（英式 6 个 + 美式兜底 1 个）', r1.filled, 7);
+  eq('只剩 1 个两级库都没有', r1.missing, 1);
+  ok('两个库都下载了', phases.includes('download:primary') && phases.includes('download:fallback'), phases.join(','));
+  ok('也报过匹配', phases.filter((p) => p.startsWith('match')).length === 2, phases.join(','));
+  eq('未收录的词列出来了', r1.missingWords, ['zzznotaword']);
+
+  const after = new Map((await db.all('words')).map((w) => [w.term, w.phonetic]));
+  eq('absorb 的音标写进库了', after.get('absorb'), '/əbˈzɔːb/');
+  eq('带空格的词也补上了', after.get('ice cream'), '/ˌaɪs ˈkriːm/');
+  eq('英式没有的用美式兜底补上了', after.get('notab'), '/noʊtæb/');
+  eq('本来就有音标的不被覆盖', after.get('read'), '/riːd/');
+  eq('两级都没有的词保持空着', after.get('zzznotaword'), '');
+  ok('音标库被缓存在本机（下次不用再下载）', ((await db.get('meta', 'phoneticDict')) || {}).value?.includes('absorb') === true);
+  ok('兜底库也被缓存了', ((await db.get('meta', 'phoneticDictFallback')) || {}).value?.includes('notab') === true);
+
+  // ---------------- 2. 第二次用缓存，不再下载 ----------------
+  const r2 = await ph.fillPhonetics({ words: await db.all('words') });
+  eq('第二次不下载', r2.downloaded, false);
+  eq('第二次没有新的能补（只剩两级库都没有的）', [r2.filled, r2.missing], [0, 1]);
+  eq('差不到的词被记下来了，按钮不会一直挂着', await ph.countMissing(await db.all('words')), 0);
+
+  // ---------------- 3. 词条页上的按钮 ----------------
+  let frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
+  ok('词条列表显示音标', t(frame, '[data-testid="word-phonetic"]').length > 0 || !!q(frame, '.word-phonetic'), t(frame, '[data-testid="word-row"]'));
+
+  // 造一个"还差音标"的状态：把两个词的音标清掉
+  await db.put('words', { ...(await db.get('words', 'w-absorb')), phonetic: '' });
+  await db.put('words', { ...(await db.get('words', 'w-apply')), phonetic: '' });
+  frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="btn-fill-phonetic"]' });
+  ok('按钮上写明还差几个', t(frame, '[data-testid="btn-fill-phonetic"]').includes('2'), t(frame, '[data-testid="btn-fill-phonetic"]'));
+
+  click(q(frame, '[data-testid="btn-fill-phonetic"]'));
+  await waitFor(async () => (await db.get('words', 'w-absorb')).phonetic === '/əbˈzɔːb/', { label: '按钮把音标补齐' });
+  ok('点一下就把缺的补齐了', true);
+  await waitFor(() => !q(frame, '[data-testid="btn-fill-phonetic"]'), { label: '补齐后按钮消失' });
+  ok('补齐后按钮不再显示', true);
+} catch (e) {
+  ok('补音标测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

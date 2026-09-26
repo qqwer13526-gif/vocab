@@ -1,0 +1,15 @@
+# ipa-dict 风格的样例（真实格式：单词 <Tab> /音标/）
+# 测试用的小样本，字段与真库一致：允许注释行、多音标变体、CRLF
+absorb	/əbˈzɔːb/
+acceptable	/əkˈsɛptəbl/
+acceptance	/əkˈsɛptəns/
+access	/ˈæksɛs/
+accomplish	/əˈkʌmplɪʃ/
+additional	/əˈdɪʃənl/
+afford	/əˈfɔːd/
+annoy	/əˈnɔɪ/
+apply	/əˈplaɪ/
+artist	/ˈɑːtɪst/
+ice cream	/ˌaɪs ˈkriːm/
+read	/riːd/, /rɛd/
+notab	没有音标

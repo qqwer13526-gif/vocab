@@ -153,6 +153,42 @@ try {
   click(q(frame, '[data-testid="btn-quit"]'));
   await waitFor(() => frame.contentWindow.location.hash === '#/' || frame.contentWindow.location.hash === '', { label: '回到首页' });
   ok('点 ✕ 回首页', true);
+
+  // ---------------- 10. 抽查时手动定级：熟记 / 生疏 ----------------
+  await db.wipeAll();
+  const lib4 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib4}&dir=en2zh`, sel: '[data-testid="practice-prompt"]' });
+
+  // 第一个词先正常答对（盒子变 2），再用"熟记"覆盖它
+  type(q(frame, '[data-testid="practice-input"]'), '吸收');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.box === 2, { label: '答对后盒子 2' });
+  click(q(frame, '[data-testid="btn-level-known"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '标成熟记' });
+  const pk = await prog('w-absorb');
+  eq('熟记 → 手动判断覆盖答题结果，盒子变 6', pk.box, 6);
+  ok('熟记 → 60 天后再见', pk.dueAt - Date.now() > 59 * 86400000, `${Math.round((pk.dueAt - Date.now()) / 86400000)} 天`);
+  eq('熟记不算答错', pk.lapses, 0);
+  eq('标完自动进下一题', t(frame, '[data-testid="practice-prompt"]'), 'run');
+
+  // 第二个词直接标"生疏"（不答题）
+  click(q(frame, '[data-testid="btn-level-unfamiliar"]'));
+  await waitFor(async () => (await prog('w-run'))?.level === 'unfamiliar', { label: '标成生疏' });
+  const pu = await prog('w-run');
+  eq('生疏 → 回盒子 1', pu.box, 1);
+  ok('生疏 → 10 分钟后再见', Math.abs(pu.dueAt - Date.now() - 10 * 60 * 1000) < 3000, `${Math.round((pu.dueAt - Date.now()) / 1000)} 秒`);
+  eq('生疏也不算答错', pu.lapses, 0);
+  eq('标完又进下一题', t(frame, '[data-testid="practice-prompt"]'), 'book');
+
+  // 最后一个词正常答完，看小结
+  type(q(frame, '[data-testid="practice-input"]'), '书');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(() => t(frame, '[data-testid="btn-next"]') === '看小结', { label: '最后一题' });
+  click(q(frame, '[data-testid="btn-next"]'));
+  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '小结出现' });
+  const sum10 = t(frame, '[data-testid="session-summary"]');
+  ok('小结算进了手动标记', sum10.includes('手动标了 2 个'), sum10);
+  ok('小结分了熟记/生疏', sum10.includes('熟记 1') && sum10.includes('生疏 1'), sum10);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

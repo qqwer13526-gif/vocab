@@ -31,6 +31,7 @@ STEPS: list[tuple[str, list[str], str]] = [
     ("⑨ 无障碍与移动端（常规）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
     ("⑩ 无障碍与移动端（系统开启减弱动效）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
     ("⑪ 直接读 Excel（.xlsx）", [PY, "tool/browser_test.py", "tests/browser/xlsx.test.html"], "ui"),
+    ("⑫ 补音标（下载→匹配→写库）", [PY, "tool/browser_test.py", "tests/browser/phonetic.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[int] | None]] = [
@@ -41,6 +42,7 @@ CHECKLIST: list[tuple[str, list[int] | None]] = [
     ("部署到子路径（GitHub Pages 的 /vocab/）后 service worker 仍正常", [11]),
     ("手机与桌面尺寸都不出现横向滚动、不溢出", [8]),
     ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", [9, 10]),
+    ("Excel（.xlsx）能直接导入；音标能一键补齐（下载→匹配→写库，之后离线）", [11, 12]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

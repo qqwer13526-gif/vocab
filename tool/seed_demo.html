@@ -35,30 +35,30 @@ const NOW = Date.now();
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 
-/** 照用户真词表的形态造：释义英汉混排、词性单独一列、有常用搭配 */
+/** 照用户真词表的形态造：释义英汉混排、词性单独一列、有常用搭配、带音标 */
 const WORDS = [
-  ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'be absorbed in全神贯注于'],
-  ['acceptable', 'adj.', ['good enough to be accepted; satisfactory可接受的，合意的'], 'an acceptable excuse可接受借口'],
-  ['acceptance', 'n.', ['act of accepting; approval or agreement接受', '认可'], 'gain acceptance获得认可'],
-  ['access', 'v./n.', ['way to enter or reach; ability to use存取（信息）', '接近', '通道'], 'have access to有机会使用'],
-  ['accomplish', 'v.', ['succeed in doing; finish successfully完成', '实现'], 'accomplish a task完成任务'],
-  ['additional', 'adj.', ['extra; added to what already exists附加的', '额外的'], 'additional information附加信息'],
-  ['afford', 'v.', ['have enough money or time to do or buy负担得起', '提供'], "can't afford to do负担不起做"],
-  ['annoy', 'v.', ['make someone slightly angry; bother使烦恼'], 'annoy sb with sth因某事惹恼某人'],
-  ['apply', 'v.', ['make a formal request; put into use申请', '应用'], 'apply for申请'],
-  ['artist', 'n.', ['person who creates paintings, music or other art艺术家'], 'a famous artist著名艺术家'],
-  ['abandon', 'v.', ['leave somebody or something behind抛弃', '放弃'], 'abandon oneself to沉溺于'],
-  ['ability', 'n.', ['power or skill to do something能力', '才能'], 'the ability to do sth做某事的能力']
+  ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'be absorbed in全神贯注于', '/ɐbsˈɔːb/'],
+  ['acceptable', 'adj.', ['good enough to be accepted; satisfactory可接受的，合意的'], 'an acceptable excuse可接受借口', '/ɐksˈɛptəbəl/'],
+  ['acceptance', 'n.', ['act of accepting; approval or agreement接受', '认可'], 'gain acceptance获得认可', '/ɐksˈɛptəns/'],
+  ['access', 'v./n.', ['way to enter or reach; ability to use存取（信息）', '接近', '通道'], 'have access to有机会使用', '/ˈæksɛs/'],
+  ['accomplish', 'v.', ['succeed in doing; finish successfully完成', '实现'], 'accomplish a task完成任务', '/ɐkˈɒmplɪʃ/'],
+  ['additional', 'adj.', ['extra; added to what already exists附加的', '额外的'], 'additional information附加信息', '/ɐdˈɪʃənəl/'],
+  ['afford', 'v.', ['have enough money or time to do or buy负担得起', '提供'], "can't afford to do负担不起做", '/ɐfˈɔːd/'],
+  ['annoy', 'v.', ['make someone slightly angry; bother使烦恼'], 'annoy sb with sth因某事惹恼某人', '/ɐnˈɔɪ/'],
+  ['apply', 'v.', ['make a formal request; put into use申请', '应用'], 'apply for申请', '/əˈpɫaɪ/'],
+  ['artist', 'n.', ['person who creates paintings, music or other art艺术家'], 'a famous artist著名艺术家', '/ˈɑːtɪst/'],
+  ['abandon', 'v.', ['leave somebody or something behind抛弃', '放弃'], 'abandon oneself to沉溺于', '/ɐbˈændən/'],
+  ['ability', 'n.', ['power or skill to do something能力', '才能'], 'the ability to do sth做某事的能力', '/ɐbˈɪlɪti/']
 ];
 
-/** 学习进度：有的到期、有的没到期、有的已掌握 */
+/** 学习进度：有的到期、有的没到期、有的已掌握；顺手给两个词标上熟记/生疏 */
 const PROGS = [
-  ['absorb', 2, -2 * DAY],
-  ['acceptable', 1, -1 * DAY],
-  ['acceptance', 3, -6 * DAY],
-  ['access', 4, 0],          // 今天到期
-  ['accomplish', 6, 20 * DAY], // 已掌握
-  ['additional', 2, 1 * DAY]   // 还没到期
+  ['absorb', 2, -2 * DAY, null],
+  ['acceptable', 1, -1 * DAY, null],
+  ['acceptance', 3, -6 * DAY, 'unfamiliar'],
+  ['access', 4, 0, null], // 今天到期
+  ['accomplish', 6, 20 * DAY, 'known'], // 已掌握 + 熟记
+  ['additional', 2, 1 * DAY, null] // 还没到期
 ];
 
 async function seed() {
@@ -70,14 +70,14 @@ async function seed() {
 
   const ids = new Map();
   let i = 0;
-  for (const [term, pos, meanings, example] of WORDS) {
+  for (const [term, pos, meanings, example, phonetic] of WORDS) {
     const id = `demo-${term}`;
     ids.set(term, id);
     await db.put('words', {
       id,
       term,
       termNorm: term,
-      phonetic: '',
+      phonetic: phonetic || '',
       pos,
       meanings,
       example,
@@ -89,7 +89,7 @@ async function seed() {
     if (i > 6) await db.put('links', { id: `${id}|${libB}`, wordId: id, libId: libB, addedAt: NOW, updatedAt: NOW });
   }
 
-  for (const [term, box, offset] of PROGS) {
+  for (const [term, box, offset, level] of PROGS) {
     const id = ids.get(term);
     await db.put('prog', {
       wordId: id,
@@ -98,6 +98,8 @@ async function seed() {
       streak: box > 1 ? box - 1 : 0,
       lapses: box === 1 ? 2 : 0,
       lastDir: i % 2 ? 'en2zh' : 'zh2en',
+      level: level || null,
+      levelAt: level ? NOW : null,
       updatedAt: NOW
     });
   }

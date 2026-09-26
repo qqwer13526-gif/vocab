@@ -204,7 +204,7 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .prac-card { display: grid; gap: 14px; padding: 20px 18px; }
 .prac-prompt { font-size: clamp(26px, 7.5vw, 42px); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
-.prac-hint { color: var(--muted); font-size: 14px; }
+.prac-hint { color: var(--muted); font-size: 14px; font-family: var(--ipa-font); }
 
 .prac-input {
   min-height: 52px;
@@ -229,6 +229,14 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .session-summary { display: grid; gap: 16px; padding: 22px 18px; }
 .summary-text { font-size: 17px; line-height: 1.6; }
+
+/* 抽查时的手动定级：熟记 / 生疏 */
+.level-block { display: grid; gap: 6px; }
+.level-row { display: flex; gap: 10px; }
+.level-row > button { flex: 1; }
+.lvl-known { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.lvl-unfamiliar { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.level-hint { color: var(--muted); font-size: 12px; text-align: center; }
 
 /* ---------------------------------------------------------------- 导入 */
 
@@ -319,6 +327,28 @@ body[data-view='practice'] #tabbar { display: none; }
 .word-count { color: var(--muted); font-size: 13px; }
 
 .word-list { display: grid; gap: 8px; }
+.word-row-side { display: flex; align-items: center; gap: 6px; flex: none; }
+.level-pill { padding: 3px 8px; border-radius: 999px; font-size: 12px; }
+.level-pill[data-level='known'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.level-pill[data-level='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.level-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+}
+.chip[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.word-phonetic { color: var(--muted); font-size: 13px; font-family: var(--ipa-font); }
+/* Windows 默认字体对 ɐ / ˈ / ɛ 这些 IPA 字符覆盖不好，会显示成空白；iOS 上本来就够用 */
+:root { --ipa-font: "Lucida Sans Unicode", "Charis SIL", "Doulos SIL", "Segoe UI", system-ui, sans-serif; }
+.word-tools-row { display: flex; gap: 10px; }
+.word-tools-row > button { flex: 1; }
+.home-phonetic { width: 100%; margin-top: 10px; }
 .word-row {
   display: flex;
   align-items: center;

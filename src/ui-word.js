@@ -5,8 +5,10 @@
  */
 
 import { $, el } from './app.js';
-import { byIndex, put, softDelete } from './db.js';
+import { all, byIndex, put, softDelete } from './db.js';
 import { normTerm } from './judge.js';
+import { countMissing, fillPhonetics } from './phonetic.js';
+import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
 
 export async function renderWord(params = {}) {
@@ -18,7 +20,7 @@ export async function renderWord(params = {}) {
 }
 
 // ---------------------------------------------------------------- 列表
-function renderList(view, params, data) {
+async function renderList(view, params, data) {
   const libId = params.lib || null;
   const lib = libId ? data.libs.find((l) => l.id === libId) : null;
   const ids = libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
@@ -37,27 +39,103 @@ function renderList(view, params, data) {
   });
   const list = el('div', { className: 'word-list' });
   const count = el('div', { className: 'word-count' });
+  const status = el('div', { className: 'word-status', dataset: { testid: 'word-status' } }, '');
+
+  // 熟记 / 生疏 的分布与筛选
+  const levelOf = (w) => data.progs[w.id]?.level || null;
+  const counts = { all: words.length, known: 0, unfamiliar: 0, none: 0 };
+  for (const w of words) {
+    const lv = levelOf(w);
+    if (lv === 'known') counts.known++;
+    else if (lv === 'unfamiliar') counts.unfamiliar++;
+    else counts.none++;
+  }
+  let levelFilter = params.level === 'known' || params.level === 'unfamiliar' || params.level === 'none' ? params.level : 'all';
+  const chips = el('div', { className: 'level-filter', dataset: { testid: 'level-filter' } }, [
+    chip('all', `全部 ${counts.all}`),
+    chip('known', `熟记 ${counts.known}`),
+    chip('unfamiliar', `生疏 ${counts.unfamiliar}`),
+    chip('none', `未标 ${counts.none}`)
+  ]);
+
+  function chip(key, label) {
+    return el('button', {
+      className: 'chip',
+      type: 'button',
+      dataset: { level: key },
+      'aria-pressed': String(key === levelFilter),
+      onclick: (e) => {
+        levelFilter = key;
+        for (const b of e.currentTarget.parentElement.children) b.setAttribute('aria-pressed', String(b.dataset.level === key));
+        // 筛选项进 URL，刷新/回退都还在
+        const qs = new URLSearchParams();
+        if (libId) qs.set('lib', libId);
+        if (key !== 'all') qs.set('level', key);
+        history.replaceState(null, '', `#/word${qs.toString() ? `?${qs}` : ''}`);
+        paint();
+      }
+    }, label);
+  }
+
+  // 还差多少个词没音标 → 显示"补齐音标"按钮（已经查过、库里确实没有的不再算）
+  const missing = await countMissing(words);
+  const tools = el('div', { className: 'word-tools-row' });
+  if (missing > 0) {
+    const btn = el('button', {
+      className: 'ghost',
+      dataset: { testid: 'btn-fill-phonetic' },
+      type: 'button',
+      onclick: () => doFill(btn)
+    }, `补齐音标（还差 ${missing} 个）`);
+    tools.append(btn);
+  }
+
+  async function doFill(btn) {
+    btn.disabled = true;
+    status.dataset.kind = '';
+    try {
+      const res = await fillPhonetics({
+        words: await all('words'),
+        onProgress: (p) => {
+          const which = p.dict === 'fallback' ? '美式兜底' : '英式';
+          btn.textContent = p.phase === 'download' ? `下载${which}音标库 ${Math.round((p.ratio || 0) * 100)}%` : '匹配中…';
+        }
+      });
+      status.dataset.kind = 'ok';
+      status.textContent =
+        (res.filled ? `已补 ${res.filled} 个音标` : '没有可补的') + (res.missing ? `；${res.missing} 个音标库里没有收录` : '');
+      await renderList(view, params, await loadAll()); // 重画：音标会立刻显示出来
+    } catch (err) {
+      status.dataset.kind = 'bad';
+      btn.textContent = `补齐音标（还差 ${await countMissing(await all('words'))} 个）`;
+      status.textContent = `补齐失败：${err && err.message ? err.message : err}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   function paint() {
     const query = search.value.trim();
     const nq = normTerm(query);
-    const filtered = nq
+    const searched = nq
       ? words.filter((w) => w.termNorm.includes(nq) || w.meanings.join(' ').toLowerCase().includes(query.toLowerCase()))
       : words;
+    const filtered = levelFilter === 'all' ? searched : searched.filter((w) => (levelOf(w) || 'none') === levelFilter);
 
-    count.textContent = `${filtered.length} 个词${query ? `（共 ${words.length}）` : ''}`;
+    count.textContent = `${filtered.length} 个词${query || levelFilter !== 'all' ? `（共 ${words.length}）` : ''}`;
     list.replaceChildren();
     if (!filtered.length) {
       list.append(
         el('div', { className: 'card empty', dataset: { testid: 'word-empty' } }, [
           el('div', { className: 'empty-title' }, '没有匹配的词条'),
-          el('div', { className: 'empty-sub' }, words.length ? '换个词试试，或者清空搜索框。' : '这个词库还是空的，去导入一份词表吧。')
+          el('div', { className: 'empty-sub' }, words.length ? '换个词试试，或者清空搜索/筛选。' : '这个词库还是空的，去导入一份词表吧。')
         ])
       );
       return;
     }
     for (const w of filtered) {
       const p = data.progs[w.id];
+      const lv = levelOf(w);
       list.append(
         el('button', {
           className: 'card word-row',
@@ -69,12 +147,21 @@ function renderList(view, params, data) {
         }, [
           el('div', { className: 'word-row-main' }, [
             el('span', { className: 'word-term' }, w.term),
+            w.phonetic ? el('span', { className: 'word-phonetic', dataset: { testid: 'word-phonetic' } }, w.phonetic) : null,
             el('span', { className: 'word-mean' }, w.meanings.join('；'))
           ]),
-          el('span', {
-            className: 'box-pill',
-            dataset: { testid: 'box-pill', box: String(p ? p.box : 0) }
-          }, p ? `盒 ${p.box}` : '新')
+          el('div', { className: 'word-row-side' }, [
+            lv
+              ? el('span', {
+                  className: 'level-pill',
+                  dataset: { testid: 'level-pill', level: lv }
+                }, LEVEL_LABEL[lv] || lv)
+              : null,
+            el('span', {
+              className: 'box-pill',
+              dataset: { testid: 'box-pill', box: String(p ? p.box : 0) }
+            }, p ? `盒 ${p.box}` : '新')
+          ])
         ])
       );
     }
@@ -87,7 +174,7 @@ function renderList(view, params, data) {
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, '‹'),
       el('h2', { className: 'page-title' }, lib ? lib.name : '全部词条')
     ]),
-    el('div', { className: 'card word-tools' }, [search, count]),
+    el('div', { className: 'card word-tools' }, [search, count, chips, tools, status]),
     list
   );
   paint();

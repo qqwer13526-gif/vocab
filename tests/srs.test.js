@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DAY, INTERVALS, MAX_BOX, NEXT_DUE_LABEL, buildQueue, grade, isNew, newProg } from '../src/srs.js';
+import { DAY, INTERVALS, LEVELS, MAX_BOX, NEXT_DUE_LABEL, buildQueue, grade, isNew, markLevel, newProg } from '../src/srs.js';
 
 const MIN = 60 * 1000;
 const T0 = 1_700_000_000_000;
@@ -101,6 +101,63 @@ test('下次复习的文案', () => {
   assert.equal(NEXT_DUE_LABEL(1), '10 分钟');
   assert.equal(NEXT_DUE_LABEL(2), '1 天');
   assert.equal(NEXT_DUE_LABEL(6), '60 天');
+});
+
+// ---------------------------------------------------------------- 手动定级（抽查时的"熟记/生疏"）
+
+test('只有两个等级', () => {
+  assert.deepEqual(LEVELS, ['known', 'unfamiliar']);
+});
+
+test('标"熟记" → 直接进盒子 6，60 天后再见', () => {
+  const p0 = { ...newProg('w', T0), box: 2, streak: 1, lapses: 3 };
+  const now = T0 + 5 * DAY;
+  const p = markLevel(p0, 'known', { now });
+  assert.equal(p.box, MAX_BOX);
+  assert.equal(p.dueAt, now + INTERVALS[MAX_BOX]);
+  assert.equal(p.dueAt, now + 60 * DAY);
+  assert.equal(p.level, 'known');
+  assert.equal(p.levelAt, now);
+  assert.equal(p.updatedAt, now);
+});
+
+test('标"生疏" → 回盒子 1，10 分钟后再见', () => {
+  const p0 = { ...newProg('w', T0), box: 5, streak: 4, lapses: 0 };
+  const now = T0 + DAY;
+  const p = markLevel(p0, 'unfamiliar', { now });
+  assert.equal(p.box, 1);
+  assert.equal(p.dueAt, now + 10 * MIN);
+  assert.equal(p.level, 'unfamiliar');
+});
+
+test('手动定级不动答错次数和连对次数（那是答题统计）', () => {
+  const p0 = { ...newProg('w', T0), box: 3, streak: 2, lapses: 4 };
+  for (const level of LEVELS) {
+    const p = markLevel(p0, level, { now: T0 });
+    assert.equal(p.lapses, 4, `${level} 不该改 lapses`);
+    assert.equal(p.streak, 2, `${level} 不该改 streak`);
+  }
+});
+
+test('markLevel 不改原对象', () => {
+  const p0 = { ...newProg('w', T0), level: 'known' };
+  const p1 = markLevel(p0, 'unfamiliar', { now: T0 + 1 });
+  assert.equal(p0.level, 'known');
+  assert.equal(p0.box, 1);
+  assert.equal(p1.level, 'unfamiliar');
+});
+
+test('等级可以被改来改去（以最后一次为准）', () => {
+  let p = newProg('w', T0);
+  p = markLevel(p, 'known', { now: T0 });
+  assert.equal(p.box, MAX_BOX);
+  p = markLevel(p, 'unfamiliar', { now: T0 + 1 });
+  assert.equal(p.box, 1);
+  assert.equal(p.level, 'unfamiliar');
+});
+
+test('乱传等级要报错，而不是悄悄写坏数据', () => {
+  assert.throws(() => markLevel(newProg('w', T0), 'maybe', { now: T0 }), /等级/);
 });
 
 // ---------------------------------------------------------------- 队列

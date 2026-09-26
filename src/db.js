@@ -87,6 +87,18 @@ export async function put(store, obj) {
   return txDone(tx);
 }
 
+/** 一批一起写（一个事务；给"补音标""批量改"这类场景用） */
+export async function putMany(store, rows) {
+  const list = rows || [];
+  if (!list.length) return 0;
+  const db = await openDB();
+  const tx = db.transaction(store, 'readwrite');
+  const os = tx.objectStore(store);
+  for (const row of list) os.put(row);
+  await txDone(tx);
+  return list.length;
+}
+
 export async function get(store, key) {
   const db = await openDB();
   return reqP(db.transaction(store).objectStore(store).get(key));
