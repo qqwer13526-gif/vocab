@@ -106,6 +106,25 @@ test('认列：表头在第 4 行时，上面的杂行不会被当成数据', ()
   assert.ok(!items.some((i) => i.term.includes('词汇背诵检查表')));
 });
 
+test('认列：首行只是"单词里恰好含 word"时，不能被当成表头吃掉第一行', () => {
+  const { rows } = parseTable('keyword\t关键词的意思\npassword\t密码的意思');
+  const cols = guessColumns(rows);
+  assert.equal(cols.source, 'ratio', '没有真表头，应该按内容猜');
+  assert.equal(cols.headerRow, -1);
+  const items = rowsToWords(rows, cols);
+  assert.deepEqual(items.map((i) => i.term), ['keyword', 'password']);
+});
+
+test('认列：表头带括号说明（单词（英文） / 释义（中文））时，结果依然正确', () => {
+  const { rows } = parseTable('单词（英文）\t释义（中文）\napple\t苹果');
+  const cols = guessColumns(rows);
+  // 关键不是"有没有认出表头"，而是：不能把表头当成一个词导进来
+  const items = rowsToWords(rows, cols);
+  assert.deepEqual(items.map((i) => i.term), ['apple']);
+  assert.equal(cols.termCol, 0);
+  assert.equal(cols.meanCol, 1);
+});
+
 // ---------------------------------------------------------------- 行 → 词条
 
 test('行转词条：释义按分号逗号拆开，保留英汉混排的那一段', () => {

@@ -55,6 +55,23 @@
 想先看看界面长什么样：打开 <http://127.0.0.1:5173/tool/seed_demo.html> 点「灌入示例数据」，
 回到首页就有了 2 个词库 + 12 个词（含到期的复习词）。「清空全部数据」可以随时归零。
 
+### 更省事的办法：把 Excel 直接转成可导入文件
+
+每次在 Excel 里选两列复制粘贴也挺烦的。用这个脚本把整张表转成 `.tsv`，之后在应用里
+点「导入 → 选择文件…」选它就行：
+
+```powershell
+python tool\xlsx_to_tsv.py                                    # 自动在桌面/文档/下载/D:\Study 等位置找词表
+python tool\xlsx_to_tsv.py "D:\Study\CET\英语词汇背诵检查表（二）.xlsx"   # 指定文件
+python tool\xlsx_to_tsv.py "D:\Study\CET" --out "D:\Study\CET\导入用"    # 整个文件夹
+```
+
+转换结果放在原文件旁边（同名 `.tsv`）。它**不自己判断哪列是单词**——那是应用里那套
+（已经在你真表上验证过的）解析逻辑干的活；转完它会自动跑一遍自检，告诉你认出了多少词、哪列是哪列。
+
+你的《英语词汇背诵检查表（一）》已经转好了：
+`D:\Study\CET\英语词汇背诵检查表（一）.tsv`（187 个词）。
+
 ---
 
 ## 复习规则（Leitner 六盒）
@@ -105,8 +122,11 @@ tests/
 tool/
   serve.py            本地服务（开发用）
   verify_all.py       ★ 一条命令跑完全部验证
+  xlsx_to_tsv.py      Excel 词表 → 可导入的 .tsv（自动查找 + 转完自检）
+  check_tsv.mjs       自检用：拿应用自己的解析逻辑数一遍有多少词
   shots.py            给界面截图（shots/ 目录）
   seed_demo.html      灌示例数据 / 清空数据
+  publish_github.py   发到 GitHub Pages（建仓库 / 推送 / 开 Pages）
   headless.py         无头浏览器管道（所有验证脚本共用）
 ```
 

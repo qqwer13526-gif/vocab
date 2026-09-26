@@ -154,6 +154,21 @@ try {
   click(q(frame, '[data-testid="btn-go-practice"]'));
   await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习' });
   ok('点"去练习"能进练习页', frame.contentWindow.location.hash.startsWith('#/practice'));
+
+  // ---------------- 9. 规模：一次导入 200 个词（真实词表是 187 个，走同一条路）----------------
+  frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  const big = Array.from({ length: 200 }, (_, i) => `word${String(i).padStart(3, '0')}\t意思${i}；解释${i}`).join('\n');
+  const before = await db.count('words');
+  await paste(frame, big);
+  ok('200 行都算成新词', t(frame, '[data-testid="import-stats"]').includes('新词 200'), t(frame, '[data-testid="import-stats"]'));
+  ok('预览仍然只画 5 行（不会卡）', qa(frame, '[data-testid="import-preview"] tbody tr').length === 5);
+  ensureLib(frame);
+  const t0 = Date.now();
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(async () => (await db.count('words')) === before + 200, { label: '200 个词写库', timeout: 25000 });
+  ok(`200 个词 + 200 条归属在一个事务里写完（${Date.now() - t0}ms）`, (await db.count('links')) >= 200);
+  const sample = await db.get('words', (await db.all('words')).find((w) => w.termNorm === 'word199')?.id);
+  ok('最后一个词也在，且释义拆成了两条', sample && sample.meanings.length === 2, JSON.stringify(sample?.meanings));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

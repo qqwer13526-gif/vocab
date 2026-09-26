@@ -107,19 +107,31 @@ export function guessColumns(rows) {
   for (let r = 0; r < Math.min(list.length, 10); r++) {
     const map = {};
     let hits = 0;
+    let exact = 0;
+    let numeric = false;
     (list[r] || []).forEach((cell, c) => {
-      const key = normAnswer(cell);
+      const raw = String(cell ?? '');
+      const key = normAnswer(raw);
       if (!key) return;
       for (const [field, keys] of Object.entries(HEADER_KEYS)) {
         if (map[field] !== undefined) continue;
         if (keys.some((kw) => key === kw || key.includes(kw))) {
           map[field] = c;
           hits++;
+          if (keys.includes(key)) exact++;
+          // 命中的单元格里有数字 → 更像数据行（word000 / 单词1）
+          if (/\d/.test(raw)) numeric = true;
           break;
         }
       }
     });
-    if (hits > bestHits && map.term !== undefined && map.mean !== undefined) {
+    // 三个条件都满足才算表头：
+    //   1) 同时认出"单词"和"释义"
+    //   2) 命中的单元格里没有数字（word000 是数据，不是表头）
+    //   3) 至少有一个**精确**命中（"单词"/"word"/"释义"），只有包含关系的不算
+    //      —— 否则 keyword、password 这种打头的词表会被当成表头，吃掉第一行
+    const isHeader = map.term !== undefined && map.mean !== undefined && !numeric && (exact > 0 || hits >= 3);
+    if (isHeader && hits > bestHits) {
       bestHits = hits;
       bestRow = r;
       bestMap = map;
