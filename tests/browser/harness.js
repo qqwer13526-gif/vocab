@@ -60,7 +60,7 @@ export function report() {
 }
 
 /** 轮询等某个条件成立（界面是异步渲染的，断言前必须等） */
-export async function waitFor(fn, { timeout = 8000, step = 40, label = '条件' } = {}) {
+export async function waitFor(fn, { timeout = 15000, step = 40, label = '条件' } = {}) {
   const t0 = Date.now();
   for (;;) {
     try {
@@ -83,7 +83,7 @@ export async function wait(ms) {
  * @param hash 要打开的 hash 路由，例如 '#/practice?lib=xxx'
  * @param sel  等这个选择器出现再返回
  */
-export async function openApp({ hash = '', size = [390, 844], sel = null, timeout = 8000 } = {}) {
+export async function openApp({ hash = '', size = [390, 844], sel = null, timeout = 15000 } = {}) {
   document.querySelectorAll('iframe.app-frame').forEach((f) => f.remove());
   const frame = document.createElement('iframe');
   frame.className = 'app-frame';

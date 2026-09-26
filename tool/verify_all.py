@@ -57,6 +57,13 @@ def main() -> int:
         tail = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
         for ln in tail[-14:]:
             print("   ", ln)
+        if proc.returncode != 0:
+            # 失败时把具体失败项也打出来，不然只看到 tail 会不知道该修什么
+            bad = [ln for ln in tail if "[FAIL]" in ln or "失败项" in ln or ln.strip().startswith("- ")]
+            if bad:
+                print("    ---- 失败明细 ----")
+                for ln in bad[:20]:
+                    print("   ", ln)
         if proc.returncode != 0 and (proc.stderr or "").strip():
             print("    [stderr]", (proc.stderr or "").strip().splitlines()[-1][:300])
         last = next((ln for ln in reversed(tail) if "passed" in ln or "RESULT" in ln), "")
