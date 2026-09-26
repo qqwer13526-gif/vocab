@@ -30,7 +30,7 @@ DESKTOP = (1280, 900)
 WINDOW_MIN_W = 520
 
 
-def one(base: str, profile: str, prefix: str, hash_: str, theme: str, size: tuple[int, int]) -> Path:
+def one(base: str, profile: str, prefix: str, hash_: str, theme: str, size: tuple[int, int], paste: str = "") -> Path:
     w, h = size
     suffix = "phone" if size == PHONE else "desktop"
     if theme == "dark":
@@ -39,6 +39,10 @@ def one(base: str, profile: str, prefix: str, hash_: str, theme: str, size: tupl
     win = (max(WINDOW_MIN_W, w), h)
     # hash 里带 # 和 ?，必须编码，否则会被当成 URL 片段截断（截出来还是首页）
     url = f"{base}/tool/shot.html?w={w}&h={h}&theme={theme}&hash={urllib.parse.quote(hash_, safe='')}"
+    if paste:
+        # 必须以 / 开头：这是在 iframe 里 fetch，相对路径会解析到 /tool/ 下面
+        p = paste if paste.startswith("/") else "/" + paste
+        url += f"&paste={urllib.parse.quote(p, safe='')}"
     run_dom(url, budget_ms=None, profile=profile, size=win, screenshot=str(path), timeout=120)
 
     if win != (w, h):
@@ -50,8 +54,14 @@ def one(base: str, profile: str, prefix: str, hash_: str, theme: str, size: tupl
 
 
 def main() -> int:
-    prefix = sys.argv[1] if len(sys.argv) > 1 else "home"
-    hash_ = sys.argv[2] if len(sys.argv) > 2 else "#/"
+    argv = sys.argv[1:]
+    paste = ""
+    for a in list(argv):
+        if a.startswith("--paste="):
+            paste = a.split("=", 1)[1]
+            argv.remove(a)
+    prefix = argv[0] if argv else "home"
+    hash_ = argv[1] if len(argv) > 1 else "#/"
     OUT.mkdir(exist_ok=True)
     profile = tempfile.mkdtemp(prefix="dsh-shot-")
 
@@ -61,7 +71,7 @@ def main() -> int:
         print("示例数据：", "已灌入" if "已灌入" in seeded else "疑似失败（截图可能是空的）")
         jobs = [("light", PHONE), ("dark", PHONE), ("light", DESKTOP)]
         for theme, size in jobs:
-            p = one(base, profile, prefix, hash_, theme, size)
+            p = one(base, profile, prefix, hash_, theme, size, paste)
             print(f"已生成 {p.relative_to(ROOT)}  ({p.stat().st_size} 字节)")
     finally:
         httpd.shutdown()

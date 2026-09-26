@@ -44,6 +44,20 @@
       if (ready || Date.now() - t0 > 20000) break;
       await new Promise((r) => setTimeout(r, 50));
     }
+    // 需要看图的时候顺手把内容喂进去（例如导入页要看粘好之后的界面）
+    const pasteUrl = q.get('paste');
+    if (pasteUrl) {
+      try {
+        const d = frame.contentDocument;
+        const text = await (await fetch(pasteUrl)).text();
+        const box = d.querySelector('[data-testid="import-text"]');
+        if (box) {
+          box.value = text;
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      } catch (e) { /* 忽略 */ }
+    }
     if (theme && TOKENS[theme]) {
       try {
         const d = frame.contentDocument;

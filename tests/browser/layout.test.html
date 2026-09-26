@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>布局越界检查（不该有横向滚动）</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 检查每个界面在手机宽度（390）和窄桌面下都不出现横向滚动。
+ * 越界时把具体的元素列出来，方便直接定位。
+ * 跑法：python tool/browser_test.py tests/browser/layout.test.html
+ */
+import { holdLoad, ok, openApp, report, wait } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+/** 找出比视口宽的元素（不考虑 position:fixed 的浮层） */
+function offenders(doc) {
+  const vw = doc.documentElement.clientWidth;
+  const out = [];
+  for (const n of doc.querySelectorAll('body *')) {
+    const r = n.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (r.right > vw + 1 || r.left < -1) {
+      const cls = typeof n.className === 'string' ? n.className : '';
+      out.push(`${n.tagName.toLowerCase()}${cls ? '.' + cls.split(/\s+/).join('.') : ''} right=${Math.round(r.right)} w=${Math.round(r.width)}`);
+    }
+  }
+  return { vw, scrollW: doc.documentElement.scrollWidth, offenders: out.slice(0, 6) };
+}
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-a';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  const ws = [
+    ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'be absorbed in全神贯注于'],
+    ['acceptable', 'adj.', ['good enough to be accepted; satisfactory可接受的，合意的'], 'an acceptable excuse可接受借口'],
+    ['access', 'v./n.', ['way to enter or reach; ability to use存取（信息）', '接近', '通道'], 'have access to有机会使用'],
+    ['accomplish', 'v.', ['succeed in doing; finish successfully完成', '实现'], 'accomplish a task完成任务']
+  ];
+  let i = 0;
+  for (const [term, pos, meanings, example] of ws) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic: 'əbˈsɔːb', pos, meanings, example, note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  }
+  await db.put('prog', { wordId: 'w-access', box: 2, dueAt: NOW - 1000, streak: 1, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
+  return lib;
+}
+
+async function checkView(label, hash, size, sel, pasteUrl = '') {
+  const frame = await openApp({ hash, size, sel, timeout: 10000 });
+  if (pasteUrl) {
+    const text = await (await fetch(pasteUrl)).text();
+    const box = frame.contentDocument.querySelector('[data-testid="import-text"]');
+    box.value = text;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(500);
+  }
+  await wait(300);
+  const info = offenders(frame.contentDocument);
+  const okNow = info.scrollW <= info.vw + 1;
+  ok(`${label} 在 ${size[0]}px 宽下没有横向滚动`, okNow, `scrollWidth=${info.scrollW} clientWidth=${info.vw}；越界元素：${info.offenders.join(' | ')}`);
+  return frame;
+}
+
+try {
+  db = await import('../../src/db.js');
+  const lib = await seed();
+  const PHONE = [390, 844];
+  const NARROW = [360, 780];
+
+  await checkView('首页', '#/', PHONE, '[data-testid="lib-row"]');
+  await checkView('首页', '#/', NARROW, '[data-testid="lib-row"]');
+  await checkView('练习', `#/practice?lib=${lib}`, PHONE, '[data-testid="practice-prompt"]');
+  await checkView('导入', '#/import', PHONE, '[data-testid="import-text"]', '/tests/fixtures/vocab-sample.tsv');
+  await checkView('导入', '#/import', NARROW, '[data-testid="import-text"]', '/tests/fixtures/vocab-sample.tsv');
+  await checkView('词条', `#/word?lib=${lib}`, PHONE, '#view-word:not([hidden])');
+} catch (e) {
+  ok('布局检查脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

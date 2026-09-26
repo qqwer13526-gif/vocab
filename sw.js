@@ -26,7 +26,8 @@ const ASSETS = [
   './src/judge.js',
   './src/parse.js',
   './src/ui-home.js',
-  './src/ui-practice.js'
+  './src/ui-practice.js',
+  './src/ui-import.js'
 ];
 
 self.addEventListener('install', (e) => {

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>导入界面 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 导入界面（任务 8）的界面测试：粘贴真表形态、认列、预览、重复处理、写库。
+   跑法：python tool/browser_test.py tests/browser/ui-import.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+/** 照真词表的形态拼一段（Tab 分隔、前三行杂物、表头在第 4 行） */
+function realShape(extra = '') {
+  const T = '\t';
+  return [
+    `英语词汇背诵检查表（四级 Test 1）${T}${T}${T}${T}${T}`,
+    `总词数${T}187${T}已背${T}0${T}未背${T}187`,
+    `序号${T}单词${T}词性${T}释义${T}常用搭配${T}背诵确认`,
+    `1${T}absorb${T}v.${T}take in or soak up吸收；使专心${T}be absorbed in全神贯注于${T}☐`,
+    `2${T}acceptable${T}adj.${T}good enough to be accepted; satisfactory可接受的，合意的${T}an acceptable excuse可接受借口${T}☐`,
+    `3${T}acceptance${T}n.${T}act of accepting; approval or agreement接受；认可${T}gain acceptance获得认可${T}☐`,
+    `4${T}access${T}v./n.${T}way to enter or reach; ability to use存取（信息）；接近；通道${T}have access to有机会使用${T}☐`,
+    extra
+  ].filter(Boolean).join('\n');
+}
+
+async function seedLibs() {
+  await db.wipeAll();
+  const a = 'lib-4ji';
+  const b = 'lib-kaoyan';
+  await db.put('libs', { id: a, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: b, name: '考研', color: '#ff9f0a', order: 1, updatedAt: NOW });
+  return { a, b };
+}
+
+const paste = async (frame, text) => {
+  const box = q(frame, '[data-testid="import-text"]');
+  type(box, text);
+  await waitFor(() => q(frame, '[data-testid="import-stats"]').textContent.includes('新词'), { label: '算出统计' });
+};
+
+/** 确保第 i 个词库被勾上（重复调用不会反而取消勾选） */
+const ensureLib = (frame, i = 0) => {
+  const c = qa(frame, '[data-testid="lib-check"]')[i];
+  if (!c.checked) click(c);
+  return c;
+};
+
+try {
+  db = await import('../../src/db.js');
+  const { a: libA, b: libB } = await seedLibs();
+
+  // ---------------- 1. 空手进来 ----------------
+  let frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  ok('有粘贴框', !!q(frame, '[data-testid="import-text"]'));
+  ok('有选择文件按钮', !!q(frame, '[data-testid="import-file"]'));
+  ok('还没粘东西时给出说明', t(frame, '[data-testid="import-hint"]').includes('Ctrl'), t(frame, '[data-testid="import-hint"]'));
+  ok('列出已有的词库供勾选', qa(frame, '[data-testid="lib-check"]').length === 2, String(qa(frame, '[data-testid="lib-check"]').length));
+
+  // ---------------- 2. 粘真表形态 → 认列 + 预览 + 统计 ----------------
+  await paste(frame, realShape());
+  eq('单词列认对了', q(frame, '[data-testid="sel-term"]').value, '1');
+  eq('释义列认对了', q(frame, '[data-testid="sel-mean"]').value, '3');
+  eq('词性列也认出来了', q(frame, '[data-testid="sel-pos"]').value, '2');
+  ok('统计：4 个新词', t(frame, '[data-testid="import-stats"]').includes('新词 4'), t(frame, '[data-testid="import-stats"]'));
+  const rows = qa(frame, '[data-testid="import-preview"] tbody tr');
+  ok('预览不是空的', rows.length >= 1, String(rows.length));
+  ok('预览第一行是 absorb', rows[0].textContent.includes('absorb'), rows[0].textContent.replace(/\s+/g, ' '));
+  ok('预览能看到拆好的释义', rows[0].textContent.includes('吸收'), rows[0].textContent.replace(/\s+/g, ' '));
+  ok('标题行/统计行没被算成词', !t(frame, '[data-testid="import-preview"]').includes('总词数'));
+
+  // 预览截断：专门造 7 行，看它是不是只显示 5 行
+  await paste(frame, Array.from({ length: 7 }, (_, i) => `word${i}\t意思${i}`).join('\n'));
+  eq('预览最多 5 行', qa(frame, '[data-testid="import-preview"] tbody tr').length, 5);
+  await paste(frame, realShape());
+  eq('重新粘回真表形态，列还是认对的', q(frame, '[data-testid="sel-term"]').value, '1');
+
+  // ---------------- 3. 勾库并导入 ----------------
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  const result = await waitFor(() => {
+    const el = q(frame, '[data-testid="import-result"]');
+    return el && el.textContent.includes('新增') ? el : null;
+  }, { label: '出现导入结果' });
+  ok('结果条显示新增 4', result.textContent.includes('新增 4'), result.textContent.replace(/\s+/g, ' '));
+  eq('库里真的有 4 个词', await db.count('words'), 4);
+  eq('4 条归属写进去了', await db.count('links'), 4);
+  const absorb = (await db.all('words')).find((w) => w.termNorm === 'absorb');
+  eq('释义是拆开存的两段', absorb.meanings, ['take in or soak up吸收', '使专心']);
+  eq('词性存下来了', absorb.pos, 'v.');
+  eq('常用搭配进了例句字段', absorb.example, 'be absorbed in全神贯注于');
+
+  // ---------------- 4. 再粘一遍：默认跳过 ----------------
+  await paste(frame, realShape());
+  ok('统计变成"已存在 4"', t(frame, '[data-testid="import-stats"]').includes('已存在 4'), t(frame, '[data-testid="import-stats"]'));
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(() => q(frame, '[data-testid="import-result"]').textContent.includes('跳过'), { label: '出现跳过结果' });
+  ok('重复的被跳过', t(frame, '[data-testid="import-result"]').includes('跳过 4'), t(frame, '[data-testid="import-result"]'));
+  eq('词数没变', await db.count('words'), 4);
+
+  // ---------------- 5. 切"合并释义" ----------------
+  await paste(frame, 'absorb\t吸收');   // 给已有的 absorb 补一条新释义
+  click(q(frame, '[data-testid="dup-merge"]'));
+  eq('模式切到合并', q(frame, '[data-testid="dup-merge"]').checked, true);
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(() => q(frame, '[data-testid="import-result"]').textContent.includes('合并'), { label: '出现合并结果' });
+  const absorb2 = await db.get('words', absorb.id);
+  ok('新释义合并进去了，旧的还在', absorb2.meanings.includes('吸收') && absorb2.meanings.includes('使专心'), JSON.stringify(absorb2.meanings));
+  eq('合并不会多出词', await db.count('words'), 4);
+
+  // ---------------- 6. 不勾词库不让导 ----------------
+  await db.wipeAll();
+  await db.put('libs', { id: libA, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  await paste(frame, realShape());
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(() => q(frame, '[data-testid="import-result"]').textContent.length > 0, { label: '给出提示' });
+  ok('没勾词库时明确提示，而且不写库', t(frame, '[data-testid="import-result"]').includes('词库'), t(frame, '[data-testid="import-result"]'));
+  eq('没写库', await db.count('words'), 0);
+
+  // ---------------- 7. 选择文件也能导 ----------------
+  const fi = q(frame, '[data-testid="import-file"]');
+  const file = new File(['apple\t苹果\nrun\t跑\n'], 'words.tsv', { type: 'text/plain' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  fi.files = dt.files;
+  fi.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => t(frame, '[data-testid="import-stats"]').includes('新词 2'), { label: '文件解析出 2 个新词' });
+  ok('选文件也能解析', true);
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(async () => (await db.count('words')) === 2, { label: '文件内容写库' });
+  ok('文件里的词写进去了', (await db.all('words')).some((w) => w.termNorm === 'apple'));
+
+  // ---------------- 8. 导完能直接去练 ----------------
+  ok('结果条里有"去练习"的入口', !!q(frame, '[data-testid="btn-go-practice"]'));
+  click(q(frame, '[data-testid="btn-go-practice"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习' });
+  ok('点"去练习"能进练习页', frame.contentWindow.location.hash.startsWith('#/practice'));
+} catch (e) {
+  ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>
