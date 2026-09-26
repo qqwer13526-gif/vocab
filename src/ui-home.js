@@ -140,7 +140,7 @@ function openNewLibForm(anchor, data) {
   }
   let color = PALETTE[data.libs.length % PALETTE.length];
 
-  const input = el('input', { name: 'name', type: 'text', placeholder: '词库名字，例如：四级 Test 2', maxlength: '40' });
+  const input = el('input', { name: 'name', type: 'text', placeholder: '词库名字，例如：四级 Test 2', maxlength: '40', 'aria-label': '新词库名字' });
   const swatches = PALETTE.map((c, i) =>
     el('button', {
       className: 'color',

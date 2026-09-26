@@ -52,12 +52,14 @@ export async function renderImport() {
     dataset: { testid: 'import-text' },
     rows: '6',
     spellcheck: 'false',
+    'aria-label': '粘贴词表（单词和释义两列）',
     placeholder: '在 Excel 里选中单词和释义两列，Ctrl+C，粘到这里'
   });
   const file = el('input', {
     type: 'file',
     dataset: { testid: 'import-file' },
     accept: '.csv,.tsv,.txt,text/plain,text/csv',
+    'aria-label': '选择词表文件',
     hidden: true
   });
   const fileBtn = el('button', { className: 'ghost', type: 'button', onclick: () => file.click() }, '选择文件…');
@@ -68,8 +70,8 @@ export async function renderImport() {
   const result = el('div', { className: 'import-result', dataset: { testid: 'import-result' } });
 
   // 列选择
-  const mkSelect = (testid, withNone) => {
-    const sel = el('select', { className: 'col-select', dataset: { testid } });
+  const mkSelect = (testid, withNone, label) => {
+    const sel = el('select', { className: 'col-select', dataset: { testid }, 'aria-label': label });
     if (withNone) sel.append(el('option', { value: '-1' }, '不用'));
     sel.addEventListener('change', () => {
       const key = testid === 'sel-term' ? 'termCol' : testid === 'sel-mean' ? 'meanCol' : testid === 'sel-pos' ? 'posCol' : 'exampleCol';
@@ -78,10 +80,10 @@ export async function renderImport() {
     });
     return sel;
   };
-  const selTerm = mkSelect('sel-term', false);
-  const selMean = mkSelect('sel-mean', false);
-  const selPos = mkSelect('sel-pos', true);
-  const selExample = mkSelect('sel-example', true);
+  const selTerm = mkSelect('sel-term', false, '单词在哪一列');
+  const selMean = mkSelect('sel-mean', false, '释义在哪一列');
+  const selPos = mkSelect('sel-pos', true, '词性在哪一列');
+  const selExample = mkSelect('sel-example', true, '例句或搭配在哪一列');
 
   const preview = el('table', { className: 'import-preview', dataset: { testid: 'import-preview' } }, [
     el('colgroup', {}),
@@ -91,7 +93,7 @@ export async function renderImport() {
 
   const libBox = el('div', { className: 'lib-checks', dataset: { testid: 'lib-checks' } });
   const newLibForm = el('form', { className: 'card newlib-form', dataset: { testid: 'import-newlib-form' }, hidden: true }, [
-    el('input', { name: 'name', type: 'text', placeholder: '新词库名字', maxlength: '40' }),
+    el('input', { name: 'name', type: 'text', placeholder: '新词库名字', maxlength: '40', 'aria-label': '新词库名字' }),
     el('div', { className: 'row-2' }, [
       el('button', { className: 'ghost', type: 'button', onclick: () => { newLibForm.hidden = true; } }, '取消'),
       el('button', { className: 'primary', type: 'submit' }, '创建')

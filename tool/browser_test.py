@@ -21,7 +21,7 @@ from headless import main_guard, read_result, run_dom  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(rel_path: str, port: int = 5191, budget: int | None = None, timeout: float = 120.0) -> int:
+def run(rel_path: str, port: int = 5191, budget: int | None = None, timeout: float = 120.0, extra: tuple[str, ...] = ()) -> int:
     page = (ROOT / rel_path).resolve()
     if not page.exists():
         print(f"找不到测试页：{page}")
@@ -32,7 +32,7 @@ def run(rel_path: str, port: int = 5191, budget: int | None = None, timeout: flo
     print(f"测试页：{url_path}   服务：{base}")
     try:
         # budget=None：靠页面自己拖住 load 事件，测试结束才 dump
-        dom = run_dom(f"{base}/{url_path}", budget_ms=budget, timeout=timeout)
+        dom = run_dom(f"{base}/{url_path}", budget_ms=budget, timeout=timeout, extra=extra)
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -64,11 +64,16 @@ def run(rel_path: str, port: int = 5191, budget: int | None = None, timeout: flo
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     opts = {a.split("=")[0]: a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--") and "=" in a}
+    flags = {a for a in sys.argv[1:] if a.startswith("--") and "=" not in a}
     if not args:
         print(__doc__)
         return 2
     budget = int(opts["--budget"]) if "--budget" in opts else None
-    return run(args[0], port=int(opts.get("--port", 5191)), budget=budget)
+    extra: tuple[str, ...] = ()
+    if "--reduced-motion" in flags:
+        # 让浏览器报告"系统已开启减弱动效"，用来验证 CSS 的对应处理真的生效
+        extra = ("--force-prefers-reduced-motion",)
+    return run(args[0], port=int(opts.get("--port", 5191)), budget=budget, extra=extra)
 
 
 if __name__ == "__main__":

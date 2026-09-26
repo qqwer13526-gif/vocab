@@ -27,6 +27,8 @@ STEPS: list[tuple[str, list[str], str]] = [
     ("⑥ 界面：导入", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
     ("⑦ 界面：词条", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
     ("⑧ 布局：各界面无横向滚动", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),
+    ("⑨ 无障碍与移动端（常规）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
+    ("⑩ 无障碍与移动端（系统开启减弱动效）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[int] | None]] = [
@@ -35,6 +37,7 @@ CHECKLIST: list[tuple[str, list[int] | None]] = [
     ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", [4, 5, 6, 7]),
     ("断网后刷新仍能用（service worker 生效）", [2]),
     ("手机与桌面尺寸都不出现横向滚动、不溢出", [8]),
+    ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", [9, 10]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

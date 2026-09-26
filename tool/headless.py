@@ -46,6 +46,7 @@ def run_dom(
     screenshot: str | None = None,
     keep_profile: bool = False,
     timeout: float = 90.0,
+    extra: tuple[str, ...] | list[str] = (),
 ) -> str:
     """加载 url，返回最终 DOM 文本。
 
@@ -77,6 +78,7 @@ def run_dom(
         args.append(f"--virtual-time-budget={int(budget_ms)}")
     if size:
         args.append(f"--window-size={int(size[0])},{int(size[1])}")
+    args.extend(extra)
     if screenshot:
         args.append(f"--screenshot={os.path.abspath(screenshot)}")
     else:

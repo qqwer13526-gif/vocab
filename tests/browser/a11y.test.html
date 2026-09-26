@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>无障碍与移动端检查</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 任务 10 的验收：无障碍 + 移动端那些"Chrome 上好好的、手机上不对劲"的坑。
+ *
+ * 同一份脚本跑两遍（见 tool/verify_all.py）：
+ *   python tool/browser_test.py tests/browser/a11y.test.html
+ *   python tool/browser_test.py tests/browser/a11y.test.html --reduced-motion
+ * 第二遍才会断言"减弱动效真的生效"，所以两遍合起来才构成完整证据。
+ */
+import { holdLoad, ok, openApp, report } from './harness.js';
+
+const release = holdLoad();
+const now = Date.now();
+let db = null;
+
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** 只看真正显示出来的控件：藏在折叠表单里的输入框不该算问题 */
+const visible = (n) => n.getClientRects().length > 0;
+
+function tapRect(n) {
+  // 复选框/单选框本身很小，点按区域靠外层 label，按 label 算
+  if (n.type === 'checkbox' || n.type === 'radio') {
+    const label = n.closest('label');
+    if (label) return label.getBoundingClientRect();
+  }
+  return n.getBoundingClientRect();
+}
+
+async function audit(label, frame) {
+  const doc = frame.contentDocument;
+  const style = frame.contentWindow.getComputedStyle.bind(frame.contentWindow);
+
+  const unnamed = [...doc.querySelectorAll('button')].filter((b) => {
+    const text = (b.textContent || '').trim();
+    return !text && !b.getAttribute('aria-label') && !b.getAttribute('title');
+  });
+  ok(`${label}：按钮都有可读名字`, unnamed.length === 0, unnamed.map((b) => b.className || b.outerHTML.slice(0, 40)).join(' | '));
+
+  const unlabeled = [...doc.querySelectorAll('input, textarea, select')].filter((f) => {
+    if (f.type === 'hidden' || f.hidden || !visible(f)) return false;
+    if (f.getAttribute('aria-label') || f.getAttribute('title')) return false;
+    if (f.closest('label')) return false;
+    if (f.id && doc.querySelector(`label[for="${f.id}"]`)) return false;
+    return true;
+  });
+  ok(`${label}：输入控件都有标签`, unlabeled.length === 0, unlabeled.map((f) => f.className || f.type).join(' | '));
+
+  const tiny = [...doc.querySelectorAll('button, a[href], input, select, textarea')].filter((n) => {
+    if (!visible(n)) return false;
+    const r = tapRect(n);
+    if (r.width === 0 && r.height === 0) return false;
+    return r.height < 32 || r.width < 24;
+  });
+  ok(`${label}：点按区域不小于 32×24`, tiny.length === 0, tiny.map((n) => `${n.tagName.toLowerCase()}.${n.className}=${Math.round(tapRect(n).height)}`).join(' | '));
+
+  const smallFont = [...doc.querySelectorAll('input, textarea, select')].filter((n) => {
+    if (n.type === 'checkbox' || n.type === 'radio' || n.type === 'file' || !visible(n)) return false;
+    return parseFloat(style(n).fontSize) < 16;
+  });
+  ok(
+    `${label}：输入框字号 ≥16px（否则 iOS 聚焦时会自动放大页面）`,
+    smallFont.length === 0,
+    smallFont.map((n) => `${n.className}=${style(n).fontSize}`).join(' | ')
+  );
+
+  const unfocusable = [...doc.querySelectorAll('button, a[href], input, select, textarea')].filter(
+    (n) => !n.disabled && visible(n) && n.tabIndex < 0
+  );
+  ok(`${label}：可交互元素都能 Tab 到`, unfocusable.length === 0, unfocusable.map((n) => n.className).join(' | '));
+
+  const overflowsX = doc.documentElement.scrollWidth > doc.documentElement.clientWidth + 1;
+  ok(`${label}：没有横向滚动`, !overflowsX, `scrollWidth=${doc.documentElement.scrollWidth} clientWidth=${doc.documentElement.clientWidth}`);
+}
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-a';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: now });
+  let i = 0;
+  for (const [term, pos, meanings] of [
+    ['absorb', 'v.', ['take in or soak up吸收', '使专心']],
+    ['access', 'v./n.', ['存取（信息）', '接近']],
+    ['accomplish', 'v.', ['完成', '实现']]
+  ]) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic: 'əbˈsɔːb', pos, meanings, example: 'be absorbed in全神贯注于', note: '', createdAt: now + i++, updatedAt: now });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: now, updatedAt: now });
+  }
+  await db.put('prog', { wordId: 'w-access', box: 2, dueAt: now - 1000, streak: 1, lapses: 0, lastDir: 'en2zh', updatedAt: now });
+  return lib;
+}
+
+try {
+  db = await import('../../src/db.js');
+
+  // ---------------- index.html 的全局项 ----------------
+  const shell = await (await fetch('../../index.html')).text();
+  ok('index.html 声明了中文', shell.includes('lang="zh-CN"'));
+  ok('有非空 title', /<title>[^<]+<\/title>/.test(shell), (shell.match(/<title>([^<]*)<\/title>/) || [])[1]);
+  const viewport = (shell.match(/<meta name="viewport" content="([^"]+)"/) || [])[1] || '';
+  ok('viewport 不禁止缩放（无障碍要求）', !!viewport && !/maximum-scale|user-scalable\s*=\s*no/.test(viewport), viewport);
+  ok('声明了 theme-color', /<meta name="theme-color"/.test(shell));
+
+  // ---------------- 四个界面逐个审 ----------------
+  const lib = await seed();
+  await audit('库列表', await openApp({ hash: '#/', sel: '[data-testid="lib-row"]', size: [390, 844] }));
+  await audit('练习', await openApp({ hash: `#/practice?lib=${lib}`, sel: '[data-testid="practice-input"]', size: [390, 844] }));
+  await audit('导入', await openApp({ hash: '#/import', sel: '[data-testid="import-text"]', size: [390, 844] }));
+  await audit('词条列表', await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]', size: [390, 844] }));
+  await audit('词条编辑', await openApp({ hash: `#/word?id=w-absorb&lib=${lib}`, sel: '[data-testid="word-edit"]', size: [390, 844] }));
+
+  // ---------------- 减弱动效 ----------------
+  const motionFrame = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]', size: [390, 844] });
+  const bar = motionFrame.contentDocument.querySelector('[data-testid="lib-progress"] > i');
+  const dur = motionFrame.contentWindow.getComputedStyle(bar).transitionDuration;
+  if (reduced) {
+    ok('系统开了"减弱动效"时，过渡被关掉', dur === '0s', `transition-duration=${dur}`);
+  } else {
+    ok('没开减弱动效时，进度条是有过渡的（这条是上一条的对照）', dur !== '0s', `transition-duration=${dur}`);
+  }
+} catch (e) {
+  ok('无障碍检查脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>
