@@ -33,6 +33,14 @@ class Handler(SimpleHTTPRequestHandler):
         ".svg": "image/svg+xml",
     }
 
+    def do_GET(self):  # noqa: N802
+        # 浏览器总要 favicon：没有就安静地回 204，别在日志里刷一堆 404 回溯
+        if self.path.split("?")[0] == "/favicon.ico" and not (ROOT / "favicon.ico").exists():
+            self.send_response(204)
+            self.end_headers()
+            return
+        super().do_GET()
+
     def end_headers(self):  # 开发时别缓存，免得改完看不到
         self.send_header("Cache-Control", "no-store")
         self.send_header("Service-Worker-Allowed", "/")

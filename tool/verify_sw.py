@@ -14,58 +14,26 @@
 
 from __future__ import annotations
 
-import functools
 import json
 import re
 import sys
 import tempfile
-import threading
-import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import serve  # noqa: E402
+import testserver  # noqa: E402
 from headless import Report, body_flag, main_guard, read_result, run_dom  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PORT = 5181
 
 
-class HarnessHandler(serve.Handler):
-    """/__slow 拖住 load 事件；/__shutdown 让服务器当场关门（仅测试用）。"""
-
-    def do_GET(self):  # noqa: N802
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/__slow":
-            ms = int(urllib.parse.parse_qs(parsed.query).get("ms", ["15000"])[0])
-            time.sleep(min(ms, 40000) / 1000)
-            self.send_response(204)
-            self.end_headers()
-            return
-        if parsed.path == "/__shutdown":
-            body = b"ok"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            self.wfile.flush()
-            srv = self.server
-            # 连监听 socket 一起关掉，后续请求立刻 ECONNREFUSED（否则浏览器会挂在那儿等）
-            threading.Thread(target=lambda: (srv.shutdown(), srv.server_close()), daemon=True).start()
-            return
-        super().do_GET()
-
-
-def start_server(port: int) -> tuple[serve.ThreadingHTTPServer, str]:
-    handler = functools.partial(HarnessHandler, directory=str(ROOT))
-    httpd = serve.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    return httpd, f"http://127.0.0.1:{port}"
+def start_server(port: int):
+    """测试服务器（带 /__slow 与 /__shutdown，见 tool/testserver.py）。"""
+    return testserver.start(port)
 
 
 def get(url: str) -> tuple[int, bytes]:

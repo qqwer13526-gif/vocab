@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>db.js 浏览器内测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* IndexedDB 只能用浏览器测（Node 里没有），所以这个页面就是 db.js 的单元测试。
+   跑法：python tool/browser_test.py tests/browser/db.test.html
+*/
+import { ok, eq, threw, holdLoad, report } from './harness.js';
+
+const release = holdLoad();
+const now = Date.now();
+const mk = (over = {}) => ({
+  id: crypto.randomUUID(),
+  term: 'apple', termNorm: 'apple', phonetic: '', pos: 'n.',
+  meanings: ['苹果'], example: '', note: '',
+  createdAt: now, updatedAt: now, ...over
+});
+
+let db = null;
+try {
+  // 动态 import：万一 db.js 加载失败，也能把原因写进结果里
+  db = await import('../../src/db.js');
+  await db.wipeAll();
+
+  // ---------- 1. 表与索引 ----------
+  eq('建出 5 张表', (await db.storeNames()).sort(), ['libs', 'links', 'meta', 'prog', 'words']);
+  ok('words 有 by_termNorm', (await db.indexNames('words')).includes('by_termNorm'));
+  const li = await db.indexNames('links');
+  ok('links 有 by_word 和 by_lib', li.includes('by_word') && li.includes('by_lib'), JSON.stringify(li));
+  ok('prog 有 by_dueAt', (await db.indexNames('prog')).includes('by_dueAt'));
+
+  // ---------- 2. 增删改查 ----------
+  const w = mk({ term: 'ice cream', termNorm: 'icecream', meanings: ['冰淇淋', '雪糕'] });
+  await db.put('words', w);
+  const got = await db.get('words', w.id);
+  eq('put/get 往返（中文与数组不丢）', [got.term, got.meanings], ['ice cream', ['冰淇淋', '雪糕']]);
+
+  await db.put('words', mk({ term: '苹果', termNorm: '苹果' }));
+  await db.put('words', mk({ id: w.id, term: 'ice cream', termNorm: 'icecream', meanings: ['冰淇淋'] }));
+  eq('同 id 再 put 是覆盖，不是新增', await db.count('words'), 2);
+  eq('覆盖后释义是新值', (await db.get('words', w.id)).meanings, ['冰淇淋']);
+
+  await threw('同 termNorm 不同 id 会被唯一索引挡住', () => db.put('words', mk({ term: '苹果', termNorm: '苹果' })));
+  eq('被挡住后没有多出一条', await db.count('words'), 2);
+
+  eq('all() 拿得到全部', (await db.all('words')).length, 2);
+
+  // ---------- 3. 归属与索引查询 ----------
+  const libA = crypto.randomUUID(), libB = crypto.randomUUID();
+  await db.put('libs', { id: libA, name: '四级', color: '#3b5bff', order: 0, updatedAt: now });
+  await db.put('libs', { id: libB, name: '考研', color: '#ff9f0a', order: 1, updatedAt: now });
+  const all = await db.all('words');
+  for (const libId of [libA, libB]) {
+    await db.put('links', { id: `${all[0].id}|${libId}`, wordId: all[0].id, libId, addedAt: now, updatedAt: now });
+  }
+  await db.put('links', { id: `${all[1].id}|${libA}`, wordId: all[1].id, libId: libA, addedAt: now, updatedAt: now });
+  eq('byIndex 按库查归属', (await db.byIndex('links', 'by_lib', libA)).length, 2);
+  eq('一个词可以同时属于两个库', (await db.byIndex('links', 'by_word', all[0].id)).length, 2);
+
+  // ---------- 4. 软删除 ----------
+  await db.softDelete('words', all[1].id, now + 1);
+  const after = await db.all('words');
+  eq('软删除后记录还在', after.length, 2);
+  eq('软删除只置标记', (await db.get('words', all[1].id)).deleted, true);
+  eq('软删除会更新 updatedAt', (await db.get('words', all[1].id)).updatedAt, now + 1);
+
+  // ---------- 5. 导入（一个事务） ----------
+  await db.wipeAll();
+  const plan = {
+    create: [
+      { term: 'run', termNorm: 'run', meanings: ['跑', '经营'], pos: 'v.', createdAt: now },
+      { term: 'book', termNorm: 'book', meanings: ['书'], pos: 'n.', createdAt: now }
+    ],
+    merge: [],
+    skip: 0
+  };
+  const r1 = await db.applyImport(plan, { libIds: [libA, libB], now });
+  eq('导入返回计数', [r1.created, r1.merged], [2, 0]);
+  eq('导入写入 2 个词', await db.count('words'), 2);
+  eq('两个词都归入两个库（2×2 条归属）', await db.count('links'), 4);
+  const runWord = (await db.all('words')).find((x) => x.termNorm === 'run');
+  ok('导入的词带上了 createdAt/updatedAt', runWord.createdAt === now && runWord.updatedAt === now);
+
+  // 合并：追加新释义、已有的不重复
+  const r2 = await db.applyImport(
+    { create: [], merge: [{ id: runWord.id, addMeanings: ['经营', '奔跑'] }], skip: 0 },
+    { libIds: [libA], now: now + 5 }
+  );
+  eq('合并计数', r2.merged, 1);
+  eq('合并后释义去重追加', (await db.get('words', runWord.id)).meanings, ['跑', '经营', '奔跑']);
+  eq('合并后不会多出词', await db.count('words'), 2);
+
+  // 重新导入软删除过的词 → 复活
+  await db.softDelete('words', runWord.id, now + 6);
+  await db.applyImport({ create: [], merge: [{ id: runWord.id, addMeanings: [], revive: true }], skip: 0 }, { libIds: [], now: now + 7 });
+  eq('复活后 deleted 标记消失', (await db.get('words', runWord.id)).deleted, undefined);
+
+  // 原子性：一批里有一条撞唯一索引 → 整批不落库
+  const before = await db.count('words');
+  await threw('导入撞唯一索引时整批失败', () =>
+    db.applyImport(
+      {
+        create: [
+          { term: 'zebra', termNorm: 'zebra', meanings: ['斑马'], createdAt: now },
+          { term: 'book', termNorm: 'book', meanings: ['书'], createdAt: now } // book 已存在
+        ],
+        merge: [], skip: 0
+      },
+      { libIds: [libA], now: now + 8 }
+    )
+  );
+  eq('失败后词数没变', await db.count('words'), before);
+  eq('失败后前一条也没落库（原子性）', (await db.all('words')).some((x) => x.termNorm === 'zebra'), false);
+} catch (e) {
+  ok('测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>
