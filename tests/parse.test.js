@@ -6,6 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { detectDelimiter, guessColumns, parseTable, planImport, rowsToWords } from '../src/parse.js';
 
@@ -226,4 +227,31 @@ test('导入计划：同一批里的重复词只建一条', () => {
 test('导入计划：空输入不炸', () => {
   assert.deepEqual(planImport([], existing, 'skip'), { create: [], merge: [], skip: 0 });
   assert.deepEqual(planImport(incoming, undefined, 'skip').create.length, 3);
+});
+
+// ---------------------------------------------------------------- 真表形态的样例文件
+
+test('样例文件（tests/fixtures/vocab-sample.tsv）能整份解析出来', () => {
+  const text = readFileSync(new URL('./fixtures/vocab-sample.tsv', import.meta.url), 'utf8');
+  const { rows, delim } = parseTable(text);
+  assert.equal(delim, '\t', '从 Excel 复制出来的是 Tab 分隔');
+
+  const cols = guessColumns(rows);
+  assert.equal(cols.source, 'header');
+  assert.equal(cols.termCol, 1);
+  assert.equal(cols.meanCol, 3);
+  assert.equal(cols.posCol, 2);
+  assert.equal(cols.exampleCol, 4);
+
+  const items = rowsToWords(rows, cols);
+  assert.equal(items.length, 10, '10 个词条，标题/统计/表头都不算');
+  assert.deepEqual(
+    items.map((i) => i.term),
+    ['absorb', 'acceptable', 'acceptance', 'access', 'accomplish', 'additional', 'afford', 'annoy', 'apply', 'artist']
+  );
+  assert.deepEqual(items[0].meanings, ['take in or soak up吸收', '使专心']);
+  assert.equal(items[0].pos, 'v.');
+  assert.equal(items[0].example, 'be absorbed in全神贯注于');
+  assert.equal(items[3].pos, 'v./n.');
+  assert.equal(items[3].termNorm, 'access');
 });
