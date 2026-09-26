@@ -78,10 +78,50 @@ export function extractPos(meanings = []) {
   return { pos, meanings: out.filter(Boolean) };
 }
 
+const CJK_CH = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
+const ALNUM_CH = /[0-9a-z]/i;
+const BRACKET_RE = /[（(【[][^）)】\]]*[）)】\]]/g;
+
+/**
+ * 把"英汉混排"的一段在字母↔汉字交界处切开（真实词表里的释义就是这个形态）：
+ *     "take in or soak up吸收" → ['take in or soak up', '吸收']
+ *     "存取（信息）"           → ['存取（信息）']（括号说明跟着前面的汉字走，另有去括号变体）
+ */
+export function scriptParts(s) {
+  const out = [];
+  let cur = '';
+  let curCjk = null;
+  for (const ch of String(s ?? '')) {
+    if (!ALNUM_CH.test(ch) && !CJK_CH.test(ch)) {
+      cur += ch; // 空格和标点跟着当前段
+      continue;
+    }
+    const isCjk = CJK_CH.test(ch);
+    if (curCjk === null) curCjk = isCjk;
+    if (isCjk !== curCjk) {
+      out.push(cur);
+      cur = ch;
+      curCjk = isCjk;
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
 /** 把一组释义摊平成"可以命中的答案集合" */
 function targetsOf(meanings) {
   const { meanings: clean } = extractPos(meanings || []);
-  return clean.flatMap(splitMeanings).map(normAnswer).filter(Boolean);
+  const out = new Set();
+  for (const seg of clean.flatMap(splitMeanings)) {
+    const unbracketed = seg.replace(BRACKET_RE, '');
+    for (const variant of [seg, unbracketed, ...scriptParts(seg), ...scriptParts(unbracketed)]) {
+      const n = normAnswer(variant);
+      if (n) out.add(n);
+    }
+  }
+  return [...out];
 }
 
 /**

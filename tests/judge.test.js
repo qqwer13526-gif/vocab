@@ -89,6 +89,21 @@ test('英译中：没有释义时不炸', () => {
   assert.deepEqual(judgeEn2Zh('苹果', undefined), { ok: false, near: false });
 });
 
+test('英译中：英汉混排的释义（真实词表形态），中文那半也算对', () => {
+  const m = ['take in or soak up吸收；使专心'];
+  assert.equal(judgeEn2Zh('吸收', m).ok, true, '只写了中文那一半');
+  assert.equal(judgeEn2Zh('使专心', m).ok, true);
+  assert.equal(judgeEn2Zh('take in or soak up', m).ok, true, '写英文解释也算对');
+  assert.equal(judgeEn2Zh('使专心；吸收', m).ok, true);
+});
+
+test('英译中：真词表里的几行挨个过一遍', () => {
+  assert.equal(judgeEn2Zh('可接受的，合意的', ['good enough to be accepted; satisfactory可接受的，合意的']).ok, true);
+  assert.equal(judgeEn2Zh('存取', ['way to enter or reach; ability to use存取（信息）；接近；通道']).ok, true);
+  assert.equal(judgeEn2Zh('接近', ['way to enter or reach; ability to use存取（信息）；接近；通道']).ok, true);
+  assert.equal(judgeEn2Zh('完成；实现', ['succeed in doing; finish successfully完成；实现']).ok, true);
+});
+
 // ---------------------------------------------------------------- 中 → 英
 
 test('中译英：忽略大小写和首尾空格', () => {
