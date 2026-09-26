@@ -8,7 +8,7 @@
  *
  * 注意：ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个 HEAD 检查。
  */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
