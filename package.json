@@ -1,0 +1,11 @@
+{
+  "name": "vocab-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "自己的背单词 PWA：两个方向手打练习 + Leitner 遗忘曲线，离线可用",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "serve": "python tool/serve.py"
+  }
+}
