@@ -296,6 +296,7 @@ body[data-view='practice'] #tabbar { display: none; }
 .import-stats { color: var(--muted); font-size: 14px; }
 .import-result { font-size: 14px; }
 .import-result[data-kind='ok'] { color: var(--ok); }
+.import-result[data-kind='info'] { color: var(--muted); }
 .import-result[data-kind='warn'] { color: var(--warn); }
 .import-result[data-kind='bad'] { color: var(--bad); }
 

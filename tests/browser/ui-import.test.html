@@ -187,10 +187,36 @@ try {
   xls.dispatchEvent(new Event('change', { bubbles: true }));
   await waitFor(() => t(frame, '[data-testid="import-result"]').length > 0, { label: '给出 Excel 的提示' });
   const xmsg = t(frame, '[data-testid="import-result"]');
-  ok('明确说 Excel 读不了', xmsg.includes('Excel'), xmsg);
+  ok('损坏的 Excel 要说清楚并给出出路', xmsg.includes('Excel'), xmsg);
   ok('并给出可操作的出路（转成 tsv / 复制粘贴）', xmsg.includes('tsv') && xmsg.includes('复制'), xmsg);
   eq('没有把二进制垃圾当成词写进库', await db.count('words'), n0);
   ok('粘贴框保持空着（没塞进乱码）', q(frame, '[data-testid="import-text"]').value === '');
+
+  // ---------------- 11. 直接选真的 .xlsx 也能导 ----------------
+  await db.wipeAll();
+  await db.put('libs', { id: libA, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  const xf2 = q(frame, '[data-testid="import-file"]');
+  const dt3 = new DataTransfer();
+  const xbuf = await (await fetch('../fixtures/vocab-sample.xlsx')).arrayBuffer();
+  dt3.items.add(
+    new File([xbuf], '英语词汇背诵检查表（一）.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
+  );
+  xf2.files = dt3.files;
+  xf2.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => t(frame, '[data-testid="import-stats"]').includes('新词 10'), { label: 'Excel 解析出 10 个新词' });
+  ok('选 .xlsx 能解析出 10 个新词', true);
+  ok('结果条说明是从 Excel 读的', t(frame, '[data-testid="import-result"]').includes('Excel'), t(frame, '[data-testid="import-result"]'));
+  eq('Excel 里的列也认对了（单词=第2列）', q(frame, '[data-testid="sel-term"]').value, '1');
+  eq('释义列也对', q(frame, '[data-testid="sel-mean"]').value, '3');
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(async () => (await db.count('words')) === 10, { label: 'Excel 里的词写库' });
+  const ab = (await db.all('words')).find((w) => w.termNorm === 'absorb');
+  ok('Excel 里的词带着释义进库了', ab && ab.meanings.length === 2, JSON.stringify(ab?.meanings));
+  eq('词性也从 Excel 里带进来了', ab.pos, 'v.');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

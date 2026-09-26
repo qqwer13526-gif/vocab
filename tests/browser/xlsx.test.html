@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>xlsx.js · 读 Excel</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 测试"应用直接读 .xlsx"：不依赖任何库，用浏览器自带的解压 + XML 解析。
+   跑法：python tool/browser_test.py tests/browser/xlsx.test.html
+   样例文件由 tool/make_sample_xlsx.py 从 vocab-sample.tsv 生成，形态与用户的真表一致。
+*/
+import { eq, holdLoad, ok, report } from './harness.js';
+
+const release = holdLoad();
+let xlsx = null;
+
+try {
+  xlsx = await import('../../src/xlsx.js');
+
+  const buf = await (await fetch('../fixtures/vocab-sample.xlsx')).arrayBuffer();
+  ok('拿到了 .xlsx 文件', buf.byteLength > 1000, `${buf.byteLength} 字节`);
+
+  const sheets = await xlsx.readXlsx(buf);
+  eq('只有一张工作表', sheets.length, 1);
+  eq('工作表名字读出来了', sheets[0].name, '词汇表');
+
+  const rows = sheets[0].rows;
+  ok('行数对得上（标题/统计/空/表头 + 10 行数据）', rows.length >= 14, String(rows.length));
+  eq('第 1 行是标题', rows[0][0], '英语词汇背诵检查表（四级 Test 1）');
+  eq('第 2 行的数字单元格读成文本', [rows[1][0], rows[1][1]], ['总词数', '187']);
+  eq('第 3 行是空行', rows[2].length, 0);
+  eq('第 4 行是表头', rows[3].slice(0, 5), ['序号', '单词', '词性', '释义', '常用搭配']);
+  eq('第 5 行的序号是数字', rows[4][0], '1');
+  eq('单词读出来了', rows[4][1], 'absorb');
+  ok('英汉混排的释义完整', rows[4][3].includes('take in or soak up吸收') && rows[4][3].includes('使专心'), rows[4][3]);
+  eq('最后一行的单词', rows[13][1], 'artist');
+
+  // 直接套用应用自己的解析逻辑，看看认不认得出
+  const parse = await import('../../src/parse.js');
+  const cols = parse.guessColumns(rows);
+  const items = parse.rowsToWords(rows, cols);
+  eq('从 Excel 里认出 10 个词', items.length, 10);
+  eq('第一个词的释义拆对了', items[0].meanings, ['take in or soak up吸收', '使专心']);
+  eq('词性也认出来了', items[0].pos, 'v.');
+
+  // 坏文件要报清楚，而不是静默失败
+  try {
+    await xlsx.readXlsx(new TextEncoder().encode('这不是 zip').buffer);
+    ok('坏文件应该报错', false, '居然没报错');
+  } catch (e) {
+    ok('坏文件给出可以看懂的错误', /xlsx|zip/.test(String(e.message)), String(e.message));
+  }
+} catch (e) {
+  ok('xlsx 测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

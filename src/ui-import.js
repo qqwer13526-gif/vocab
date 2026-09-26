@@ -9,6 +9,7 @@ import { $, el } from './app.js';
 import { all, applyImport, put } from './db.js';
 import { guessColumns, parseTable, planImport, rowsToWords } from './parse.js';
 import { PALETTE, loadAll, nextLibOrder } from './store.js';
+import { readXlsx, rowsToTsv } from './xlsx.js';
 
 const PREVIEW_ROWS = 5;
 
@@ -58,13 +59,15 @@ export async function renderImport() {
   const file = el('input', {
     type: 'file',
     dataset: { testid: 'import-file' },
-    accept: '.csv,.tsv,.txt,text/plain,text/csv',
+    // 把能读的格式都列进来，别让 iOS 把它们置灰点不动；
+    // 读不了的（.xls/.ods）也放进来，选了我们给明确提示，而不是让系统默默禁用
+    accept: '.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/plain,text/csv',
     'aria-label': '选择词表文件',
     hidden: true
   });
   const fileBtn = el('button', { className: 'ghost', type: 'button', onclick: () => file.click() }, '选择文件…');
   const fileHint = el('div', { className: 'file-hint', dataset: { testid: 'file-hint' } },
-    '只认 .csv / .tsv / .txt。Excel 的 .xlsx 读不了（浏览器里没有 Excel 解析器）——先在电脑上跑 python tool\\xlsx_to_tsv.py 转成 .tsv，或者直接在 Excel 里选中单词和释义两列复制粘贴。');
+    '支持 .csv / .tsv / .txt，以及 Excel 的 .xlsx（直接选就行，应用自己会读）。老式的 .xls 请先「另存为 .xlsx」；也可以直接在 Excel 里选中单词和释义两列复制，粘到上面的框里。');
   const hint = el('div', { className: 'import-hint', dataset: { testid: 'import-hint' } },
     '在 Excel 里选中「单词」和「释义」两列 → Ctrl+C → 粘到上面的框里；也可以直接选 .csv / .tsv 文件。前三行的标题、统计、空行会自动跳过，表头和列会自动识别。');
 
@@ -284,26 +287,56 @@ export async function renderImport() {
 
   ta.addEventListener('input', recompute);
 
-  /** Excel 的二进制格式浏览器读不了：选到它要明确说清楚，而不是默默显示"新词 0" */
-  const SHEET_RE = /\.(xlsx|xls|xlsm|xlsb|ods)$/i;
+  const XLSX_RE = /\.(xlsx|xlsm)$/i;
+  const OLD_SHEET_RE = /\.(xls|xlsb|ods|numbers)$/i;
+
   file.addEventListener('change', async () => {
     const f = file.files && file.files[0];
     if (!f) return;
     view.querySelector('[data-testid="file-name"]').textContent = f.name;
 
-    if (SHEET_RE.test(f.name) || /spreadsheet|ms-excel/i.test(f.type || '')) {
+    // ① 现代 Excel：自己解压 XML 读出来（见 src/xlsx.js）
+    if (XLSX_RE.test(f.name)) {
+      try {
+        const sheets = await readXlsx(await f.arrayBuffer());
+        const sheet = sheets[0];
+        ta.value = rowsToTsv(sheet.rows); // 转成 TSV，后面认列/预览/导入整条流程原样复用
+        recompute();
+        showResult(`已从 Excel 工作表「${sheet.name}」读到 ${sheet.rows.length} 行`, 'info');
+      } catch (err) {
+        ta.value = '';
+        recompute();
+        showResult(
+          `读这个 Excel 失败了：${err && err.message ? err.message : err}。` +
+            '可以改用：① 在电脑上跑 python tool\\xlsx_to_tsv.py 转成 .tsv；' +
+            '② 用 WPS / Excel 打开它，选中「单词」和「释义」两列复制后粘到上面的框里。',
+          'bad'
+        );
+      }
+      return;
+    }
+
+    // ② 老格式 Excel / ODS：明确说清楚，别让人对着"新词 0"发懵
+    if (OLD_SHEET_RE.test(f.name)) {
       ta.value = '';
-      recompute(); // 先清掉上一次的预览（它会把结果条也清空）
+      recompute();
       showResult(
-        `这是 Excel 文件（${f.name.split('.').pop().toLowerCase()}），浏览器里的应用读不了它。两个办法：` +
-          '① 在电脑上先转成 .tsv（项目目录里跑 python tool\\xlsx_to_tsv.py）；' +
-          '② 用手机上的 WPS / Excel 打开它，选中「单词」和「释义」两列，复制后粘到上面的框里。',
+        `老式的表格格式（.${f.name.split('.').pop().toLowerCase()}）读不了，` +
+          '请在 Excel / WPS 里「另存为 .xlsx」再来，或者选中「单词」和「释义」两列复制后粘到上面的框里。',
         'bad'
       );
       return;
     }
 
-    ta.value = decodeText(await f.arrayBuffer());
+    // ③ 纯文本：.csv / .tsv / .txt
+    const text = decodeText(await f.arrayBuffer());
+    if (text.includes('\u0000')) {
+      ta.value = '';
+      recompute();
+      showResult('这看起来不是文本表格文件（可能是 PDF / 图片 / 二进制）。请用 .csv / .tsv / .txt，或 Excel 的 .xlsx。', 'bad');
+      return;
+    }
+    ta.value = text;
     recompute();
   });
 

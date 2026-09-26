@@ -30,6 +30,7 @@ STEPS: list[tuple[str, list[str], str]] = [
     ("⑧ 布局：各界面无横向滚动", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),
     ("⑨ 无障碍与移动端（常规）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
     ("⑩ 无障碍与移动端（系统开启减弱动效）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
+    ("⑪ 直接读 Excel（.xlsx）", [PY, "tool/browser_test.py", "tests/browser/xlsx.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[int] | None]] = [

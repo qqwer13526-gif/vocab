@@ -8,7 +8,7 @@
  *
  * 注意：ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个 HEAD 检查。
  */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
@@ -28,7 +28,8 @@ const ASSETS = [
   './src/ui-home.js',
   './src/ui-practice.js',
   './src/ui-import.js',
-  './src/ui-word.js'
+  './src/ui-word.js',
+  './src/xlsx.js'
 ];
 
 self.addEventListener('install', (e) => {
