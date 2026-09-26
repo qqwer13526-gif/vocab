@@ -41,6 +41,14 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def handle_one_request(self):
+        # 浏览器中途取消请求（比如测试页放行了那个 /__slow）会让写 socket 失败，
+        # 这是正常现象，不该刷一堆回溯
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
     def end_headers(self):  # 开发时别缓存，免得改完看不到
         self.send_header("Cache-Control", "no-store")
         self.send_header("Service-Worker-Allowed", "/")

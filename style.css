@@ -7,6 +7,9 @@
   --line: #e5e7eb;
   --card: #f7f7f8;
   --accent: #3b5bff;
+  --ok: #0f8a44;
+  --warn: #a86500;
+  --bad: #c0392b;
   --r: 12px;
   --sp: 16px;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -20,10 +23,16 @@
     --muted: #9aa0a6;
     --line: #26282c;
     --card: #17191c;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
   }
 }
 
 * { box-sizing: border-box; }
+
+/* hidden 必须真的隐藏：因为后面有用 display:flex/grid 的规则，会盖掉浏览器默认的 [hidden] */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -159,3 +168,51 @@ button.color { width: 30px; height: 30px; border: 2px solid transparent; border-
 button.color[aria-pressed='true'] { border-color: var(--fg); }
 .row-2 { display: flex; gap: 10px; }
 .row-2 .primary { flex: 1.4; }
+
+/* ---------------------------------------------------------------- 练习 */
+
+body[data-view='practice'] #tabbar { display: none; }
+
+.prac-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.prac-quit {
+  width: 36px; height: 36px; flex: none;
+  border: 0; border-radius: 50%;
+  background: var(--card); color: var(--muted);
+  font-size: 15px; line-height: 1;
+}
+.prac-progress { color: var(--muted); font-size: 14px; }
+.dir-switch { margin-left: auto; display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--card); }
+.dir-switch button {
+  border: 0; border-radius: 7px; padding: 6px 9px;
+  background: none; color: var(--muted);
+  font: inherit; font-size: 13px;
+}
+.dir-switch button[aria-pressed='true'] { background: var(--bg); color: var(--fg); font-weight: 600; }
+
+.prac-card { display: grid; gap: 14px; padding: 20px 18px; }
+.prac-prompt { font-size: clamp(26px, 7.5vw, 42px); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+.prac-hint { color: var(--muted); font-size: 14px; }
+
+.prac-input {
+  min-height: 52px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 18px;
+}
+.prac-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.prac-input:disabled { color: var(--muted); }
+
+.feedback { padding: 12px 14px; border-radius: 10px; font-size: 15px; }
+.feedback[data-ok='true'] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+.feedback[data-ok='false'] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.feedback[data-ok='near'], .feedback[data-ok='retry'] { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+
+.fb-actions { display: flex; gap: 10px; }
+.fb-actions > * { flex: 1; }
+
+.session-summary { display: grid; gap: 16px; padding: 22px 18px; }
+.summary-text { font-size: 17px; line-height: 1.6; }

@@ -5,6 +5,7 @@
  */
 
 import { renderHome } from './ui-home.js';
+import { renderPractice } from './ui-practice.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -95,7 +96,7 @@ function placeholder(text) {
 }
 
 register('home', renderHome);
-register('practice', placeholder('练习界面施工中（任务 7）'));
+register('practice', renderPractice);
 register('import', placeholder('导入界面施工中（任务 8）'));
 register('word', placeholder('词条界面施工中（任务 9）'));
 

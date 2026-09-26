@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -36,7 +37,8 @@ def one(base: str, profile: str, prefix: str, hash_: str, theme: str, size: tupl
         suffix += "-dark"
     path = OUT / f"{prefix}-{suffix}.png"
     win = (max(WINDOW_MIN_W, w), h)
-    url = f"{base}/tool/shot.html?w={w}&h={h}&theme={theme}&hash={hash_}"
+    # hash 里带 # 和 ?，必须编码，否则会被当成 URL 片段截断（截出来还是首页）
+    url = f"{base}/tool/shot.html?w={w}&h={h}&theme={theme}&hash={urllib.parse.quote(hash_, safe='')}"
     run_dom(url, budget_ms=None, profile=profile, size=win, screenshot=str(path), timeout=120)
 
     if win != (w, h):
