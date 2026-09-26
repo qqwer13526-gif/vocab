@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>service worker 体检报告（测试用）</title>
+</head>
+<body>
+<pre id="result">{}</pre>
+<script>
+  // 把 sw_harness.html 存下的体检数据原样交出来，给 tool/verify_sw.py 读
+  document.getElementById('result').textContent = localStorage.getItem('sw-harness') || '{}';
+</script>
+</body>
+</html>

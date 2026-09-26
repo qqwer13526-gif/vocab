@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="背单词">
+<meta name="description" content="自己的词表，两个方向手打练习，按遗忘曲线自动排复习">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>背单词</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+  <section id="view-home"     class="view" hidden></section>
+  <section id="view-practice" class="view" hidden></section>
+  <section id="view-import"   class="view" hidden></section>
+  <section id="view-word"     class="view" hidden></section>
+</main>
+<nav id="tabbar">
+  <a href="#/"        data-testid="tab-home">词库</a>
+  <a href="#/import"  data-testid="tab-import">导入</a>
+</nav>
+<p id="boot-error" hidden>这个应用需要 JavaScript 才能运行。</p>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>service worker 验证助手（测试用）</title>
+</head>
+<body>
+<pre id="result">{"stage":"starting"}</pre>
+<!-- 挂一个慢请求，把 load 事件拖住，免得 Edge 在导航之前就把 DOM dump 走了 -->
+<img src="../__slow?ms=25000" alt="" width="1" height="1">
+<script type="module">
+/* 流程：装 SW → 等激活 → 确认预缓存清单已落地 → 让测试服务器关闭自己
+ *      → 导航回首页。此时页面只能靠 service worker 从缓存里端出来，
+ *        所以"首页还能渲染"就是离线可用的硬证据。
+ * 体检数据写进 localStorage，导航后由 sw_report.html 读出来。
+ */
+const out = document.getElementById('result');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (o) => { out.textContent = JSON.stringify(o); };
+const report = { stage: 'start' };
+
+function save(extra) {
+  Object.assign(report, extra || {});
+  try { localStorage.setItem('sw-harness', JSON.stringify(report)); } catch {}
+  say(report);
+}
+
+try {
+  const reg = await navigator.serviceWorker.register(new URL('../sw.js', document.baseURI));
+  save({ registered: true, installing: !!reg.installing, waiting: !!reg.waiting, active: reg.active ? reg.active.state : null });
+
+  await navigator.serviceWorker.ready;
+  const reg2 = await navigator.serviceWorker.getRegistration();
+  const cache = await caches.open('vocab-v1');
+  const keys = (await cache.keys()).map((r) => new URL(r.url).pathname);
+  save({
+    active: reg2 && reg2.active ? reg2.active.state : null,
+    controllerAtStart: !!navigator.serviceWorker.controller,
+    cached: keys.length,
+    keys
+  });
+
+  await fetch('../__shutdown').catch(() => {});
+  await sleep(400);
+  save({ stage: 'offline-navigating' });
+  location.replace(new URL('../', document.baseURI).href);
+} catch (e) {
+  save({ stage: 'error', message: String((e && e.message) || e) });
+}
+</script>
+</body>
+</html>
