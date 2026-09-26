@@ -113,7 +113,12 @@ def check() -> int:
             dom_rep = run_dom(base + "/tool/sw_report.html", profile=profile, budget_ms=8000)
             rep = read_result(dom_rep) or {}
             reps.check("service worker 已激活", rep.get("active") == "activated", json.dumps(rep, ensure_ascii=False)[:200])
-            reps.check("预缓存了全部 8 个资源", int(rep.get("cached") or 0) >= 8, f"cached={rep.get('cached')}")
+            # 期望条数直接从 sw.js 的 ASSETS 清单里数，别写死（加了模块就自动跟上）
+            reps.check(
+                f"预缓存了全部 {len(listed)} 个资源",
+                int(rep.get("cached") or 0) >= len(listed),
+                f"cached={rep.get('cached')} 清单={len(listed)}",
+            )
         finally:
             httpd2.shutdown()
             httpd2.server_close()

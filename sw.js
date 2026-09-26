@@ -8,7 +8,7 @@
  *
  * 注意：ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个 HEAD 检查。
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
@@ -19,7 +19,13 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
-  './src/app.js'
+  './src/app.js',
+  './src/db.js',
+  './src/store.js',
+  './src/srs.js',
+  './src/judge.js',
+  './src/parse.js',
+  './src/ui-home.js'
 ];
 
 self.addEventListener('install', (e) => {

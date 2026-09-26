@@ -1,8 +1,10 @@
 /* 背单词 App —— 应用外壳：hash 路由 + 全局小工具。
  *
- * 四个界面各自是一个模块（ui-*.js），启动时 import 进来并 register() 自己。
+ * 四个界面各自是一个模块（ui-*.js），导出自己的 render 函数，在这里注册。
  * 状态放 URL（#/practice?lib=xxx&dir=zh2en），这样刷新和回退都靠得住。
  */
+
+import { renderHome } from './ui-home.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -20,6 +22,10 @@ export function el(tag, props = {}, kids = []) {
   for (const [k, v] of Object.entries(props)) {
     if (k === 'dataset') Object.assign(n.dataset, v);
     else if (k === 'style' && typeof v === 'object') Object.assign(n.style, v);
+    // ⚠️ 必须走属性赋值：setAttribute('className', ...) 不会真的加上 class
+    else if (k === 'className') n.className = v;
+    else if (k === 'htmlFor') n.htmlFor = v;
+    else if (k === 'value') n.value = v;
     else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
     else if (v === true) n.setAttribute(k, '');
     else if (v !== false && v != null) n.setAttribute(k, v);
@@ -46,14 +52,16 @@ export function show(name, params = {}) {
   }
   current = { name, params };
   document.body.dataset.view = name;
+  delete document.body.dataset.ready;
   const fn = RENDER[name];
-  if (fn) {
-    try {
-      fn(params);
-    } catch (err) {
-      console.error('[route] 渲染失败', name, err);
-    }
-  }
+  if (!fn) return;
+  // 渲染函数可以是异步的（要读 IndexedDB）；渲染完打一个 ready 标记，验证脚本靠它
+  Promise.resolve()
+    .then(() => fn(params))
+    .catch((err) => console.error('[route] 渲染失败', name, err))
+    .finally(() => {
+      document.body.dataset.ready = '1';
+    });
 }
 
 export function go(hash) {
@@ -74,8 +82,8 @@ export function route() {
   show(name, params);
 }
 
-// ---------------------------------------------------------------- 占位渲染
-// 任务 6–9 会用真实界面覆盖这四个占位。
+// ---------------------------------------------------------------- 各界面
+// 任务 6–9 会陆续把真实界面接上来；还没做的先用占位卡片。
 function placeholder(text) {
   return (params, view) => {
     const v = view || $(VIEWS[current.name]);
@@ -85,7 +93,8 @@ function placeholder(text) {
     }
   };
 }
-register('home', placeholder('库列表施工中（任务 6）'));
+
+register('home', renderHome);
 register('practice', placeholder('练习界面施工中（任务 7）'));
 register('import', placeholder('导入界面施工中（任务 8）'));
 register('word', placeholder('词条界面施工中（任务 9）'));

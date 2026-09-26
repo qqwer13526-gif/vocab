@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>截图/查看用：把应用装进固定尺寸的 iframe</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  /* 固定在左上角、尺寸由参数决定：这样截图裁 (0,0,w,h) 就是应用本身的画面。
+     不靠 --window-size 定视口：Chromium 的窗口有最小宽度，会把手机尺寸顶掉。 */
+  iframe { position: fixed; left: 0; top: 0; border: 0; }
+</style>
+</head>
+<body>
+<!-- 拖住 load 事件：等应用把界面渲染完再放行，这样截到的图是渲染好的 -->
+<img id="hold" src="../__slow?ms=60000" alt="" style="position:fixed;left:-9999px;width:1px;height:1px">
+<iframe id="app" src="../index.html" title="应用"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const w = parseInt(q.get('w') || '390', 10);
+  const h = parseInt(q.get('h') || '844', 10);
+  const theme = q.get('theme') || '';
+  const frame = document.getElementById('app');
+  frame.style.width = w + 'px';
+  frame.style.height = h + 'px';
+  if (q.get('hash')) frame.src = '../index.html' + q.get('hash');
+
+  const release = () => { document.getElementById('hold').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='; };
+
+  // 系统深浅色在无头浏览器里不可靠，截图时显式钉住
+  const TOKENS = {
+    light: ':root{--bg:#ffffff;--fg:#111111;--muted:#6b7280;--line:#e5e7eb;--card:#f7f7f8;--accent:#3b5bff}',
+    dark: ':root{--bg:#0f1012;--fg:#f2f3f5;--muted:#9aa0a6;--line:#26282c;--card:#17191c;--accent:#5b7bff}'
+  };
+
+  frame.addEventListener('load', async () => {
+    const t0 = Date.now();
+    const waitSel = q.get('wait') || '';
+    for (;;) {
+      let ready = false;
+      try {
+        const d = frame.contentDocument;
+        ready = !!(d && d.body && d.body.dataset.ready === '1' && (!waitSel || d.querySelector(waitSel)));
+      } catch (e) { /* 还没好 */ }
+      if (ready || Date.now() - t0 > 20000) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (theme && TOKENS[theme]) {
+      try {
+        const d = frame.contentDocument;
+        const s = d.createElement('style');
+        s.textContent = TOKENS[theme];
+        d.head.append(s);
+      } catch (e) { /* 忽略 */ }
+    }
+    await new Promise((r) => setTimeout(r, 350)); // 让过渡动画落定
+    release();
+  });
+</script>
+</body>
+</html>

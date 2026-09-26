@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>示例数据 / 清空数据（开发用）</title>
+<style>
+  body { font: 15px/1.6 system-ui, "Microsoft YaHei", sans-serif; margin: 24px auto; max-width: 640px; padding: 0 16px; }
+  button { font: inherit; padding: 10px 14px; margin: 4px 6px 4px 0; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+  code { background: #f4f4f5; padding: 1px 5px; border-radius: 4px; }
+  #out { white-space: pre-wrap; color: #0a7d32; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h2>开发用：示例数据</h2>
+<p>给应用灌一份示例词表（2 个词库 + 12 个词，含到期的复习词），用来查看界面或截图。
+   <code>?seed=1</code> 可以自动执行。</p>
+<p>
+  <button id="seed">灌入示例数据</button>
+  <button id="wipe">清空全部数据</button>
+  <a href="../index.html">打开应用 →</a>
+</p>
+<pre id="out"></pre>
+<!-- 拖住 load 事件：无头浏览器截图时会等到我们放行为止 -->
+<img id="hold" src="../__slow?ms=60000" alt="" style="position:fixed;left:-9999px;width:1px;height:1px">
+
+<script type="module">
+import * as db from '../src/db.js';
+
+const out = document.getElementById('out');
+const say = (t) => { out.textContent = t; };
+const release = () => { document.getElementById('hold').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='; };
+
+const NOW = Date.now();
+const MIN = 60 * 1000;
+const DAY = 24 * 60 * MIN;
+
+/** 照用户真词表的形态造：释义英汉混排、词性单独一列、有常用搭配 */
+const WORDS = [
+  ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'be absorbed in全神贯注于'],
+  ['acceptable', 'adj.', ['good enough to be accepted; satisfactory可接受的，合意的'], 'an acceptable excuse可接受借口'],
+  ['acceptance', 'n.', ['act of accepting; approval or agreement接受', '认可'], 'gain acceptance获得认可'],
+  ['access', 'v./n.', ['way to enter or reach; ability to use存取（信息）', '接近', '通道'], 'have access to有机会使用'],
+  ['accomplish', 'v.', ['succeed in doing; finish successfully完成', '实现'], 'accomplish a task完成任务'],
+  ['additional', 'adj.', ['extra; added to what already exists附加的', '额外的'], 'additional information附加信息'],
+  ['afford', 'v.', ['have enough money or time to do or buy负担得起', '提供'], "can't afford to do负担不起做"],
+  ['annoy', 'v.', ['make someone slightly angry; bother使烦恼'], 'annoy sb with sth因某事惹恼某人'],
+  ['apply', 'v.', ['make a formal request; put into use申请', '应用'], 'apply for申请'],
+  ['artist', 'n.', ['person who creates paintings, music or other art艺术家'], 'a famous artist著名艺术家'],
+  ['abandon', 'v.', ['leave somebody or something behind抛弃', '放弃'], 'abandon oneself to沉溺于'],
+  ['ability', 'n.', ['power or skill to do something能力', '才能'], 'the ability to do sth做某事的能力']
+];
+
+/** 学习进度：有的到期、有的没到期、有的已掌握 */
+const PROGS = [
+  ['absorb', 2, -2 * DAY],
+  ['acceptable', 1, -1 * DAY],
+  ['acceptance', 3, -6 * DAY],
+  ['access', 4, 0],          // 今天到期
+  ['accomplish', 6, 20 * DAY], // 已掌握
+  ['additional', 2, 1 * DAY]   // 还没到期
+];
+
+async function seed() {
+  await db.wipeAll();
+  const libA = 'demo-4ji';
+  const libB = 'demo-kaoyan';
+  await db.put('libs', { id: libA, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: libB, name: '考研核心词', color: '#ff9f0a', order: 1, updatedAt: NOW });
+
+  const ids = new Map();
+  let i = 0;
+  for (const [term, pos, meanings, example] of WORDS) {
+    const id = `demo-${term}`;
+    ids.set(term, id);
+    await db.put('words', {
+      id,
+      term,
+      termNorm: term,
+      phonetic: '',
+      pos,
+      meanings,
+      example,
+      note: '',
+      createdAt: NOW + i++,
+      updatedAt: NOW
+    });
+    if (i <= 8) await db.put('links', { id: `${id}|${libA}`, wordId: id, libId: libA, addedAt: NOW, updatedAt: NOW });
+    if (i > 6) await db.put('links', { id: `${id}|${libB}`, wordId: id, libId: libB, addedAt: NOW, updatedAt: NOW });
+  }
+
+  for (const [term, box, offset] of PROGS) {
+    const id = ids.get(term);
+    await db.put('prog', {
+      wordId: id,
+      box,
+      dueAt: NOW + offset,
+      streak: box > 1 ? box - 1 : 0,
+      lapses: box === 1 ? 2 : 0,
+      lastDir: i % 2 ? 'en2zh' : 'zh2en',
+      updatedAt: NOW
+    });
+  }
+  const [w, l, k, p] = await Promise.all([db.count('words'), db.count('libs'), db.count('links'), db.count('prog')]);
+  say(`已灌入：${w} 个词 / ${l} 个词库 / ${k} 条归属 / ${p} 条学习进度`);
+}
+
+async function wipe() {
+  await db.wipeAll();
+  say('已清空全部数据');
+}
+
+document.getElementById('seed').onclick = () => seed().catch((e) => say('出错：' + e.message));
+document.getElementById('wipe').onclick = () => wipe().catch((e) => say('出错：' + e.message));
+
+const auto = new URLSearchParams(location.search).get('seed');
+(async () => {
+  try {
+    if (auto === '1') await seed();
+    else say('点上面的按钮开始（数据存在浏览器的 IndexedDB 里）');
+  } catch (e) {
+    say('出错：' + (e && e.message));
+  } finally {
+    document.body.dataset.done = '1';
+    release();
+  }
+})();
+</script>
+</body>
+</html>

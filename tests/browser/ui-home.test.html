@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>库列表首页 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 库列表首页（任务 6）的界面测试。
+   做法：先把数据塞进 IndexedDB，再把真正的应用装进 iframe，等它渲染完，断言 DOM。
+   跑法：python tool/browser_test.py tests/browser/ui-home.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+const MIN = 60 * 1000;
+const DAY = 24 * 60 * MIN;
+
+let db = null;
+let seq = 0;
+
+function mkWord(term, meanings, createdAt) {
+  return {
+    id: `w-${++seq}`,
+    term,
+    termNorm: term,
+    phonetic: '',
+    pos: '',
+    meanings,
+    example: '',
+    note: '',
+    createdAt,
+    updatedAt: NOW
+  };
+}
+
+async function seed() {
+  await db.wipeAll();
+  const libA = 'lib-4ji';
+  const libB = 'lib-kaoyan';
+  await db.put('libs', { id: libA, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: libB, name: '考研', color: '#ff9f0a', order: 1, updatedAt: NOW });
+
+  // w1/w2 到期该复习；w3/w4/w6 是新词；w5 已掌握（盒子 6）
+  const ws = [
+    mkWord('absorb', ['take in or soak up吸收', '使专心'], NOW + 1),
+    mkWord('acceptable', ['可接受的'], NOW + 2),
+    mkWord('acceptance', ['接受'], NOW + 3),
+    mkWord('access', ['存取'], NOW + 4),
+    mkWord('accomplish', ['完成'], NOW + 5),
+    mkWord('additional', ['附加的'], NOW + 6)
+  ];
+  for (const w of ws) await db.put('words', w);
+  const [w1, w2, w3, w4, w5, w6] = ws;
+
+  const link = (w, lib) => db.put('links', { id: `${w.id}|${lib}`, wordId: w.id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  for (const w of [w1, w2, w3, w5, w6]) await link(w, libA);
+  await link(w4, libB);
+
+  await db.put('prog', { wordId: w1.id, box: 2, dueAt: NOW - 1 * DAY, streak: 1, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
+  await db.put('prog', { wordId: w2.id, box: 1, dueAt: NOW - 10 * MIN, streak: 0, lapses: 2, lastDir: 'zh2en', updatedAt: NOW });
+  await db.put('prog', { wordId: w5.id, box: 6, dueAt: NOW + 20 * DAY, streak: 6, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
+
+  return { libA, libB, w1, w2, w3, w4, w5, w6 };
+}
+
+const rowOf = (frame, libId) => frame.contentDocument.querySelector(`[data-testid="lib-row"][data-lib="${libId}"]`);
+const txt = (node) => (node ? node.textContent.replace(/\s+/g, ' ').trim() : '');
+
+try {
+  db = await import('../../src/db.js');
+
+  // ---------------- 1. 空状态 ----------------
+  await db.wipeAll();
+  let frame = await openApp({ sel: '[data-testid="empty-state"]' });
+  let doc = frame.contentDocument;
+  ok('没有词库时给出引导', !!doc.querySelector('[data-testid="empty-state"]'), '找不到 empty-state');
+  ok('空状态引导里指向导入', txt(doc.querySelector('[data-testid="empty-state"]')).includes('导入'));
+  ok('空状态也能新建词库', !!doc.querySelector('[data-testid="btn-newlib"]'));
+
+  // ---------------- 2. 有数据时的首页 ----------------
+  const ids = await seed();
+  frame = await openApp({ sel: '[data-testid="lib-row"]' });
+  doc = frame.contentDocument;
+
+  eq('今日待复习数量', txt(doc.querySelector('[data-testid="today-review"]')), '待复习 2');
+  eq('今日新词数量', txt(doc.querySelector('[data-testid="today-new"]')), '新词 3');
+
+  const rows = doc.querySelectorAll('[data-testid="lib-row"]');
+  eq('列出两个词库', rows.length, 2);
+  eq('第一个词库是四级', txt(rowOf(frame, ids.libA).querySelector('.lib-name')), '四级 Test 1');
+  ok('词库行显示词数', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('共 5 词'), txt(rowOf(frame, ids.libA).querySelector('.lib-meta')));
+  ok('词库行显示该库待复习数', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('待复习 2'));
+  ok('考研库只有 1 个词', txt(rowOf(frame, ids.libB).querySelector('.lib-meta')).includes('共 1 词'));
+
+  const bar = rowOf(frame, ids.libA).querySelector('[data-testid="lib-progress"] > i');
+  ok('掌握进度条按 box=6 的比例算（1/5 = 20%）', bar && bar.style.width === '20%', bar ? bar.style.width : '没有进度条');
+  const barB = rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress"] > i');
+  ok('考研库还没有掌握的词 → 0%', barB && barB.style.width === '0%', barB ? barB.style.width : '没有进度条');
+
+  // ---------------- 3. 点击行为 ----------------
+  click(doc.querySelector('[data-testid="btn-start"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习页' });
+  ok('点开始练习 → 进练习页', frame.contentWindow.location.hash.startsWith('#/practice'), frame.contentWindow.location.hash);
+
+  frame.contentWindow.location.hash = '#/';
+  await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
+  doc = frame.contentDocument;
+  click(rowOf(frame, ids.libB).querySelector('.lib-name'));
+  await waitFor(() => frame.contentWindow.location.hash.includes(ids.libB), { label: '带库 id 进练习' });
+  ok('点库名 → 只练这个库', frame.contentWindow.location.hash === `#/practice?lib=${ids.libB}`, frame.contentWindow.location.hash);
+
+  frame.contentWindow.location.hash = '#/';
+  await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
+  doc = frame.contentDocument;
+  click(rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-words"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('word'), { label: '进词条页' });
+  ok('点箭头 → 看这个词库的词条', frame.contentWindow.location.hash === `#/word?lib=${ids.libA}`, frame.contentWindow.location.hash);
+
+  // ---------------- 4. 新建词库 ----------------
+  frame = await openApp({ sel: '[data-testid="lib-row"]' });
+  doc = frame.contentDocument;
+  click(doc.querySelector('[data-testid="btn-newlib"]'));
+  const form = await waitFor(() => doc.querySelector('[data-testid="newlib-form"]'), { label: '出现新建词库表单' });
+  ok('新建词库是内联表单，不是浏览器弹窗', !!form.querySelector('input[name="name"]'));
+  eq('提供 6 种颜色可选', form.querySelectorAll('button.color').length, 6);
+  type(form.querySelector('input[name="name"]'), '六级');
+  click(form.querySelectorAll('button.color')[2]);
+  click(form.querySelector('[data-testid="btn-newlib-ok"]'));
+  const created = await waitFor(
+    () => [...doc.querySelectorAll('[data-testid="lib-row"]')].find((r) => txt(r.querySelector('.lib-name')) === '六级'),
+    { label: '新库出现在列表里' }
+  );
+  ok('新词库创建后立刻出现在列表里', !!created);
+  const libsInDb = await db.all('libs');
+  ok('新词库真的写进了数据库', libsInDb.some((l) => l.name === '六级'), JSON.stringify(libsInDb.map((l) => l.name)));
+
+  // ---------------- 5. 点导入 ----------------
+  click(doc.querySelector('[data-testid="btn-import"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('import'), { label: '跳到导入页' });
+  ok('点导入词表 → 进导入页', frame.contentWindow.location.hash.startsWith('#/import'), frame.contentWindow.location.hash);
+} catch (e) {
+  ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

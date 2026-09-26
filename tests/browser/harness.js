@@ -58,3 +58,55 @@ export function report() {
   document.body.dataset.done = '1';
   return payload;
 }
+
+/** 轮询等某个条件成立（界面是异步渲染的，断言前必须等） */
+export async function waitFor(fn, { timeout = 8000, step = 40, label = '条件' } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    try {
+      const v = await fn();
+      if (v) return v;
+    } catch {
+      /* 还没好，继续等 */
+    }
+    if (Date.now() - t0 > timeout) throw new Error(`等不到：${label}（等了 ${timeout}ms）`);
+    await new Promise((r) => setTimeout(r, step));
+  }
+}
+
+export async function wait(ms) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 把真正的应用装进 iframe 跑（同一个源，共用 IndexedDB）。
+ * @param hash 要打开的 hash 路由，例如 '#/practice?lib=xxx'
+ * @param sel  等这个选择器出现再返回
+ */
+export async function openApp({ hash = '', size = [390, 844], sel = null, timeout = 8000 } = {}) {
+  document.querySelectorAll('iframe.app-frame').forEach((f) => f.remove());
+  const frame = document.createElement('iframe');
+  frame.className = 'app-frame';
+  frame.style.cssText = `width:${size[0]}px;height:${size[1]}px;border:0;display:block`;
+  const loaded = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+  frame.src = '../../index.html' + hash;
+  document.body.append(frame);
+  await loaded;
+  if (sel) await waitFor(() => frame.contentDocument.querySelector(sel), { timeout, label: sel });
+  return frame;
+}
+
+/** 触发一次真正的输入（框架和 React 之外，原生事件就够） */
+export function type(input, value) {
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+export function click(node) {
+  node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+/** 按回车（练习界面判定靠它） */
+export function pressEnter(node) {
+  node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+}

@@ -31,11 +31,15 @@ try {
 
   await navigator.serviceWorker.ready;
   const reg2 = await navigator.serviceWorker.getRegistration();
-  const cache = await caches.open('vocab-v1');
+  // 缓存名别写死（sw.js 升版本时会变），从实际存在的缓存里找
+  const names = await caches.keys();
+  const cacheName = names.find((n) => n.startsWith('vocab-')) || names[0] || '';
+  const cache = await caches.open(cacheName);
   const keys = (await cache.keys()).map((r) => new URL(r.url).pathname);
   save({
     active: reg2 && reg2.active ? reg2.active.state : null,
     controllerAtStart: !!navigator.serviceWorker.controller,
+    cacheName,
     cached: keys.length,
     keys
   });
