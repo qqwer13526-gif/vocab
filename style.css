@@ -142,6 +142,21 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 .settings-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .settings-plan-title { font-size: 15px; font-weight: 600; }
 
+/* ---------------------------------------------------------------- 智能库（生疏词） */
+
+.smart-row { border-style: dashed; }
+.smart-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  vertical-align: 1px;
+}
+.smart-hint { opacity: 0.85; }
+
 /* ---------------------------------------------------------------- 库列表首页 */
 
 .home-head { display: grid; gap: 12px; margin-bottom: 14px; }

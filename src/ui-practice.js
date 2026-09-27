@@ -12,6 +12,7 @@ import { $, el } from './app.js';
 import { put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
 import { buildQueue, grade, markLevel, newProg } from './srs.js';
+import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { loadAll } from './store.js';
 
 const DIRS = [
@@ -36,6 +37,7 @@ export async function renderPractice(params = {}) {
   if (!view) return;
 
   const libId = params.lib || null;
+  const smartId = isSmartId(params.smart) ? params.smart : null;
   const mode0 = DIRS.some((d) => d.key === params.dir) ? params.dir : 'en2zh';
   let data = await loadAll();
 
@@ -52,14 +54,17 @@ export async function renderPractice(params = {}) {
   };
 
   function buildSession() {
-    const q = buildQueue({
-      words: data.words,
-      progs: data.progs,
-      links: data.links,
-      libIds: libId ? [libId] : null,
-      now: Date.now(),
-      newLimit: data.newLimit
-    });
+    // 智能库（生疏词）：把这批词直接当队列，不管到期没到期、也不限新词数量
+    const q = smartId
+      ? buildQueue({ words: data.words, progs: data.progs, links: data.links, now: Date.now(), wordIds: smartWordIds(data, smartId) })
+      : buildQueue({
+          words: data.words,
+          progs: data.progs,
+          links: data.links,
+          libIds: libId ? [libId] : null,
+          now: Date.now(),
+          newLimit: data.newLimit
+        });
     s.queue = [...q.review, ...q.fresh].map((id) => data.wordsById.get(id)).filter(Boolean);
     s.i = 0;
     s.answered = false;
@@ -189,9 +194,12 @@ export async function renderPractice(params = {}) {
   function showNothing() {
     card.hidden = true;
     summary.hidden = true;
+    const smart = smartDef(smartId);
+    const isSmart = !!smart;
     view.replaceChildren(top, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
-      el('div', { className: 'empty-title' }, '今天没有要练的'),
-      el('div', { className: 'empty-sub' }, '复习都做完了，也没有新词。明早再来，或者去导入更多词表。'),
+      el('div', { className: 'empty-title' }, isSmart ? `「${smart.name}」里还没有词` : '今天没有要练的'),
+      el('div', { className: 'empty-sub' },
+        isSmart ? '练习时点一下「生疏」，这个词就会自动进到这个库，下次就能专项练它。' : '复习都做完了，也没有新词。明早再来，或者去导入更多词表。'),
       el('button', { className: 'ghost', type: 'button', style: { marginTop: '12px' }, onclick: () => { location.hash = '#/'; } }, '回首页')
     ]));
   }

@@ -1,7 +1,7 @@
 /* 界面 D：词条（列表 + 编辑）
  *
- * 列表：某个词库的词（带搜索、盒子标记）；编辑：改释义/音标/例句/笔记、换库、重置进度、删除。
- * 路由：#/word?lib=xxx（列表）  #/word?id=yyy&lib=xxx（编辑）
+ * 列表：某个词库的词（带搜索、盒子标记、熟记/生疏筛选）；编辑：改释义/音标/例句/笔记、换库、重置进度、删除。
+ * 路由：#/word?lib=xxx      #/word?id=yyy&lib=xxx      #/word?smart=smart:unfamiliar（智能库）
  */
 
 import { $, el } from './app.js';
@@ -9,6 +9,7 @@ import { all, byIndex, put, softDelete } from './db.js';
 import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
+import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
 
 export async function renderWord(params = {}) {
@@ -21,9 +22,10 @@ export async function renderWord(params = {}) {
 
 // ---------------------------------------------------------------- 列表
 async function renderList(view, params, data) {
-  const libId = params.lib || null;
+  const smart = isSmartId(params.smart) ? smartDef(params.smart) : null;
+  const libId = smart ? null : params.lib || null;
   const lib = libId ? data.libs.find((l) => l.id === libId) : null;
-  const ids = libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
+  const ids = smart ? smartWordIds(data, smart.id) : libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
   const words = ids
     .map((id) => data.wordsById.get(id))
     .filter(Boolean)
@@ -50,7 +52,11 @@ async function renderList(view, params, data) {
     else if (lv === 'unfamiliar') counts.unfamiliar++;
     else counts.none++;
   }
-  let levelFilter = params.level === 'known' || params.level === 'unfamiliar' || params.level === 'none' ? params.level : 'all';
+  let levelFilter = smart
+    ? smart.level
+    : params.level === 'known' || params.level === 'unfamiliar' || params.level === 'none'
+      ? params.level
+      : 'all';
   const chips = el('div', { className: 'level-filter', dataset: { testid: 'level-filter' } }, [
     chip('all', `全部 ${counts.all}`),
     chip('known', `熟记 ${counts.known}`),
@@ -172,7 +178,7 @@ async function renderList(view, params, data) {
   view.replaceChildren(
     el('div', { className: 'word-head' }, [
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, '‹'),
-      el('h2', { className: 'page-title' }, lib ? lib.name : '全部词条')
+      el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
     ]),
     el('div', { className: 'card word-tools' }, [search, count, chips, tools, status]),
     list

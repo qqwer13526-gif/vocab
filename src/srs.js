@@ -57,9 +57,17 @@ export function grade(prog, correct, { now, dir = null }) {
  * @param libIds  只练这些库；null/空数组 = 所有库
  * @param now     当前时间
  * @param newLimit 这次最多上多少个新词（默认 10）
+ * @param wordIds 指定一批词（智能库的专项学习）：只练这些，顺序照给的来，
+ *                且不考虑到期时间与新词上限
  * @returns { review: wordId[], fresh: wordId[] }
  */
-export function buildQueue({ words, progs, links, libIds = null, now, newLimit = 10 }) {
+export function buildQueue({ words, progs, links, libIds = null, now, newLimit = 10, wordIds = null }) {
+  // 指定了一批词（生疏词这类智能库的"专项学习"）：只练这些，不管到期没到期、也不受新词上限限制
+  if (Array.isArray(wordIds)) {
+    const known = new Set((words || []).filter((w) => w && !w.deleted).map((w) => w.id));
+    return { review: wordIds.filter((id) => known.has(id)), fresh: [] };
+  }
+
   const wanted = libIds && libIds.length ? new Set(libIds) : null;
   const inLib = wanted ? new Set((links || []).filter((l) => !l.deleted && wanted.has(l.libId)).map((l) => l.wordId)) : null;
 

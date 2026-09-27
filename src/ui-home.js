@@ -9,6 +9,7 @@ import { put } from './db.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { buildQueue } from './srs.js';
 import { DEFAULT_NEW_LIMIT, PALETTE, libStats, loadAll, nextLibOrder } from './store.js';
+import { SMART_LIBS, smartCount } from './smart.js';
 import { APP_VERSION } from './version.js';
 
 export async function renderHome() {
@@ -54,6 +55,48 @@ export async function renderHome() {
 
   // ---------------------------------------------------------------- 词库列表
   const list = el('section', { className: 'libs' });
+
+  // 智能库（生疏词）放在最上面：练习时标「生疏」的词会自动进来，标「熟记」自动移出
+  for (const smart of SMART_LIBS) {
+    const n = smartCount(data, smart.id);
+    // 生疏词永远露个脸（哪怕是 0，也是个提示）；熟记词有货才显示
+    if (n === 0 && smart.level !== 'unfamiliar') continue;
+    list.append(
+      el('div', { className: 'card lib-row smart-row', dataset: { testid: 'smart-row', smart: smart.id } }, [
+        el('span', { className: 'lib-dot', style: { background: smart.color } }),
+        el('div', { className: 'lib-body' }, [
+          el(
+            'button',
+            {
+              className: 'lib-name',
+              type: 'button',
+              title: `专项练习「${smart.name}」`,
+              onclick: () => {
+                location.hash = `#/practice?smart=${encodeURIComponent(smart.id)}`;
+              }
+            },
+            [smart.name, el('span', { className: 'smart-tag' }, '自动')]
+          ),
+          el('div', { className: 'lib-meta', dataset: { testid: 'smart-count' } },
+            n ? `${n} 个词 · 点名字直接专项练习` : '还没有——练习时点「生疏」就会自动进来'),
+          el('div', { className: 'lib-meta smart-hint' }, smart.hint)
+        ]),
+        el(
+          'button',
+          {
+            className: 'lib-more',
+            dataset: { testid: 'btn-smart-words' },
+            type: 'button',
+            'aria-label': `看「${smart.name}」的词条`,
+            onclick: () => {
+              location.hash = `#/word?smart=${encodeURIComponent(smart.id)}`;
+            }
+          },
+          '›'
+        )
+      ])
+    );
+  }
 
   if (!data.libs.length) {
     list.append(
@@ -170,7 +213,9 @@ export async function renderHome() {
       }, `补齐音标（还差 ${missing} 个）`)
     : null;
 
-  view.replaceChildren(head, list, foot, phoneticBtn);
+  // ⚠️ 不能直接 replaceChildren(head, list, foot, phoneticBtn)：phoneticBtn 可能是 null，
+  //    而 replaceChildren(null) 会在页面上渲染出字符串 "null"
+  view.replaceChildren(...[head, list, foot, phoneticBtn].filter(Boolean));
 }
 
 /** 内联的新建词库表单（不用浏览器 prompt：难看、手机上体验也差） */

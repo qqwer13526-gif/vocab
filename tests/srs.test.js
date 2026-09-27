@@ -235,3 +235,28 @@ test('空数据不炸', () => {
   const q = buildQueue({ words: [], progs: {}, links: [], libIds: null, now: 0 });
   assert.deepEqual(q, { review: [], fresh: [] });
 });
+
+// ---------------------------------------------------------------- 指定一批词（智能库"专项学习"用）
+
+test('给了 wordIds 就只练这些词，顺序照给的来', () => {
+  const q = buildQueue({ words, progs, links, libIds: null, now: 200, wordIds: ['c', 'a'] });
+  assert.deepEqual(q.review, ['c', 'a']);
+  assert.deepEqual(q.fresh, []);
+});
+
+test('给 wordIds 时不受"到没到期"限制（专项学习就是要现在练）', () => {
+  // h 的 dueAt 是 999，now=200 时本来不算到期
+  const q = buildQueue({ words, progs, links, libIds: null, now: 200, wordIds: ['h'] });
+  assert.deepEqual(q.review, ['h']);
+});
+
+test('给 wordIds 时也不管新词上限（专项学习要全给你）', () => {
+  const q = buildQueue({ words, progs, links, libIds: null, now: 200, newLimit: 0, wordIds: ['f', 'g', 'c'] });
+  assert.deepEqual(q.review, ['f', 'g', 'c']);
+  assert.deepEqual(q.fresh, []);
+});
+
+test('wordIds 为空数组就是空队列，而不是"全部词"', () => {
+  const q = buildQueue({ words, progs, links, libIds: null, now: 200, wordIds: [] });
+  assert.deepEqual(q, { review: [], fresh: [] });
+});
