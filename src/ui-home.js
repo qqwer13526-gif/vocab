@@ -127,7 +127,8 @@ export async function renderHome() {
           ),
           el('div', { className: 'lib-meta' }, `共 ${s.total} 词 · 待复习 ${s.due} · 已掌握 ${s.mastered}`),
           el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
-            el('i', { style: { width: `${s.percent}%`, background: lib.color || PALETTE[0] } })
+            // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）
+            el('i', { style: { transform: `scaleX(${s.percent / 100})`, background: lib.color || PALETTE[0] }, dataset: { testid: 'lib-progress-fill' } })
           ])
         ]),
         el(

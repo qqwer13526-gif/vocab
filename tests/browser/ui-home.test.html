@@ -97,9 +97,11 @@ try {
   ok('考研库只有 1 个词', txt(rowOf(frame, ids.libB).querySelector('.lib-meta')).includes('共 1 词'));
 
   const bar = rowOf(frame, ids.libA).querySelector('[data-testid="lib-progress"] > i');
-  ok('掌握进度条按 box=6 的比例算（1/5 = 20%）', bar && bar.style.width === '20%', bar ? bar.style.width : '没有进度条');
+  ok('掌握进度条按 box=6 的比例算（1/5 = 20%，用 scaleX 走 GPU 而不是动 width）',
+     bar && bar.style.transform === 'scaleX(0.2)' && bar.style.width === '',
+     bar ? `${bar.style.transform} / width=${bar.style.width}` : '没有进度条');
   const barB = rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress"] > i');
-  ok('考研库还没有掌握的词 → 0%', barB && barB.style.width === '0%', barB ? barB.style.width : '没有进度条');
+  ok('考研库还没有掌握的词 → 0%', barB && barB.style.transform === 'scaleX(0)', barB ? barB.style.transform : '没有进度条');
 
   // ---------------- 3. 点击行为 ----------------
   click(doc.querySelector('[data-testid="btn-start"]'));

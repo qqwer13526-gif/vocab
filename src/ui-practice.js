@@ -141,7 +141,8 @@ export async function renderPractice(params = {}) {
     type: 'button',
     onclick: () => setReview(!s.review)
   }, '');
-  const modeRow = el('div', { className: 'mode-row' }, [modeBtn]);
+  const swipeTip = el('div', { className: 'swipe-tip', dataset: { testid: 'swipe-tip' }, hidden: true }, '← 左滑算生疏 · 右滑算熟记 →');
+  const modeRow = el('div', { className: 'mode-row' }, [swipeTip, modeBtn]);
 
   const card = el('div', { className: 'card prac-card' }, [
     prompt,
@@ -153,6 +154,9 @@ export async function renderPractice(params = {}) {
     el('div', { className: 'fb-actions' }, [btnForce, btnNext]),
     levelRow
   ]);
+  // 滑动时浮出来的提示（绿=熟记 / 红=生疏）
+  const swipeBadge = el('div', { className: 'swipe-badge', dataset: { testid: 'swipe-badge' }, hidden: true }, '');
+  const cardWrap = el('div', { className: 'prac-wrap' }, [card, swipeBadge]);
 
   const summary = el('div', { className: 'card session-summary', dataset: { testid: 'session-summary' }, hidden: true }, [
     el('div', { className: 'summary-text', dataset: { testid: 'summary-text' } }, ''),
@@ -163,7 +167,7 @@ export async function renderPractice(params = {}) {
   ]);
 
   const top = el('div', { className: 'prac-top' }, [quit, progress, dirSwitch]);
-  view.replaceChildren(top, modeRow, card, summary);
+  view.replaceChildren(top, modeRow, cardWrap, summary);
 
   // ---------------------------------------------------------------- 逻辑
   const answerText = (w, dir) => (dir === 'en2zh' ? w.meanings.join('；') : w.term);
@@ -176,6 +180,9 @@ export async function renderPractice(params = {}) {
     dirSwitch.hidden = s.review; // 过一遍时词和释义同时看得见，方向没意义
     answerLine.hidden = !s.review;
     btnSkip.hidden = !s.review;
+    swipeTip.hidden = !s.review;
+    card.classList.toggle('swipeable', s.review);
+    if (!s.review) swipeBadge.hidden = true;
     modeBtn.textContent = s.review ? '→ 换成默写（考自己）' : '→ 过一遍（只看不考，适合刷生疏词）';
     levelHint.textContent = s.review
       ? '看清了就点：熟记 → 60 天后再见；生疏 → 10 分钟后再见'
@@ -213,6 +220,11 @@ export async function renderPractice(params = {}) {
     s.retried = false;
     s.nearCounted = false;
     s.curDir = dirForWord(w.id, s.mode);
+    // 上一次滑动可能被打断，清掉残留的位移
+    card.classList.remove('swiping', 'snapping');
+    card.style.transform = '';
+    card.style.opacity = '';
+    swipeBadge.hidden = true;
     if (s.review) {
       // 过一遍：词、音标、释义同时摊开，只需要点「熟记 / 生疏」
       prompt.textContent = w.term;
@@ -235,8 +247,99 @@ export async function renderPractice(params = {}) {
     progress.textContent = `第 ${s.i + 1}/${s.queue.length}`;
     card.hidden = false;
     summary.hidden = true;
+    // 内容换了一张"卡"：轻微上浮淡入，给一点"下一张从下面来"的空间感。
+    // 只动 prompt / answerLine（不动输入框，免得打字时画面在抖）。
+    popIn(prompt, 6);
+    if (!answerLine.hidden) popIn(answerLine, 4);
     if (!s.review) input.focus();
   }
+
+  /** 一次性的进场动效：WAAPI，只动 transform/opacity；减弱动效时直接跳过 */
+  function popIn(node, dy = 6) {
+    if (!node || typeof node.animate !== 'function') return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ms = Number((getComputedStyle(document.documentElement).getPropertyValue('--dur-ui') || '').replace('ms', '')) || 170;
+    node.animate(
+      [{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: 'none' }],
+      { duration: ms, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+    );
+  }
+
+  // ---------------------------------------------------------------- 过一遍模式的手势
+  // 横向拖动卡片：跟手 → 松手按"距离或速度"决定飞出去还是弹回来（可打断，不是 keyframes 重放）
+  const SWIPE_THRESHOLD = 96; // px
+  const SWIPE_VELOCITY = 0.5; // px/ms
+  let drag = null;
+  const canSwipe = () => s.review && !s.ended && !card.hidden;
+
+  function resetCard() {
+    card.classList.remove('swiping');
+    card.classList.add('snapping');
+    card.style.transform = '';
+    card.style.opacity = '';
+    swipeBadge.hidden = true;
+    setTimeout(() => card.classList.remove('snapping'), 260);
+  }
+
+  function onDown(e) {
+    if (!canSwipe() || (e.button != null && e.button !== 0)) return;
+    drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: performance.now(), active: false };
+  }
+
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0;
+    const dy = e.clientY - drag.y0;
+    if (!drag.active) {
+      // 先分清是"横向滑动"还是"纵向滚动/轻点"
+      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
+      drag.active = true;
+      try {
+        card.setPointerCapture(e.pointerId);
+      } catch {
+        /* 某些环境不支持，忽略 */
+      }
+      card.classList.add('swiping');
+    }
+    drag.dx = dx;
+    card.style.transform = `translateX(${dx}px)`;
+    const p = Math.min(1, Math.abs(dx) / SWIPE_THRESHOLD);
+    swipeBadge.hidden = false;
+    swipeBadge.dataset.dir = dx > 0 ? 'known' : 'unfamiliar';
+    swipeBadge.textContent = dx > 0 ? '熟记' : '生疏';
+    swipeBadge.style.opacity = String(p);
+  }
+
+  async function onUp(e) {
+    if (!drag || (e && e.pointerId != null && e.pointerId !== drag.id)) return;
+    const { dx, t0, active } = drag;
+    drag = null;
+    if (!active) return; // 只是轻点，让按钮自己处理
+    // 速度：采样间隔太短（<8ms）就不算 —— 否则一次极快的轻微拖动会被误判成"甩出去"
+    const dt = Math.max(1, performance.now() - t0);
+    const v = dt >= 8 ? dx / dt : 0;
+    const flew = Math.abs(dx) > SWIPE_THRESHOLD || (Math.abs(dx) > 24 && Math.abs(v) > SWIPE_VELOCITY);
+    if (!flew) return resetCard();
+    const dir = dx > 0 ? 'known' : 'unfamiliar';
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce) {
+      card.classList.remove('swiping');
+      card.classList.add('snapping');
+      card.style.transform = `translateX(${dx > 0 ? 120 : -120}%)`;
+      card.style.opacity = '0';
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await markAndNext(dir); // 会渲染下一题
+    card.classList.remove('snapping');
+    card.style.transform = '';
+    card.style.opacity = '';
+    swipeBadge.hidden = true;
+  }
+
+  card.addEventListener('pointerdown', onDown);
+  card.addEventListener('pointermove', onMove);
+  card.addEventListener('pointerup', onUp);
+  card.addEventListener('pointercancel', onUp);
 
   /** 过一遍模式里的"不标，直接下一个" */
   function skipOne() {

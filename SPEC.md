@@ -182,12 +182,19 @@
 **非功能要求（按 Web Interface Guidelines）**
 - `:focus-visible` 焦点样式；所有图标按钮有 `aria-label`
 - 输入框有 `<label>`；错误内联在字段旁
-- 尊重 `prefers-reduced-motion`（本应用动效少，但过渡要能关）
 - 数字用 `tabular-nums`；日期时间一律 `Intl.DateTimeFormat`
 - 移动端 `touch-action: manipulation`、`-webkit-tap-highlight-color`、安全区 `env(safe-area-inset-*)`
 - 大列表（>200 词）用 `content-visibility: auto` 或分页渲染
 - 长文本 `truncate` / `line-clamp`，flex 子项加 `min-w-0`
 - 校验内联、提交按钮保持可用直到请求开始（第二阶段同步时）
+
+**动效规矩（按 Emil Kowalski 的动画标准，由 `review-animations` 审）**
+- 只动 `transform` / `opacity`（GPU）；绝不动 `width`/`height`/`top`/`left`
+- 时长走令牌：`--dur-tap` 110ms（高频微反馈）/ `--dur-ui` 170ms（常规）/ `--dur-big` 240ms（罕见）
+- 进场用强 ease-out（`--ease-out-quint`），**不用** `ease-in`；不用 `scale(0)`，从 `scale(0.97)`+透明度起
+- 手势（过一遍模式的左右滑动）用 CSS transition 重新定位 + 速度/距离阈值，**可打断**，不用 keyframes 重放
+- 高频操作（打字、切标签、列表滚动）**不加**动效
+- `prefers-reduced-motion` 下把位移缩放的令牌归零，保留很淡的透明度变化（gentler, not zero）
 
 ## 9. 第二阶段：同步（本版不实现，但数据结构现在就为它留好）
 

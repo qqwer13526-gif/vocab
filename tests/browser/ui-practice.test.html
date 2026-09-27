@@ -224,6 +224,49 @@ try {
   ok('切回默写：输入框回来了', q(frame, '[data-testid="practice-input"]').hidden === false);
   ok('切回默写：答案收起来了', q(frame, '[data-testid="practice-answer"]').hidden === true);
   ok('URL 记下了当前模式', frame.contentWindow.location.hash.includes('mode=quiz'), frame.contentWindow.location.hash);
+
+  // ---------------- 12. 过一遍模式：左右滑动 = 生疏 / 熟记（手势驱动）----------------
+  await db.wipeAll();
+  const lib6 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib6}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  const cardEl = () => q(frame, '.prac-card');
+  const pe = (type, x, y = 300) =>
+    cardEl().dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
+
+  ok('过一遍模式显示"左滑右滑"的提示', q(frame, '[data-testid="swipe-tip"]').hidden === false);
+  eq('第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+
+  // 拖一点点 → 跟手，但松手要弹回去、不算数
+  pe('pointerdown', 200);
+  pe('pointermove', 230);
+  ok('拖动时卡片跟手', cardEl().style.transform.includes('translateX(30px)'), cardEl().style.transform);
+  pe('pointerup', 230);
+  await wait(320);
+  eq('没滑够距离就回弹', cardEl().style.transform, '');
+  eq('回弹不算数（没有写库）', await prog('w-absorb'), undefined);
+
+  // 右滑 → 熟记
+  pe('pointerdown', 150);
+  pe('pointermove', 300);
+  eq('右滑时浮出"熟记"', t(frame, '[data-testid="swipe-badge"]'), '熟记');
+  pe('pointerup', 300);
+  await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '右滑标成熟记' });
+  eq('右滑 = 熟记（盒子进 6）', (await prog('w-absorb')).box, 6);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '滑完自动进下一个词' });
+
+  // 左滑 → 生疏
+  pe('pointerdown', 300);
+  pe('pointermove', 140);
+  eq('左滑时浮出"生疏"', t(frame, '[data-testid="swipe-badge"]'), '生疏');
+  pe('pointerup', 140);
+  await waitFor(async () => (await prog('w-run'))?.level === 'unfamiliar', { label: '左滑标成生疏' });
+  eq('左滑 = 生疏（回盒子 1）', (await prog('w-run')).box, 1);
+
+  // 默写模式不该有滑动（高频打字场景不要加手势）
+  frame.contentWindow.location.hash = `#/practice?lib=${lib6}&mode=quiz`;
+  await waitFor(() => q(frame, '[data-testid="practice-input"]') && !q(frame, '[data-testid="practice-input"]').hidden, { label: '切到默写' });
+  ok('默写模式不显示滑动提示', q(frame, '[data-testid="swipe-tip"]').hidden === true);
+  ok('默写模式的卡片不接管横向手势', q(frame, '.prac-card').classList.contains('swipeable') === false);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

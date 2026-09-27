@@ -14,6 +14,29 @@
   --sp: 16px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
+
+  /* ---------------------------------------------------------------- 动效令牌
+   * 规矩（来自 Emil Kowalski 的动画标准，见 review-animations skill）：
+   *   - 只动 transform / opacity（GPU），绝不动 width/height/top/left
+   *   - UI 动效 < 300ms；高频微反馈更短
+   *   - 进场用强 ease-out（内置 ease-out 太弱），不用 ease-in
+   *   - 每个过渡都必须用下面的令牌 —— 减弱动效时把它们归零
+   */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring-soft: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-tap: 110ms;   /* 按下/抬起这种高频微反馈 */
+  --dur-ui: 170ms;    /* 常规进场出场 */
+  --dur-big: 240ms;   /* 罕见事件（新版本横幅、小结） */
+  --fade-ui: 160ms;   /* 纯颜色/透明度过渡，减弱动效下保留（只是变温柔，不是全关） */
+}
+
+/* 系统开了"减弱动效"：去掉位移与缩放，保留极淡的透明度过渡（gentler, not zero） */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-tap: 0ms;
+    --dur-ui: 0ms;
+    --dur-big: 0ms;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,10 +57,8 @@
 /* hidden 必须真的隐藏：因为后面有用 display:flex/grid 的规则，会盖掉浏览器默认的 [hidden] */
 [hidden] { display: none !important; }
 
-/* 系统开了"减弱动效"就把过渡和动画都关掉 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    transition-duration: 0s !important;
     animation-duration: 0.001s !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
@@ -212,7 +233,15 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 }
 .lib-meta { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .lib-bar { height: 6px; margin-top: 8px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.lib-bar > i { display: block; height: 100%; border-radius: 3px; transition: width 0.25s ease; }
+/* 进度用 scaleX 而不是 width：width 会触发布局（掉帧），transform 走 GPU */
+.lib-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform var(--dur-big) var(--ease-out-quint);
+}
 .lib-more { padding: 6px 10px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; }
 
 .empty { display: grid; gap: 6px; text-align: center; color: var(--muted); }
@@ -303,7 +332,7 @@ body[data-view='practice'] #tabbar { display: none; }
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.mode-row { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.mode-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .link-btn {
   padding: 6px 4px;
   min-height: 32px;
@@ -473,3 +502,64 @@ body[data-view='practice'] #tabbar { display: none; }
 .word-status[data-kind='ok'] { color: var(--ok); }
 .word-status[data-kind='bad'] { color: var(--bad); }
 .ghost.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+
+/* ---------------------------------------------------------------- 动效
+ * 全部走 --dur-* / --ease-* 令牌：减弱动效时位移归零，只留下极淡的透明度过渡。
+ * 只动 transform 与 opacity（GPU）；不动 width/height/top/left。
+ */
+
+/* 判定反馈条：状态提示，每题一次 → 从下方 6px 浮起 + 淡入 */
+.feedback {
+  transition: opacity var(--dur-ui) var(--ease-out-quint), transform var(--dur-ui) var(--ease-out-quint);
+}
+@starting-style {
+  .feedback { opacity: 0; transform: translateY(6px); }
+}
+
+/* 练习小结：罕见事件 → 稍慢一点、幅度稍大，允许有质感 */
+.session-summary {
+  transition: opacity var(--dur-big) var(--ease-out-quint), transform var(--dur-big) var(--ease-out-quint);
+}
+@starting-style {
+  .session-summary { opacity: 0; transform: translateY(10px) scale(0.99); }
+}
+
+/* 顶部"有新版本"横幅：极罕见 → 从上方滑入 */
+.update-bar {
+  transition: transform var(--dur-big) var(--ease-out-quint), opacity var(--dur-big) var(--ease-out-quint);
+}
+@starting-style {
+  .update-bar { transform: translateY(-100%); opacity: 0; }
+}
+
+/* 按钮按下：高频微反馈 → 极短（110ms）、幅度极小（0.97），用带一点点回弹的曲线 */
+.primary, .ghost, .chip, .lib-more, .prac-quit, .link-btn, .lib-name {
+  transition:
+    transform var(--dur-tap) var(--ease-spring-soft),
+    background-color var(--fade-ui) ease,
+    color var(--fade-ui) ease,
+    border-color var(--fade-ui) ease;
+}
+.primary:active, .ghost:active, .chip:active, .lib-more:active, .prac-quit:active, .link-btn:active { transform: scale(0.97); }
+.lib-name:active { transform: scale(0.99); }
+
+/* 过一遍模式的手势：卡片跟手拖 → 松手回弹或飞出去 */
+.prac-wrap { position: relative; }
+.prac-card.swipeable { touch-action: pan-y; } /* 横向归我们，纵向留给页面滚动 */
+.prac-card.swiping { transition: none; }
+.prac-card.snapping { transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) linear; }
+.swipe-badge {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.swipe-badge[data-dir='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.swipe-tip { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2px; }
