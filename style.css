@@ -294,6 +294,27 @@ body[data-view='practice'] #tabbar { display: none; }
 .lvl-unfamiliar { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 .level-hint { color: var(--muted); font-size: 12px; text-align: center; }
 
+/* 「过一遍」模式：答案直接摊开，只点熟记/生疏 */
+.prac-answer {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  font-size: clamp(16px, 4.5vw, 20px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mode-row { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.link-btn {
+  padding: 6px 4px;
+  min-height: 32px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+}
+.level-row > button:nth-child(3) { flex: 0 0 auto; font-size: 13px; }
+
 /* ---------------------------------------------------------------- 导入 */
 
 .page-title { margin: 2px 0 14px; font-size: 20px; font-weight: 650; }

@@ -21,7 +21,7 @@ const DIRS = [
   { key: 'mix', label: '混合' }
 ];
 
-const EMPTY_STATS = () => ({ ok: 0, bad: 0, near: 0, nearPass: 0, marked: 0, known: 0, unfamiliar: 0 });
+const EMPTY_STATS = () => ({ ok: 0, bad: 0, near: 0, nearPass: 0, marked: 0, known: 0, unfamiliar: 0, skipped: 0 });
 
 const hashStr = (s) => {
   let h = 0;
@@ -41,8 +41,12 @@ export async function renderPractice(params = {}) {
   const mode0 = DIRS.some((d) => d.key === params.dir) ? params.dir : 'en2zh';
   let data = await loadAll();
 
+  // 「过一遍」还是「默写」：智能库（生疏词）默认过一遍 —— 不认识的词本来也打不出来
+  const review0 = params.review === '1' || params.mode === 'review' ? true : params.mode === 'quiz' ? false : !!smartId;
+
   const s = {
     mode: mode0,
+    review: review0,
     queue: [],
     i: 0,
     answered: false,
@@ -104,9 +108,12 @@ export async function renderPractice(params = {}) {
     placeholder: '写出答案'
   });
   const submit = el('button', { className: 'primary', dataset: { testid: 'btn-submit' }, type: 'button', onclick: () => onEnter() }, '检查');
+  // 「过一遍」模式：答案直接摊开给你看，不用打字
+  const answerLine = el('div', { className: 'prac-answer', dataset: { testid: 'practice-answer' }, hidden: true }, '');
   const feedback = el('div', { className: 'feedback', dataset: { testid: 'feedback' }, hidden: true, role: 'status', 'aria-live': 'polite' }, '');
   const btnForce = el('button', { className: 'ghost', dataset: { testid: 'btn-force-ok' }, type: 'button', hidden: true, onclick: () => forceOk() }, '算我对');
   const btnNext = el('button', { className: 'primary', dataset: { testid: 'btn-next' }, type: 'button', hidden: true, onclick: () => next() }, '下一题');
+  const btnSkip = el('button', { className: 'ghost', dataset: { testid: 'btn-skip' }, type: 'button', hidden: true, onclick: () => skipOne() }, '下一个（不标）');
 
   // 抽查时的自我判断：熟记 / 生疏（点了就自动进下一题）
   const btnUnfamiliar = el('button', {
@@ -121,14 +128,25 @@ export async function renderPractice(params = {}) {
     type: 'button',
     onclick: () => markAndNext('known')
   }, '熟记');
+  const levelHint = el('div', { className: 'level-hint' }, '');
   const levelRow = el('div', { className: 'level-block' }, [
-    el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown]),
-    el('div', { className: 'level-hint' }, '自己定：熟记 → 60 天后再见；生疏 → 10 分钟后再见')
+    el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown, btnSkip]),
+    levelHint
   ]);
+
+  // 模式切换：默写（考自己） ⇄ 过一遍（只看不考，专门用来刷生疏词）
+  const modeBtn = el('button', {
+    className: 'link-btn',
+    dataset: { testid: 'btn-toggle-mode' },
+    type: 'button',
+    onclick: () => setReview(!s.review)
+  }, '');
+  const modeRow = el('div', { className: 'mode-row' }, [modeBtn]);
 
   const card = el('div', { className: 'card prac-card' }, [
     prompt,
     hint,
+    answerLine,
     input,
     submit,
     feedback,
@@ -145,10 +163,31 @@ export async function renderPractice(params = {}) {
   ]);
 
   const top = el('div', { className: 'prac-top' }, [quit, progress, dirSwitch]);
-  view.replaceChildren(top, card, summary);
+  view.replaceChildren(top, modeRow, card, summary);
 
   // ---------------------------------------------------------------- 逻辑
   const answerText = (w, dir) => (dir === 'en2zh' ? w.meanings.join('；') : w.term);
+
+  /** 切「默写 / 过一遍」。只改地址栏，不触发 hashchange（否则这一轮就白练了） */
+  function setReview(on, { render = true } = {}) {
+    s.review = !!on;
+    input.hidden = s.review;
+    submit.hidden = s.review;
+    dirSwitch.hidden = s.review; // 过一遍时词和释义同时看得见，方向没意义
+    answerLine.hidden = !s.review;
+    btnSkip.hidden = !s.review;
+    modeBtn.textContent = s.review ? '→ 换成默写（考自己）' : '→ 过一遍（只看不考，适合刷生疏词）';
+    levelHint.textContent = s.review
+      ? '看清了就点：熟记 → 60 天后再见；生疏 → 10 分钟后再见'
+      : '自己定：熟记 → 60 天后再见；生疏 → 10 分钟后再见';
+    const qs = new URLSearchParams();
+    if (libId) qs.set('lib', libId);
+    if (smartId) qs.set('smart', smartId);
+    if (s.mode !== 'en2zh') qs.set('dir', s.mode);
+    qs.set('mode', s.review ? 'review' : 'quiz');
+    history.replaceState(null, '', `#/practice?${qs}`);
+    if (render && !s.answered && s.queue.length) renderQuestion();
+  }
 
   function showFeedback(kind, text) {
     feedback.hidden = false;
@@ -174,8 +213,16 @@ export async function renderPractice(params = {}) {
     s.retried = false;
     s.nearCounted = false;
     s.curDir = dirForWord(w.id, s.mode);
-    prompt.textContent = s.curDir === 'en2zh' ? w.term : w.meanings.join('；');
-    hint.textContent = [s.curDir === 'en2zh' ? w.phonetic : '', w.pos].filter(Boolean).join(' · ');
+    if (s.review) {
+      // 过一遍：词、音标、释义同时摊开，只需要点「熟记 / 生疏」
+      prompt.textContent = w.term;
+      hint.textContent = [w.phonetic, w.pos].filter(Boolean).join(' · ');
+      answerLine.textContent = (w.meanings || []).join('；');
+    } else {
+      prompt.textContent = s.curDir === 'en2zh' ? w.term : w.meanings.join('；');
+      hint.textContent = [s.curDir === 'en2zh' ? w.phonetic : '', w.pos].filter(Boolean).join(' · ');
+      answerLine.textContent = '';
+    }
     input.value = '';
     input.placeholder = s.curDir === 'en2zh' ? '写出中文意思' : '写出英文单词';
     input.disabled = false;
@@ -188,7 +235,15 @@ export async function renderPractice(params = {}) {
     progress.textContent = `第 ${s.i + 1}/${s.queue.length}`;
     card.hidden = false;
     summary.hidden = true;
-    input.focus();
+    if (!s.review) input.focus();
+  }
+
+  /** 过一遍模式里的"不标，直接下一个" */
+  function skipOne() {
+    if (s.ended) return;
+    s.stats.skipped++;
+    s.answered = true;
+    next();
   }
 
   function showNothing() {
@@ -196,7 +251,7 @@ export async function renderPractice(params = {}) {
     summary.hidden = true;
     const smart = smartDef(smartId);
     const isSmart = !!smart;
-    view.replaceChildren(top, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
+    view.replaceChildren(top, modeRow, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
       el('div', { className: 'empty-title' }, isSmart ? `「${smart.name}」里还没有词` : '今天没有要练的'),
       el('div', { className: 'empty-sub' },
         isSmart ? '练习时点一下「生疏」，这个词就会自动进到这个库，下次就能专项练它。' : '复习都做完了，也没有新词。明早再来，或者去导入更多词表。'),
@@ -304,9 +359,19 @@ export async function renderPractice(params = {}) {
     s.ended = true;
     card.hidden = true;
     summary.hidden = false;
+    const textEl = summary.querySelector('[data-testid="summary-text"]');
+    if (s.review) {
+      // 过一遍模式的成绩单：不考对错，只看你把多少词归到了哪边
+      const total = s.stats.known + s.stats.unfamiliar + s.stats.skipped;
+      textEl.textContent =
+        `过了一遍 ${total} 个词 · 熟记 ${s.stats.known} · 生疏 ${s.stats.unfamiliar}` +
+        (s.stats.skipped ? ` · 跳过 ${s.stats.skipped}` : '') +
+        (s.stats.unfamiliar ? '（生疏的还在这个库里，下次再来一遍）' : '');
+      return;
+    }
     // "练了 N 题"把"自己标级"的也算进去，否则标完的题会显得凭空少掉
     const total = s.stats.ok + s.stats.bad + s.stats.marked;
-    summary.querySelector('[data-testid="summary-text"]').textContent =
+    textEl.textContent =
       `练了 ${total} 题 · 对 ${s.stats.ok} · 错 ${s.stats.bad} · 差点 ${s.stats.near}` +
       (s.stats.nearPass ? `（其中 ${s.stats.nearPass} 个算你对）` : '') +
       (s.stats.marked ? ` · 手动标了 ${s.stats.marked} 个（熟记 ${s.stats.known} / 生疏 ${s.stats.unfamiliar}）` : '');
@@ -333,5 +398,8 @@ export async function renderPractice(params = {}) {
   });
 
   if (!s.queue.length) showNothing();
-  else renderQuestion();
+  else {
+    setReview(s.review, { render: false }); // 先把模式对应的界面元素摆好
+    renderQuestion();
+  }
 }

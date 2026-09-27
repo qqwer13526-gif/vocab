@@ -189,6 +189,41 @@ try {
   const sum10 = t(frame, '[data-testid="session-summary"]');
   ok('小结算进了手动标记', sum10.includes('手动标了 2 个'), sum10);
   ok('小结分了熟记/生疏', sum10.includes('熟记 1') && sum10.includes('生疏 1'), sum10);
+
+  // ---------------- 11. 「过一遍」模式（只看不考，专门用来刷生疏词）----------------
+  await db.wipeAll();
+  const lib5 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib5}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+
+  ok('过一遍：不显示输入框', q(frame, '[data-testid="practice-input"]').hidden === true);
+  ok('过一遍：答案直接摊开', q(frame, '[data-testid="practice-answer"]').hidden === false);
+  eq('第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+  ok('答案里能看到释义', t(frame, '[data-testid="practice-answer"]').includes('吸收'), t(frame, '[data-testid="practice-answer"]'));
+  ok('过一遍：方向切换收起来（两边都看得见，方向没意义）', q(frame, '[data-testid="dir-switch"]').hidden === true);
+  ok('过一遍：有"下一个（不标）"', q(frame, '[data-testid="btn-skip"]').hidden === false);
+
+  click(q(frame, '[data-testid="btn-level-known"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '过一遍时标熟记写库' });
+  eq('标熟记后盒子进 6', (await prog('w-absorb')).box, 6);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '自动进下一个词' });
+
+  click(q(frame, '[data-testid="btn-skip"]'));
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'book', { label: '跳到第三个词' });
+  eq('"不标"就是不写库', await prog('w-book'), undefined);
+
+  click(q(frame, '[data-testid="btn-level-unfamiliar"]'));
+  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '过完出现小结' });
+  const sum11 = t(frame, '[data-testid="session-summary"]');
+  ok('小结用"过了一遍"的口径', sum11.includes('过了一遍 3 个词'), sum11);
+  ok('小结统计熟记/生疏/跳过', sum11.includes('熟记 1') && sum11.includes('生疏 1') && sum11.includes('跳过 1'), sum11);
+
+  click(q(frame, '[data-testid="btn-again"]'));
+  await waitFor(() => q(frame, '[data-testid="practice-prompt"]'), { label: '再来一轮' });
+  click(q(frame, '[data-testid="btn-toggle-mode"]'));
+  await waitFor(() => q(frame, '[data-testid="practice-input"]').hidden === false, { label: '切回默写' });
+  ok('切回默写：输入框回来了', q(frame, '[data-testid="practice-input"]').hidden === false);
+  ok('切回默写：答案收起来了', q(frame, '[data-testid="practice-answer"]').hidden === true);
+  ok('URL 记下了当前模式', frame.contentWindow.location.hash.includes('mode=quiz'), frame.contentWindow.location.hash);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

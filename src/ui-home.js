@@ -78,7 +78,7 @@ export async function renderHome() {
             [smart.name, el('span', { className: 'smart-tag' }, '自动')]
           ),
           el('div', { className: 'lib-meta', dataset: { testid: 'smart-count' } },
-            n ? `${n} 个词 · 点名字直接专项练习` : '还没有——练习时点「生疏」就会自动进来'),
+            n ? `${n} 个词 · 点名字开始过一遍` : '还没有——练习时点「生疏」就会自动进来'),
           el('div', { className: 'lib-meta smart-hint' }, smart.hint)
         ]),
         el(
