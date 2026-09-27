@@ -118,6 +118,8 @@ try {
   await audit('词条列表', await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]', size: [390, 844] }));
   await audit('词条编辑', await openApp({ hash: `#/word?id=w-absorb&lib=${lib}`, sel: '[data-testid="word-edit"]', size: [390, 844] }));
 
+  await audit('设置', await openApp({ hash: '#/settings', sel: '[data-testid="settings-version"]', size: [390, 844] }));
+
   // ---------------- 减弱动效 ----------------
   const motionFrame = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]', size: [390, 844] });
   const bar = motionFrame.contentDocument.querySelector('[data-testid="lib-progress"] > i');

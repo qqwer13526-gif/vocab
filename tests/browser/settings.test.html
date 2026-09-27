@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置页 · 更新 / 备份 / 恢复</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 测设置页：版本与检查更新、数据状态、备份导出、从备份恢复（覆盖 / 合并）。
+ * 这一页是"数据不会再莫名丢掉"的保险，所以测得细一点。
+ * 跑法：python tool/browser_test.py tests/browser/settings.test.html
+ */
+import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+let bk = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-a';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  const words = [
+    ['absorb', 'v.', ['吸收', '使专心']],
+    ['accept', 'v.', ['接受']],
+    ['access', 'n.', ['通道']]
+  ];
+  let i = 0;
+  for (const [term, pos, meanings] of words) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic: '', pos, meanings, example: '', note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  }
+  await db.put('prog', { wordId: 'w-absorb', box: 4, dueAt: NOW + 7 * 86400000, streak: 3, lapses: 0, lastDir: 'en2zh', level: 'known', levelAt: NOW, updatedAt: NOW });
+  return lib;
+}
+
+try {
+  db = await import('../../src/db.js');
+  bk = await import('../../src/backup.js');
+
+  // ---------------- 1. 设置页显示状态 ----------------
+  await seed();
+  let frame = await openApp({ hash: '#/settings', sel: '[data-testid="settings-version"]' });
+  const version = t(frame, '[data-testid="settings-version"]');
+  ok('显示当前版本号', /^v\d+$/.test(version), version);
+  const summary = t(frame, '[data-testid="storage-summary"]');
+  ok('数据状态：词条 3 个', summary.includes('词条 3 个'), summary);
+  ok('数据状态：词库 1 个', summary.includes('词库 1 个'), summary);
+  ok('数据状态：学习记录 1 条', summary.includes('学习记录 1 条'), summary);
+  ok('有"申请持久化存储"按钮', !!q(frame, '[data-testid="btn-persist"]'));
+
+  // 顶部"有新版本"默认不显示
+  const banner = () => frame.contentDocument.querySelector('[data-testid="update-banner"]');
+  ok('有新版本时才显示顶部横幅（默认隐藏）', banner().hidden === true);
+  eq('运行中的版本号也标在 body 上', frame.contentDocument.body.dataset.appVersion, version);
+
+  // ---------------- 2. 检查更新这条路能跑通 ----------------
+  click(q(frame, '[data-testid="btn-check-update"]'));
+  await waitFor(() => t(frame, '[data-testid="update-status"]').length > 0 && !t(frame, '[data-testid="update-status"]').includes('检查中'), { label: '检查更新有结果' });
+  const upd = t(frame, '[data-testid="update-status"]');
+  ok('检查更新给出结果（不会崩）', upd.includes('最新') || upd.includes('发现新版本') || upd.includes('没有 service worker') || upd.includes('失败'), upd);
+  // 明明没有新版本时，横幅不能挂出来（update() 期间 installing 会短暂非空，容易误判）
+  ok('没有新版本时顶部横幅保持隐藏', banner().hidden === true, `data-update=${frame.contentDocument.body.dataset.update}`);
+  eq('状态标记也没有谎报', frame.contentDocument.body.dataset.update, 'no');
+
+  // ---------------- 3. 备份：导出内容完整 ----------------
+  const backup = await bk.collectBackup();
+  eq('备份里词条数对', backup.counts.words, 3);
+  eq('备份里学习记录对', backup.counts.prog, 1);
+  eq('备份里带上了身份标记', backup.kind, 'vocab-pwa-backup');
+
+  // 点一下导出按钮：不该报错（无头里不一定会真的下载文件）
+  click(q(frame, '[data-testid="btn-export"]'));
+  await waitFor(() => t(frame, '[data-testid="settings-status"]').length > 0, { label: '导出给出提示' });
+  ok('导出给出提示', t(frame, '[data-testid="settings-status"]').includes('备份'), t(frame, '[data-testid="settings-status"]'));
+
+  // ---------------- 4. 整个数据没了也能救回来（覆盖恢复）----------------
+  await db.wipeAll();
+  eq('模拟数据丢失：词条清空', await db.count('words'), 0);
+  const restored = await bk.importFromText(JSON.stringify(backup), { mode: 'replace' });
+  eq('恢复后的词条数', restored.counts.words, 3);
+  eq('恢复后的学习记录', (await db.get('prog', 'w-absorb')).box, 4);
+  eq('恢复后等级也在', (await db.get('prog', 'w-absorb')).level, 'known');
+  eq('恢复后词库归属也在', (await db.count('links')), 3);
+
+  // ---------------- 5. 覆盖恢复不该把音标库缓存删掉 ----------------
+  await db.put('meta', { key: 'phoneticDict', value: 'x'.repeat(100), source: 'test', fetchedAt: NOW });
+  await bk.importFromText(JSON.stringify(backup), { mode: 'replace' });
+  ok('覆盖恢复后音标库缓存还在（不用重新下载 3.8MB）', ((await db.get('meta', 'phoneticDict')) || {}).value?.length === 100);
+
+  // ---------------- 6. 从文件恢复（界面流程）----------------
+  frame = await openApp({ hash: '#/settings', sel: '[data-testid="btn-pick-backup"]' });
+  const input = q(frame, '[data-testid="import-backup"]');
+  const dt = new DataTransfer();
+  dt.items.add(new File([JSON.stringify(backup)], '背单词备份-2026-09-26.json', { type: 'application/json' }));
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => !q(frame, '[data-testid="backup-plan"]').hidden, { label: '出现恢复确认' });
+  const planText = t(frame, '[data-testid="backup-plan"]');
+  ok('恢复前先说清楚备份里有什么', planText.includes('3 个词条') && planText.includes('1 条学习记录'), planText);
+  ok('覆盖和合并两个选择都给出来', !!q(frame, '[data-testid="btn-restore-replace"]') && !!q(frame, '[data-testid="btn-restore-merge"]'));
+
+  // 合并也要能改动数据：先加一个本机独有的词，再合并
+  await db.put('words', { id: 'w-local', term: 'local', termNorm: 'local', phonetic: '', pos: '', meanings: ['本机独有'], example: '', note: '', createdAt: NOW + 9, updatedAt: NOW + 9 });
+  click(q(frame, '[data-testid="btn-restore-merge"]'));
+  await waitFor(() => t(frame, '[data-testid="settings-status"]').includes('恢复完成'), { label: '合并恢复完成' });
+  const words = await db.all('words');
+  eq('合并后本机独有的词还在', words.some((w) => w.id === 'w-local'), true);
+  eq('合并后备份里的词也在', words.some((w) => w.id === 'w-absorb'), true);
+  ok('合并恢复给出汇总', t(frame, '[data-testid="settings-status"]').includes('学习记录'), t(frame, '[data-testid="settings-status"]'));
+
+  // ---------------- 7. 选错文件要说清楚 ----------------
+  frame = await openApp({ hash: '#/settings', sel: '[data-testid="btn-pick-backup"]' });
+  const bad = q(frame, '[data-testid="import-backup"]');
+  const dt2 = new DataTransfer();
+  dt2.items.add(new File(['这不是备份'], 'x.json', { type: 'application/json' }));
+  bad.files = dt2.files;
+  bad.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => t(frame, '[data-testid="settings-status"]').includes('读不了'), { label: '给出错误提示' });
+  ok('选错文件明确报错，而且没有动数据', (await db.count('words')) > 0);
+
+  // ---------------- 8. 首页能进设置 ----------------
+  const home = await openApp({ hash: '#/', sel: '[data-testid="btn-settings"]' });
+  click(q(home, '[data-testid="btn-settings"]'));
+  await waitFor(() => home.contentWindow.location.hash.includes('settings'), { label: '跳到设置页' });
+  ok('首页底部能进设置页', home.contentWindow.location.hash === '#/settings', home.contentWindow.location.hash);
+} catch (e) {
+  ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

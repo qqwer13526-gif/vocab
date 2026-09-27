@@ -126,6 +126,18 @@ export async function renderHome() {
         onclick: (e) => openNewLibForm(e.currentTarget, data)
       },
       '新建词库'
+    ),
+    el(
+      'button',
+      {
+        className: 'ghost',
+        dataset: { testid: 'btn-settings' },
+        type: 'button',
+        onclick: () => {
+          location.hash = '#/settings';
+        }
+      },
+      '设置'
     )
   ]);
 

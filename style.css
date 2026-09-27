@@ -101,6 +101,47 @@ body {
 
 #tabbar a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* ---------------------------------------------------------------- 顶部"有新版本" */
+
+.update-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+}
+.update-bar span { flex: 1; min-width: 0; }
+.update-bar button {
+  flex: none;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
+
+/* ---------------------------------------------------------------- 设置 */
+
+.settings-card { display: grid; gap: 10px; margin-bottom: 12px; }
+.settings-big { font-size: 24px; font-weight: 650; }
+.settings-note { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.settings-list { display: grid; gap: 4px; font-size: 15px; }
+.settings-notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.settings-notes li { margin-bottom: 6px; }
+.settings-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.settings-plan-title { font-size: 15px; font-weight: 600; }
+
 /* ---------------------------------------------------------------- 库列表首页 */
 
 .home-head { display: grid; gap: 12px; margin-bottom: 14px; }

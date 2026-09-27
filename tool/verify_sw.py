@@ -88,6 +88,15 @@ def check() -> int:
         not_listed = [f"./src/{n}" for n in src_files if f"./src/{n}" not in listed]
         reps.check("src 下每个模块都在预缓存清单里", not not_listed, f"漏了：{not_listed}")
 
+        # 应用版本号必须和 sw.js 的缓存版本一致（发版时两个一起改，改漏了这里会红）
+        app_ver = re.search(r"APP_VERSION = '([^']+)'", (ROOT / "src" / "version.js").read_text(encoding="utf-8"))
+        sw_ver = re.search(r"const VERSION = '([^']+)'", text)
+        reps.check(
+            "src/version.js 与 sw.js 的版本号一致",
+            bool(app_ver and sw_ver and app_ver.group(1) == sw_ver.group(1)),
+            f"app={app_ver.group(1) if app_ver else '?'} sw={sw_ver.group(1) if sw_ver else '?'}",
+        )
+
         for name in ("icon-192.png", "icon-512.png", "apple-touch-icon.png"):
             st, blob = get(base + "/" + name)
             reps.check(f"{name} 是 PNG", st == 200 and blob[:8] == b"\x89PNG\r\n\x1a\n", f"HTTP {st}")

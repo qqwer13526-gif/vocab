@@ -8,7 +8,7 @@
  *
  * 注意：ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个 HEAD 检查。
  */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
@@ -20,15 +20,18 @@ const ASSETS = [
   './icon-512.png',
   './apple-touch-icon.png',
   './src/app.js',
+  './src/version.js',
   './src/db.js',
   './src/store.js',
   './src/srs.js',
   './src/judge.js',
   './src/parse.js',
+  './src/backup.js',
   './src/ui-home.js',
   './src/ui-practice.js',
   './src/ui-import.js',
   './src/ui-word.js',
+  './src/ui-settings.js',
   './src/xlsx.js',
   './src/phonetic.js'
 ];
@@ -39,6 +42,11 @@ self.addEventListener('install', (e) => {
       .then((c) => c.addAll(ASSETS))
       .then(() => self.skipWaiting())
   );
+});
+
+// 页面上的「立即更新」按钮会让新的 SW 立刻接管，然后页面自己 reload
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {

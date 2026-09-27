@@ -81,6 +81,8 @@ try {
   await checkView('导入', '#/import', PHONE, '[data-testid="import-text"]', '/tests/fixtures/vocab-sample.tsv');
   await checkView('导入', '#/import', NARROW, '[data-testid="import-text"]', '/tests/fixtures/vocab-sample.tsv');
   await checkView('词条', `#/word?lib=${lib}`, PHONE, '#view-word:not([hidden])');
+  await checkView('设置', '#/settings', PHONE, '[data-testid="settings-version"]');
+  await checkView('设置', '#/settings', NARROW, '[data-testid="settings-version"]');
 } catch (e) {
   ok('布局检查脚本本身不能崩', false, (e && e.stack) || String(e));
 }
