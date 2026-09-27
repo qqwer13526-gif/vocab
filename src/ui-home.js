@@ -9,6 +9,7 @@ import { put } from './db.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { buildQueue } from './srs.js';
 import { DEFAULT_NEW_LIMIT, PALETTE, libStats, loadAll, nextLibOrder } from './store.js';
+import { APP_VERSION } from './version.js';
 
 export async function renderHome() {
   const view = $('#view-home');
@@ -137,7 +138,7 @@ export async function renderHome() {
           location.hash = '#/settings';
         }
       },
-      '设置'
+      '设置 · ' + APP_VERSION
     )
   ]);
 

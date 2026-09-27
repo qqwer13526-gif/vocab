@@ -142,6 +142,12 @@ try {
   click(doc.querySelector('[data-testid="btn-import"]'));
   await waitFor(() => frame.contentWindow.location.hash.includes('import'), { label: '跳到导入页' });
   ok('点导入词表 → 进导入页', frame.contentWindow.location.hash.startsWith('#/import'), frame.contentWindow.location.hash);
+
+  // ---------------- 6. 底部"设置"按钮上带版本号（用来一眼确认更新是否到位）----------------
+  const home2 = await openApp({ sel: '[data-testid="btn-settings"]' });
+  const settingsLabel = txt(home2.contentDocument.querySelector('[data-testid="btn-settings"]'));
+  ok('首页底部"设置"按钮上带版本号', /^设置 · v\d+$/.test(settingsLabel), settingsLabel);
+  eq('版本号和 body 上标的一致', settingsLabel.replace('设置 · ', ''), home2.contentDocument.body.dataset.appVersion);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
