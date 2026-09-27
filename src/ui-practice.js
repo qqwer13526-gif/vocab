@@ -327,7 +327,9 @@ export async function renderPractice(params = {}) {
       card.classList.add('snapping');
       card.style.transform = `translateX(${dx > 0 ? 120 : -120}%)`;
       card.style.opacity = '0';
-      await new Promise((r) => setTimeout(r, 200));
+      // 等多久看的是同一个时长令牌，不写魔法数字（改了 --dur-ui 这里跟着变）
+      const ms = Number((getComputedStyle(document.documentElement).getPropertyValue('--dur-ui') || '').replace('ms', '')) || 170;
+      await new Promise((r) => setTimeout(r, ms + 30));
     }
     await markAndNext(dir); // 会渲染下一题
     card.classList.remove('snapping');

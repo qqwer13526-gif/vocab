@@ -546,7 +546,7 @@ body[data-view='practice'] #tabbar { display: none; }
 /* 过一遍模式的手势：卡片跟手拖 → 松手回弹或飞出去 */
 .prac-wrap { position: relative; }
 .prac-card.swipeable { touch-action: pan-y; } /* 横向归我们，纵向留给页面滚动 */
-.prac-card.swiping { transition: none; }
+.prac-card.swiping { transition: none; will-change: transform; } /* 只在拖动期间提示合成器，松手就撤掉 */
 .prac-card.snapping { transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) linear; }
 .swipe-badge {
   position: absolute;
