@@ -12,7 +12,7 @@ import { renderPractice } from './ui-practice.js';
 import { renderImport } from './ui-import.js';
 import { renderWord } from './ui-word.js';
 import { renderSettings } from './ui-settings.js';
-import { APP_VERSION } from './version.js';
+import { APP_VERSION, VERSION_URL } from './version.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -110,53 +110,93 @@ function markSW() {
 }
 
 /** 顶部那条"有新版本" */
-export function markUpdateReady(on) {
+export function markUpdateReady(on, remote = null) {
   document.body.dataset.update = on ? 'ready' : 'no';
+  if (remote) document.body.dataset.updateVersion = remote;
   const bar = document.getElementById('update-bar');
-  if (bar) bar.hidden = !on;
+  if (!bar) return;
+  bar.hidden = !on;
+  if (on) {
+    const label = bar.querySelector('span');
+    if (label) label.textContent = remote ? `有新版本 ${remote}，更新后数据不会丢` : '有新版本了，更新后数据不会丢';
+  }
 }
 
-export const updateState = () => ({ version: APP_VERSION, hasReg: !!swReg, ready: document.body.dataset.update === 'ready' });
+export const updateState = () => ({
+  version: APP_VERSION,
+  hasReg: !!swReg,
+  ready: document.body.dataset.update === 'ready',
+  remote: document.body.dataset.updateVersion || null
+});
+
+/** 版本探测文件的地址（测试时可以指向别处） */
+function versionUrl() {
+  try {
+    return localStorage.getItem('vocab.versionUrl') || VERSION_URL;
+  } catch {
+    return VERSION_URL;
+  }
+}
 
 /**
- * 主动检查有没有新版本。
- * iOS 上的主屏幕应用不刷新页面就不会发现新版，所以打开应用/切回前台时都要查一次。
- *
- * ⚠️ 不要用 `reg.installing` 判断"有新版本"：update() 期间它会短暂非空，
- * 结果是明明没新版也把横幅挂出来。真正的信号是 updatefound→installed 或 controllerchange。
+ * 问服务端"现在最新是哪个版本"。
+ * 用 no-store 取，绕开 HTTP 缓存 —— GitHub Pages 给静态文件的 max-age=600
+ * 就是"发版后 10 分钟内手机上发现不了新版本"的元凶。
+ */
+export async function fetchRemoteVersion() {
+  const url = new URL(versionUrl(), document.baseURI);
+  url.searchParams.set('t', String(Date.now()));
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const v = typeof data === 'string' ? data : data && data.version;
+  return v ? String(v) : null;
+}
+
+/**
+ * 主动检查有没有新版本。三层保险：
+ *   1) 直接取 version.json 对比版本号（不依赖 service worker 的任何行为）
+ *   2) 顺手 reg.update()，让浏览器去取新的 sw.js
+ *   3) 聊天窗口切回前台、网络恢复时都会再查一次
  */
 export async function checkForUpdate({ force = false } = {}) {
   if (!swReg) return { checked: false, reason: 'no-registration' };
   const now = Date.now();
   if (!force && now - lastCheck < CHECK_THROTTLE_MS) return { checked: false, reason: 'throttled' };
   lastCheck = now;
+
+  let remote = null;
+  let error = null;
+  try {
+    remote = await fetchRemoteVersion();
+  } catch (err) {
+    error = String((err && err.message) || err);
+  }
+  if (remote && remote !== APP_VERSION) markUpdateReady(true, remote);
+
   try {
     await swReg.update();
-  } catch (err) {
-    return { checked: true, error: String((err && err.message) || err) };
+  } catch {
+    /* 离线或 SW 有问题都不影响上面的版本对比 */
   }
-  return { checked: true, ready: document.body.dataset.update === 'ready' };
+  return { checked: true, local: APP_VERSION, remote, ready: document.body.dataset.update === 'ready', error };
 }
 
-/** 点「立即更新」：让新 SW 立刻接管，然后重新加载页面（数据在原存储里，不会丢） */
+/**
+ * 点「立即更新」。
+ * 除了让新 SW 接管，还会**清掉所有缓存**：旧 SW 卡在旧代码上时，这是最有效的一招 ——
+ * 下次加载它只能从网络取，新的 HTML/JS 立刻就进来了。数据在 IndexedDB 里，不受影响。
+ */
 export async function applyUpdate() {
   try {
-    if (swReg && swReg.waiting) {
-      swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      await new Promise((resolve) => {
-        const t = setTimeout(resolve, 2500);
-        navigator.serviceWorker.addEventListener(
-          'controllerchange',
-          () => {
-            clearTimeout(t);
-            resolve();
-          },
-          { once: true }
-        );
-      });
+    if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    if (navigator.onLine && typeof caches !== 'undefined') {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
     }
+    if (swReg) await swReg.update();
   } catch {
-    /* 继续 reload 就是 */
+    /* 无论中间哪步失败，最后都要 reload */
   }
   location.reload();
 }
@@ -174,7 +214,8 @@ async function setupServiceWorker() {
     // （别用 import.meta.url —— 那会解析成 /src/sw.js，注册范围就错了）
     const hadController = !!navigator.serviceWorker.controller;
     hadControllerAtBoot = hadController;
-    const reg = await navigator.serviceWorker.register(new URL('./sw.js', document.baseURI));
+    // updateViaCache: 'none' —— 检查 sw.js 更新时不走 HTTP 缓存（Pages 给的是 max-age=600）
+    const reg = await navigator.serviceWorker.register(new URL('./sw.js', document.baseURI), { updateViaCache: 'none' });
     swReg = reg;
     document.body.dataset.swreg = reg.active ? 'active' : reg.installing ? 'installing' : reg.waiting ? 'waiting' : 'registered';
     // 把安装/激活进度暴露到 body 上，验证脚本和排查都靠它

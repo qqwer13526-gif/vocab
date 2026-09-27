@@ -1,14 +1,17 @@
 /* 背单词 App 的 service worker。
  *
- * 策略：
- *   - 安装时把 ASSETS 全部预缓存（这样第一次装完就能离线用）
- *   - 导航请求：缓存优先，没命中就回 index.html（单页应用）
- *   - 同源静态资源：stale-while-revalidate（先用缓存秒开，后台更新）
- *   - 改代码后记得把 VERSION 加一，旧缓存会在 activate 时清掉
+ * 策略（v9 起改为"联网优先"）：
+ *   - 安装时把 ASSETS 全部预缓存（装完就能离线用）
+ *   - 导航请求：联网时取最新，断网回退缓存外壳
+ *   - 同源静态资源：**联网时也取最新**，失败才回退缓存
+ *     （以前是"先用缓存、后台更新"，结果手机上更新完还得刷两次；
+ *      代价只是联网时多一次请求，换来"一刷新就是新代码"）
+ *   - 改代码后把 VERSION 加一，旧缓存会在 activate 时清掉
  *
- * 注意：ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个 HEAD 检查。
+ * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
+ * ⚠️ ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
@@ -35,6 +38,7 @@ const ASSETS = [
   './src/xlsx.js',
   './src/phonetic.js'
 ];
+// 注意：version.json 故意不在清单里 —— 它必须每次都从网络取
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -82,16 +86,19 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 静态资源：先给缓存，再后台更新
+  // 静态资源：联网时取最新（保证更新立刻生效），断网才用缓存
   e.respondWith(
-    caches.match(req, { ignoreSearch: true }).then((hit) => {
-      const net = fetch(req)
-        .then((res) => {
-          if (res && res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
-          return res;
-        })
-        .catch(() => hit);
-      return hit || net;
-    })
+    (async () => {
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) {
+          const c = await caches.open(CACHE);
+          c.put(req, res.clone());
+        }
+        return res;
+      } catch {
+        return (await caches.match(req, { ignoreSearch: true })) || Response.error();
+      }
+    })()
   );
 });

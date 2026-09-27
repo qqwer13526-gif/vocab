@@ -37,12 +37,12 @@ export async function renderSettings() {
       btn.disabled = false;
       if (!res.checked) {
         updateStatus.textContent = '这个环境里没有 service worker（比如直接打开本地文件），没法检查更新。';
-      } else if (res.error) {
-        updateStatus.textContent = `检查失败（可能没网）：${res.error}`;
       } else if (res.ready) {
-        updateStatus.textContent = '发现新版本，点顶部那条"立即更新"。';
+        updateStatus.textContent = `发现新版本 ${res.remote || ''}（本机 ${res.local}），点顶部那条"立即更新"。`;
+      } else if (res.error) {
+        updateStatus.textContent = `查不到最新版本（可能没网）：${res.error}。本机是 ${res.local}。`;
       } else {
-        updateStatus.textContent = `已是最新（${APP_VERSION}）。`;
+        updateStatus.textContent = `已是最新（${res.local}）。`;
       }
     }
   }, '检查更新');

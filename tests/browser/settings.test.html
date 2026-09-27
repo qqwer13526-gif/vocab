@@ -134,6 +134,23 @@ try {
   click(q(home, '[data-testid="btn-settings"]'));
   await waitFor(() => home.contentWindow.location.hash.includes('settings'), { label: '跳到设置页' });
   ok('首页底部能进设置页', home.contentWindow.location.hash === '#/settings', home.contentWindow.location.hash);
+
+  // ---------------- 9. 服务端有新版时，横幅要自己冒出来 ----------------
+  // 把"版本探测文件"指向一个假装是 v99 的文件（真实流程是取线上的 version.json）
+  localStorage.setItem('vocab.versionUrl', '/tests/fixtures/version-new.json');
+  const updFrame = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  await waitFor(() => updFrame.contentDocument.body.dataset.update === 'ready', { label: '发现新版本' });
+  const bar = updFrame.contentDocument.querySelector('[data-testid="update-banner"]');
+  ok('服务端有新版时，顶部横幅自动出现', bar && bar.hidden === false);
+  eq('横幅里写明了新版本号', updFrame.contentDocument.body.dataset.updateVersion, 'v99');
+  ok('横幅文案带上版本号', bar.textContent.includes('v99'), bar.textContent.replace(/\s+/g, ' ').trim());
+  ok('横幅上的"立即更新"按钮在', !!updFrame.contentDocument.querySelector('[data-testid="btn-update"]'));
+
+  // 恢复：别影响别人
+  localStorage.removeItem('vocab.versionUrl');
+  const normal = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  await waitFor(() => normal.contentDocument.body.dataset.update === 'no', { label: '没有新版时状态归位' });
+  ok('版本探测恢复正常后，横幅不再显示', normal.contentDocument.querySelector('[data-testid="update-banner"]').hidden === true);
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
