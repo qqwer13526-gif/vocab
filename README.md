@@ -300,6 +300,7 @@ tests/
 tool/
   serve.py            本地服务（开发用）
   verify_all.py       ★ 一条命令跑完全部验证（18 步）
+  check_live.py       发版后确认"线上就是本地验证过的那份"（比换行归一后的内容 + 版本号）
   check_contrast.py   配色对比度审计（四套配色 × WCAG AA/AAA，改颜色后必跑）
   xlsx_to_tsv.py      Excel 词表 → 可导入的 .tsv（自动查找 + 转完自检）
   check_tsv.mjs       自检用：拿应用自己的解析逻辑数一遍有多少词
@@ -323,6 +324,15 @@ python tool\verify_all.py --quick  # 只跑纯逻辑单元测试（几秒）
 **改完代码要发版时，把三处版本号一起加一**：`sw.js` 的 `VERSION`、`src/version.js` 的 `APP_VERSION`、
 `version.json` 的 `version`（`tool/verify_sw.py` 会检查三者一致，改漏了会红）。
 版本号一变，service worker 激活时清掉旧缓存；用户那边的应用下次打开就会看到顶部那条「立即更新」。
+
+推完之后等几分钟（Pages 重建约 5–10 分钟），再确认线上就是本地那份：
+
+```powershell
+python tool\check_live.py      # 从线上 sw.js 的预缓存清单逐个比对，并核对版本号
+```
+
+> 它比的是**换行归一后**的内容：git 提交时会把 CRLF 改成 LF，所以本地工作区是 CRLF、线上是 LF，
+> 直接逐字节比会一直报"不一致"（这个假阳性真踩过）。
 
 ---
 
