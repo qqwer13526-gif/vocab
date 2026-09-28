@@ -63,10 +63,20 @@ export function show(name, params = {}) {
   }
   current = { name, params };
   document.body.dataset.view = name;
-  // 底部导航的"当前项"：视觉靠 CSS 的 [aria-current='page']，语义也靠它（读屏会说"当前页"）
-  for (const a of document.querySelectorAll('#tabbar a')) {
+  // 底部导航：语义上的"当前项"（aria-current）只给真正对应的那一格；
+  // 视觉上的指示器（白药丸）在 word/practice 这种子界面里停在它所属的那一格。
+  const TAB_OF_VIEW = { home: 'home', import: 'import', settings: 'settings', word: 'home', practice: 'home' };
+  const tabs = [...document.querySelectorAll('#tabbar a')];
+  const activeKey = TAB_OF_VIEW[name] || 'home';
+  const idx = Math.max(0, tabs.findIndex((a) => a.dataset.nav === activeKey));
+  for (const a of tabs) {
     if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
+  }
+  const bar = document.getElementById('tabbar');
+  if (bar) {
+    bar.style.setProperty('--nav-count', String(tabs.length || 3));
+    bar.style.setProperty('--nav-i', String(idx));
   }
   delete document.body.dataset.ready;
   const fn = RENDER[name];

@@ -63,6 +63,8 @@
    */
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring-soft: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* 底部指示器专用：过冲量按参考视频量到的比例调过（约 2~3%，不是 spring-soft 的 5%） */
+  --ease-nav: cubic-bezier(0.34, 1.2, 0.64, 1);
   --dur-tap: 110ms;   /* 按下/抬起这种高频微反馈 */
   --dur-ui: 170ms;    /* 常规进场出场 */
   --dur-big: 240ms;   /* 罕见事件（新版本横幅、小结） */
@@ -112,6 +114,9 @@ html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
+  /* 纵向滚动条出现/消失会让底部悬浮胶囊的宽度跟着变（切换"短页面↔长页面"时胶囊会横跳 15px）。
+     留出固定的滚动条槽位，宽度就稳了；iOS 的 overlay 滚动条本来就不占位，等于无副作用。 */
+  scrollbar-gutter: stable;
 }
 
 button, a, [role='button'], .chip, .lib-row, label {
@@ -180,41 +185,61 @@ body {
 
 .placeholder { color: var(--muted); text-align: center; }
 
-/* 底部导航：内缩的悬浮胶囊 + 毛玻璃（内容从它下面穿过去），不是通栏横条 */
+/* 底部导航：内缩的悬浮胶囊 + 毛玻璃（内容从它下面穿过去），不是通栏横条。
+   尺寸是照着参考视频逐帧量出来的比例定的（见 docs/plans/2026-09-26-home-nav-v18.md 的后续）：
+   左右各留 28（= 24 + 4）、整体高 52、三格等宽（每格 44 高，正好卡住无障碍的 44pt 下限）。 */
 #tabbar {
   position: fixed;
-  left: var(--sp-3);
-  right: var(--sp-3);
+  left: calc(var(--sp-5) + var(--sp-1));
+  right: calc(var(--sp-5) + var(--sp-1));
   bottom: calc(var(--sp-3) + var(--safe-b));
   display: flex;
-  gap: var(--sp-1);
   padding: var(--sp-1);
   border-radius: var(--r-full);
   background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: var(--shadow-2);
+  /* 第二层是玻璃上沿那道细亮边（视频里能看到），不是普通投影 */
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgb(255 255 255 / 45%);
   transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) var(--ease-out-quint);
 }
 /* 键盘弹出时把底部导航收起来（否则它会浮在键盘上面） */
 body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; pointer-events: none; }
 
+/* 选中指示器：一颗白药丸，切换时"滑"到目标格 —— 同一时刻只有一个东西在动。
+   --nav-i / --nav-count 由 app.js 按当前界面写进来。
+   170ms + 轻微过冲（--ease-spring-soft），对应视频里量到的"167ms、冲过一点再回落"。 */
+#tabbar .nav-pill {
+  position: absolute;
+  top: var(--sp-1);
+  bottom: var(--sp-1);
+  left: var(--sp-1);
+  width: calc((100% - var(--sp-1) * 2) / var(--nav-count, 3));
+  border-radius: var(--r-full);
+  background: var(--card);
+  transform: translateX(calc(var(--nav-i, 0) * 100%));
+  transition: transform var(--dur-ui) var(--ease-nav);
+  pointer-events: none;
+}
+
 #tabbar a {
+  position: relative;   /* 压在药丸上面 */
   flex: 1;
-  max-width: 200px;
   display: grid;
   justify-items: center;
   gap: 2px;
-  min-height: 48px;
-  padding: 8px var(--sp-1);
+  min-height: 44px;
+  padding: var(--sp-1);
   border-radius: var(--r-full);
   color: var(--muted);
   text-decoration: none;
   font-size: 11px;
   line-height: 1.1;
+  /* 颜色也是交叉淡入：旧的先褪、新的再亮，不跟位移硬切在一起 */
+  transition: color var(--fade-ui) ease;
 }
 #tabbar a svg { display: block; }
-/* 选中态两条通道：药丸底（形状）+ 颜色与字重，不只靠颜色 */
-#tabbar a[aria-current='page'] { background: var(--card); color: var(--fg); font-weight: 650; }
+/* 选中态两条通道：药丸底（形状）+ 图标与文字变蓝（颜色），不只靠颜色一种 */
+#tabbar a[aria-current='page'] { color: var(--accent-text); font-weight: 650; }
 #tabbar a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* 系统要求"减少透明"时毛玻璃会糊住内容，换实底 */

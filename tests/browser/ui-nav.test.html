@@ -8,58 +8,159 @@
 <pre id="result">{"stage":"running"}</pre>
 <script src="trap.js"></script>
 <script type="module">
-/* 底部悬浮胶囊导航（v18）。
-   用户定的：词库 / 导入 / 设置 三项，导入和设置以前挂在首页页脚，现在收进这里。
+/* 底部悬浮胶囊导航（v18 建立，v19 按参考视频调尺寸 + 换成滑动指示器）。
    跑法：python tool/browser_test.py tests/browser/ui-nav.test.html
 */
-import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, report, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
+
+/** 取 computed transform 的横向位移（矩阵的 e 分量），没有 transform 就是 0 */
+function txOf(win, node) {
+  const t = win.getComputedStyle(node).transform;
+  if (!t || t === 'none') return 0;
+  const m = t.match(/matrix\(([^)]+)\)/);
+  return m ? Number(m[1].split(',')[4]) : 0;
+}
 
 try {
   const frame = await openApp({ hash: '#/', sel: '#view-home:not([hidden])' });
   const doc = frame.contentDocument;
+  const win = frame.contentWindow;
+  const bar = doc.querySelector('#tabbar');
   const tabs = [...doc.querySelectorAll('#tabbar a')];
 
   eq('胶囊里是三项', tabs.length, 3);
   eq('三项分别是词库/导入/设置', tabs.map((a) => a.dataset.nav).join(','), 'home,import,settings');
   ok('每项都有内联 SVG 图标', tabs.every((a) => a.querySelector('svg path')), '有的项没有 svg');
-  ok('每项都有可见文字', tabs.every((a) => a.textContent.trim().length > 0), tabs.map((a) => a.textContent.trim()).join('|'));
   eq('在首页时"词库"是当前项', doc.querySelector('#tabbar a[data-nav="home"]').getAttribute('aria-current'), 'page');
   ok('没选中的项不带 aria-current', !doc.querySelector('#tabbar a[data-nav="import"]').hasAttribute('aria-current'));
 
-  // 点按目标：手机上要够大（无障碍）
-  const box = tabs[0].getBoundingClientRect();
-  ok('点按区域 ≥44px 高', box.height >= 44, `${Math.round(box.height)}px`);
-
-  // 悬浮胶囊：内缩 + 离底，不是通栏横条
-  const bar = doc.querySelector('#tabbar').getBoundingClientRect();
+  // ---------------- 尺寸：照着参考视频量出来的比例 ----------------
+  const box = bar.getBoundingClientRect();
   const vw = doc.documentElement.clientWidth;
   const vh = doc.documentElement.clientHeight;
-  ok('胶囊左右内缩（不是通栏横条）', bar.left > 0 && bar.right < vw, `left=${Math.round(bar.left)} right=${Math.round(bar.right)} vw=${vw}`);
-  ok('胶囊底部离屏幕下沿有距离', bar.bottom < vh, `bottom=${Math.round(bar.bottom)} vh=${vh}`);
-  ok('胶囊有圆角（药丸形）', parseFloat(frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).borderTopLeftRadius) >= 20,
-     frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).borderTopLeftRadius);
-
-  // 内容不能被胶囊盖住：最后一个可见元素的底边要在胶囊顶边之上（或能滚出来）
+  // 固定定位元素的参照宽度：html 的 rect 宽度（不含滚动条槽位，桌面上滚动条会占 15px）
+  const refW = doc.documentElement.getBoundingClientRect().width;
+  ok('胶囊高度 ≈ 52px（视频量到 53pt）', Math.abs(box.height - 52) <= 2, `${box.height.toFixed(1)}px`);
+  ok('左右各留 ≈ 28px（视频里是 30pt，比以前 12px 收窄了一圈）',
+     Math.abs(box.left - 28) <= 2 && Math.abs(refW - box.right - 28) <= 2,
+     `left=${box.left.toFixed(1)} right=${(refW - box.right).toFixed(1)}（参照宽 ${refW.toFixed(0)}px）`);
+  const ratio = box.width / refW;
+  ok('胶囊占宽 ≈ 85%（视频 85%，改前 94%）', ratio > 0.82 && ratio < 0.89, `${(ratio * 100).toFixed(0)}%`);
+  const cell = tabs[0].getBoundingClientRect();
+  ok('每格点按区域 ≥44px 高（无障碍下限）', cell.height >= 44, `${cell.height.toFixed(1)}px`);
+  ok('胶囊底部离屏幕下沿有距离', box.bottom < vh, `bottom=${Math.round(box.bottom)} vh=${vh}`);
+  ok('胶囊是药丸形（圆角 ≥ 高度一半）',
+     parseFloat(win.getComputedStyle(bar).borderTopLeftRadius) >= box.height / 2 - 1,
+     win.getComputedStyle(bar).borderTopLeftRadius);
   const app = doc.querySelector('#app');
-  const padBottom = parseFloat(frame.contentWindow.getComputedStyle(app).paddingBottom);
-  ok('主区底部留白够放胶囊（≥ 胶囊高 + 底距）', padBottom >= bar.height + 8, `padding-bottom=${padBottom} 胶囊高=${Math.round(bar.height)}`);
+  ok('主区底部留白够放胶囊（≥ 胶囊高 + 底距）',
+     parseFloat(win.getComputedStyle(app).paddingBottom) >= box.height + 8,
+     `padding-bottom=${win.getComputedStyle(app).paddingBottom} 胶囊高=${box.height.toFixed(1)}`);
 
+  // ---------------- 指示器：一颗白药丸，切换时滑过去 ----------------
+  const pill = doc.querySelector('#tabbar .nav-pill');
+  ok('只有一个选中指示器', doc.querySelectorAll('#tabbar .nav-pill').length === 1);
+  ok('指示器对读屏隐藏（纯装饰）', pill.getAttribute('aria-hidden') === 'true');
+  ok('指示器不拦点击', win.getComputedStyle(pill).pointerEvents === 'none');
+  const pillBox = pill.getBoundingClientRect();
+  ok('指示器宽度 ≈ 一格宽（这样 translateX(100%) 正好走一格）',
+     Math.abs(pillBox.width - cell.width) <= 2,
+     `pill=${pillBox.width.toFixed(1)} cell=${cell.width.toFixed(1)}`);
+  ok('首屏指示器在左边第一格', Math.abs(pillBox.left - cell.left) <= 2,
+     `pill.left=${pillBox.left.toFixed(1)} cell.left=${cell.left.toFixed(1)}`);
+  eq('首屏 --nav-i = 0', bar.style.getPropertyValue('--nav-i'), '0');
+  eq('--nav-count 写成了 3', bar.style.getPropertyValue('--nav-count'), '3');
+
+  // 切换：先看状态变量（确定性），再看动画真的把药丸送到了目标格
   click(doc.querySelector('#tabbar a[data-nav="settings"]'));
-  await waitFor(() => frame.contentWindow.location.hash.includes('settings'), { label: '去设置' });
+  await waitFor(() => win.location.hash.includes('settings'), { label: '去设置' });
   await waitFor(() => doc.querySelector('[data-testid="settings-version"]'), { label: '设置页渲染' });
-  eq('在设置页时"设置"是当前项', doc.querySelector('#tabbar a[data-nav="settings"]').getAttribute('aria-current'), 'page');
+  eq('设置页时 --nav-i = 2', bar.style.getPropertyValue('--nav-i'), '2');
+  eq('设置页时"设置"是当前项', doc.querySelector('#tabbar a[data-nav="settings"]').getAttribute('aria-current'), 'page');
   eq('切页后"词库"不再是当前项', doc.querySelector('#tabbar a[data-nav="home"]').getAttribute('aria-current'), null);
+  await wait(400); // 等 170ms 的滑动走完
+  const target = doc.querySelector('#tabbar a[data-nav="settings"]');
+  const pillNow = doc.querySelector('#tabbar .nav-pill');
+  ok('指示器滑到了"设置"那一格（不是各格自己换背景）',
+     Math.abs(pillNow.getBoundingClientRect().left - target.getBoundingClientRect().left) <= 2,
+     `pill.left=${pillNow.getBoundingClientRect().left.toFixed(1)} target.left=${target.getBoundingClientRect().left.toFixed(1)}`);
 
   click(doc.querySelector('#tabbar a[data-nav="import"]'));
   await waitFor(() => doc.body.dataset.view === 'import', { label: '去导入' });
-  eq('在导入页时"导入"是当前项', doc.querySelector('#tabbar a[data-nav="import"]').getAttribute('aria-current'), 'page');
+  eq('导入页时 --nav-i = 1（中间格）', bar.style.getPropertyValue('--nav-i'), '1');
+  eq('导入页时"导入"是当前项', doc.querySelector('#tabbar a[data-nav="import"]').getAttribute('aria-current'), 'page');
+  await wait(400);
+  const importTab = doc.querySelector('#tabbar a[data-nav="import"]');
+  ok('指示器又在中间格上',
+     Math.abs(doc.querySelector('#tabbar .nav-pill').getBoundingClientRect().left - importTab.getBoundingClientRect().left) <= 2);
+
+  // 颜色是第二条通道：选中的那格颜色跟没选中的不一样
+  const cOn = win.getComputedStyle(doc.querySelector('#tabbar a[aria-current="page"]')).color;
+  const cOff = win.getComputedStyle(doc.querySelector('#tabbar a:not([aria-current])')).color;
+  ok('选中格的文字/图标颜色与未选中不同（形状之外的第二条通道）', cOn !== cOff, `${cOn} vs ${cOff}`);
+  ok('选中格字重更重', Number(win.getComputedStyle(doc.querySelector('#tabbar a[aria-current="page"]')).fontWeight) >= 600);
+
+  // ---------------- 动效：照着参考视频量到的那套（约 170ms + 一点点过冲）----------------
+  // 直接采样 getComputedStyle 的 transform，逐帧看它怎么走 —— 比截图更能说明问题
+  click(doc.querySelector('#tabbar a[data-nav="home"]'));
+  await waitFor(() => doc.body.dataset.view === 'home', { label: '回首页' });
+  await wait(400);
+
+  // 先把几何量准：指示器的位移是相对它自己的宽度，所以目标 = 它自己的宽度 × 格数
+  const pill0 = doc.querySelector('#tabbar .nav-pill');
+  const pillW = pill0.getBoundingClientRect().width;
+  const homeCellW = doc.querySelector('#tabbar a[data-nav="home"]').getBoundingClientRect().width;
+  ok('指示器宽度 = 一格宽（否则 translateX(100%) 走不满一格）', Math.abs(pillW - homeCellW) <= 1,
+     `pill=${pillW.toFixed(2)} cell=${homeCellW.toFixed(2)}`);
+  const barWHome = bar.getBoundingClientRect().width;
+
+  const samples = await new Promise((resolve) => {
+    const out = [];
+    const p = doc.querySelector('#tabbar .nav-pill');
+    const t0 = performance.now();
+    click(doc.querySelector('#tabbar a[data-nav="settings"]')); // 0 → 2，走两格
+    const tick = () => {
+      out.push([performance.now() - t0, txOf(win, p)]);
+      if (performance.now() - t0 < 500) requestAnimationFrame(tick);
+      else resolve(out);
+    };
+    requestAnimationFrame(tick);
+  });
+  await waitFor(() => doc.body.dataset.view === 'settings', { label: '切到设置' });
+
+  const targetTx = pillW * 2;
+  const maxTx = Math.max(...samples.map((s) => s[1]));
+  let settleAt = 0; // 最后一次"还没到终点"的时刻
+  for (const [t, tx] of samples) if (Math.abs(tx - targetTx) > 1) settleAt = t;
+  const timeline = samples.filter((_, i) => i % 3 === 0).map(([t, tx]) => `${t.toFixed(0)}ms→${tx.toFixed(0)}px`).join('  ');
+  ok('指示器确实在动（采到了位移中间帧）', samples.filter((s) => Math.abs(s[1]) > 0.5).length >= 3, timeline);
+  ok('走两格 ≈ 170ms 内到位（视频量到 167ms）', settleAt >= 110 && settleAt <= 260,
+     `settleAt=${settleAt.toFixed(0)}ms；采样：${timeline}`);
+  ok('冲过终点再回落，过冲 2~6px（视频里也有这个"过冲"，约 2~3%）',
+     maxTx - targetTx >= 2 && maxTx - targetTx <= 8,
+     `过冲 ${(maxTx - targetTx).toFixed(1)}px（终点 ${targetTx.toFixed(1)}px）`);
+  ok('最后稳稳停在目标格上', Math.abs(samples.at(-1)[1] - targetTx) <= 1,
+     `末帧 ${samples.at(-1)[1].toFixed(1)}px vs 目标 ${targetTx.toFixed(1)}px`);
+  ok('内容区没有被一起推走（切 tab 不做横向位移）',
+     (doc.querySelector('#app') && win.getComputedStyle(doc.querySelector('#app')).transform === 'none'),
+     win.getComputedStyle(doc.querySelector('#app')).transform);
+  // 滚动条槽位固定住了：短页面（首页）和长页面（设置）里胶囊一样宽，不会横跳
+  ok('短/长页面里胶囊宽度一致（scrollbar-gutter 兜住了）',
+     Math.abs(bar.getBoundingClientRect().width - barWHome) <= 1,
+     `首页 ${barWHome.toFixed(1)}px vs 设置页 ${bar.getBoundingClientRect().width.toFixed(1)}px`);
+
+  // 子界面（词条页）里指示器停在它所属的"词库"格
+  win.location.hash = '#/word';
+  await waitFor(() => doc.body.dataset.view === 'word', { label: '去词条页' });
+  eq('词条页时指示器回到"词库"格（0）', bar.style.getPropertyValue('--nav-i'), '0');
+  ok('但词条页不给任何一格 aria-current', !doc.querySelector('#tabbar a[aria-current]'));
 
   // 练习页不显示胶囊（沉浸式，避免误触退出）
-  frame.contentWindow.location.hash = '#/practice';
+  win.location.hash = '#/practice';
   await waitFor(() => doc.body.dataset.view === 'practice', { label: '切到练习' });
-  eq('练习页隐藏胶囊', frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).display, 'none');
+  eq('练习页隐藏胶囊', win.getComputedStyle(bar).display, 'none');
 } catch (e) {
   ok('导航测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

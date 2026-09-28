@@ -130,6 +130,15 @@ try {
     ok('没开减弱动效时，进度条是有过渡的（这条是上一条的对照）', dur !== '0s', `transition-duration=${dur}`);
   }
 
+  // ---------------- 减弱动效（底部指示器也要听话）----------------
+  const pillEl = motionFrame.contentDocument.querySelector('#tabbar .nav-pill');
+  const pillDur = motionFrame.contentWindow.getComputedStyle(pillEl).transitionDuration;
+  if (reduced) {
+    ok('开了"减弱动效"时指示器不再滑动（位移归零）', pillDur === '0s', `transition-duration=${pillDur}`);
+  } else {
+    ok('没开减弱动效时指示器是滑的（上一条的对照）', pillDur !== '0s', `transition-duration=${pillDur}`);
+  }
+
   // ---------------- 层次与焦点圈 ----------------
   const style2 = motionFrame.contentWindow.getComputedStyle.bind(motionFrame.contentWindow);
   const cardEl = motionFrame.contentDocument.querySelector('.card');
