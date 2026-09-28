@@ -64,7 +64,7 @@
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring-soft: cubic-bezier(0.34, 1.4, 0.64, 1);
   /* 底部指示器专用：过冲量按参考视频量到的比例调过（约 2~3%，不是 spring-soft 的 5%） */
-  --ease-nav: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --ease-nav: cubic-bezier(0.34, 1.25, 0.64, 1);
   --dur-tap: 110ms;   /* 按下/抬起这种高频微反馈 */
   --dur-ui: 170ms;    /* 常规进场出场 */
   --dur-big: 240ms;   /* 罕见事件（新版本横幅、小结） */

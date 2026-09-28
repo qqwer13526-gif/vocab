@@ -85,15 +85,36 @@ try {
   ok('聚焦后调用了 scrollIntoView（键盘不会盖住输入框）', scrolled - before >= 1, `调用了 ${scrolled - before} 次`);
 
   // ---------------- 6. 键盘弹出时底部导航收起（在首页查，练习页本来就没底部导航）----------------
+  // ⚠️ 这里不能"把 data-keyboard 设成 open 然后等一会儿再读"：那个属性是 viewport.js 维护的，
+  //    它会很快按真实键盘状态把它改回 closed，于是读动画中间态必然偶发。
+  //    做法：同步读 —— 先临时关掉过渡，设上属性后强制重算，拿到的就是目标值。
   const home = await openApp({ hash: '#/', sel: '#tabbar' });
-  home.contentDocument.body.dataset.keyboard = 'open';
-  await wait(120);
+  const homeDoc = home.contentDocument;
+  const homeWin = home.contentWindow;
   const tab = q(home, '#tabbar');
-  const shifted = css(home.contentWindow, tab, 'transform') !== 'none';
-  ok('键盘弹出时底部导航被收起（有位移）', shifted, css(home.contentWindow, tab, 'transform'));
-  home.contentDocument.body.dataset.keyboard = 'closed';
-  await wait(220);
-  ok('键盘收起后底部导航归位', css(home.contentWindow, tab, 'transform') === 'none' || css(home.contentWindow, tab, 'transform') === 'matrix(1, 0, 0, 1, 0, 0)', css(home.contentWindow, tab, 'transform'));
+  const identity = (v) => v === 'none' || v === 'matrix(1, 0, 0, 1, 0, 0)';
+  const cssOf = (prop) => css(homeWin, tab, prop);
+
+  ok('键盘还没弹出时底部导航在原位', identity(cssOf('transform')), cssOf('transform'));
+
+  tab.style.transition = 'none'; // 免得读到过渡的起始值
+  homeDoc.body.dataset.keyboard = 'open';
+  ok('属性一设上，CSS 规则就命中（选择器没错）', tab.matches("body[data-keyboard='open'] #tabbar"));
+  const moved = cssOf('transform');
+  const hidden = cssOf('opacity');
+  const clickable = cssOf('pointer-events');
+  homeDoc.body.dataset.keyboard = 'closed';
+  tab.style.removeProperty('transition');
+
+  const ty = (() => {
+    const m = moved.match(/matrix\(([^)]+)\)/);
+    return m ? Number(m[1].split(',')[5]) : 0;
+  })();
+  ok('键盘弹出时底部导航被推到屏幕外（translateY 160%）', !identity(moved) && ty > 40, `transform=${moved}（位移 ${ty.toFixed(0)}px）`);
+  ok('同时淡出并不再吃点击（不会挡住键盘上的输入）', hidden === '0' && clickable === 'none', `opacity=${hidden} pointer-events=${clickable}`);
+
+  await wait(260);
+  ok('键盘收起后底部导航归位', identity(cssOf('transform')), cssOf('transform'));
 } catch (e) {
   ok('移动端审计脚本本身不能崩', false, (e && e.stack) || String(e));
 }

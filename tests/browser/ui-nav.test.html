@@ -134,7 +134,7 @@ try {
   const maxTx = Math.max(...samples.map((s) => s[1]));
   let settleAt = 0; // 最后一次"还没到终点"的时刻
   for (const [t, tx] of samples) if (Math.abs(tx - targetTx) > 1) settleAt = t;
-  const timeline = samples.filter((_, i) => i % 3 === 0).map(([t, tx]) => `${t.toFixed(0)}ms→${tx.toFixed(0)}px`).join('  ');
+  const timeline = samples.filter((_, i) => i % 3 === 0).map(([t, tx]) => `${t.toFixed(0)}ms:${tx.toFixed(0)}px`).join(' ');
   ok('指示器确实在动（采到了位移中间帧）', samples.filter((s) => Math.abs(s[1]) > 0.5).length >= 3, timeline);
   ok('走两格 ≈ 170ms 内到位（视频量到 167ms）', settleAt >= 110 && settleAt <= 260,
      `settleAt=${settleAt.toFixed(0)}ms；采样：${timeline}`);
