@@ -141,6 +141,18 @@ export async function wipeAll() {
 }
 
 /**
+ * 硬删除（记录真的没了）。
+ * 用途：练习里"回退上一题"时，要把那次作答**刚建出来**的 prog 记录彻底删掉 ——
+ * 软删除会留个 deleted 标记，那个词就不算"新词"了，进不了明天的队列。
+ */
+export async function hardDelete(store, key) {
+  const db = await openDB();
+  const tx = db.transaction(store, 'readwrite');
+  tx.objectStore(store).delete(key);
+  return txDone(tx);
+}
+
+/**
  * 应用一份导入计划（parse.js 的 planImport 产出），一个事务搞定。
  *
  * plan.create: [{ term, termNorm, meanings, pos?, phonetic?, createdAt? }]

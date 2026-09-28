@@ -32,6 +32,13 @@ export const isNew = (prog) => !prog;
 
 /**
  * 判完一次之后更新学习状态。返回**新对象**（不改传进来的那个）。
+ *
+ * 顺手维护"熟记 / 生疏"标记（这就是生疏词库的来源）：
+ *   - **答错 → 自动标生疏**（覆盖之前的熟记；不然答错了还挂在熟记里很怪）
+ *   - 答对**不动**标记（生疏的词答对一次仍留在生疏库，否则库一答就空）
+ *   - 但一路答对**爬到盒 6（已掌握）→ 自动移出生疏库**，改记成熟记
+ *     （从盒 1 爬到盒 6 要连对 5 次、跨 30 多天，所以"自己清干净"不会误伤）
+ *
  * @param prog    上一次的 prog 记录
  * @param correct 这次算不算对（"差点算我对"也走 true）
  */
@@ -40,10 +47,18 @@ export function grade(prog, correct, { now, dir = null }) {
   if (correct) {
     p.box = Math.min(MAX_BOX, (prog.box || 1) + 1);
     p.streak = (prog.streak || 0) + 1;
+    if (p.box >= MAX_BOX && p.level === 'unfamiliar') {
+      p.level = 'known';
+      p.levelFrom = 'mastered';
+      p.levelAt = now;
+    }
   } else {
     p.box = 1;
     p.streak = 0;
     p.lapses = (prog.lapses || 0) + 1;
+    p.level = 'unfamiliar';
+    p.levelFrom = 'wrong';
+    p.levelAt = now;
   }
   p.dueAt = now + INTERVALS[p.box];
   return p;
@@ -104,7 +119,7 @@ export const LEVEL_LABEL = { known: '熟记', unfamiliar: '生疏' };
  */
 export function markLevel(prog, level, { now }) {
   if (!LEVELS.includes(level)) throw new Error(`未知的等级：${level}`);
-  const p = { ...prog, level, levelAt: now, updatedAt: now };
+  const p = { ...prog, level, levelFrom: 'manual', levelAt: now, updatedAt: now };
   p.box = level === 'known' ? MAX_BOX : 1;
   p.dueAt = now + INTERVALS[p.box];
   return p;

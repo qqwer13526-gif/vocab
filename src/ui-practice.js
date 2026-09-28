@@ -9,7 +9,7 @@
  */
 
 import { $, el } from './app.js';
-import { put } from './db.js';
+import { hardDelete, put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
 import { buildQueue, grade, markLevel, newProg } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
@@ -54,7 +54,9 @@ export async function renderPractice(params = {}) {
     nearCounted: false,
     curDir: 'en2zh',
     stats: EMPTY_STATS(),
-    ended: false
+    ended: false,
+    history: [], // 每题作答前的快照，给「上一题」用
+    snapTaken: false
   };
 
   function buildSession() {
@@ -75,12 +77,23 @@ export async function renderPractice(params = {}) {
     s.retried = false;
     s.nearCounted = false;
     s.ended = false;
+    s.history = [];
+    s.snapTaken = false;
     s.stats = EMPTY_STATS();
   }
   buildSession();
 
   // ---------------------------------------------------------------- DOM
   const quit = el('button', { className: 'prac-quit', dataset: { testid: 'btn-quit' }, type: 'button', 'aria-label': '退出练习', onclick: () => { location.hash = '#/'; } }, '✕');
+  // 「上一题」= 把上一次作答整个撤回去再回到那一题（重新答会重新计分）
+  const btnBack = el('button', {
+    className: 'prac-quit',
+    dataset: { testid: 'btn-back' },
+    type: 'button',
+    'aria-label': '回退到上一个词（会撤销上一次作答）',
+    title: '回退到上一个词（撤销上一次作答）',
+    onclick: () => goBack()
+  }, '↶');
   const progress = el('span', { className: 'prac-progress', dataset: { testid: 'progress-text' } }, '');
   const dirSwitch = el('div', { className: 'dir-switch', dataset: { testid: 'dir-switch' }, role: 'group', 'aria-label': '练习方向' },
     DIRS.map((d) =>
@@ -166,7 +179,7 @@ export async function renderPractice(params = {}) {
     ])
   ]);
 
-  const top = el('div', { className: 'prac-top' }, [quit, progress, dirSwitch]);
+  const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, dirSwitch]);
   view.replaceChildren(top, modeRow, cardWrap, summary);
 
   // ---------------------------------------------------------------- 逻辑
@@ -225,6 +238,8 @@ export async function renderPractice(params = {}) {
     card.style.transform = '';
     card.style.opacity = '';
     swipeBadge.hidden = true;
+    s.snapTaken = false;
+    syncBackBtn();
     if (s.review) {
       // 过一遍：词、音标、释义同时摊开，只需要点「熟记 / 生疏」
       prompt.textContent = w.term;
@@ -372,16 +387,69 @@ export async function renderPractice(params = {}) {
     data.progs[word.id] = next;
   }
 
+  /** 「上一题」按钮的可用状态：没答过任何题就点不动 */
+  function syncBackBtn() {
+    btnBack.disabled = s.history.length === 0;
+    btnBack.setAttribute('aria-disabled', String(btnBack.disabled));
+  }
+
+  /**
+   * 「上一题」：把上一次作答整个撤回去，回到那一题重新来。
+   * 撤销是"数据级"的：那次作答写的 prog 记录会被还原（原本没有记录的，就彻底删掉，
+   * 这样那个词明天还算新词），统计也一并还原。
+   */
+  async function goBack() {
+    const snap = s.history.pop();
+    if (!snap) return;
+    if (snap.hadProg && snap.prog) {
+      await put('prog', { ...snap.prog });
+      data.progs[snap.wordId] = { ...snap.prog };
+    } else {
+      await hardDelete('prog', snap.wordId);
+      delete data.progs[snap.wordId];
+    }
+    s.stats = { ...snap.stats };
+    s.i = snap.i;
+    s.answered = false;
+    s.retried = false;
+    s.snapTaken = false;
+    s.ended = false;
+    renderQuestion();
+  }
+
+  /** 作答前先留个快照，「上一题」就是拿它把那次作答整个撤回去 */
+  function beforeAnswer() {
+    const w = s.queue[s.i];
+    if (!w || s.snapTaken) return;
+    s.snapTaken = true;
+    s.history.push({
+      i: s.i,
+      wordId: w.id,
+      hadProg: !!data.progs[w.id],
+      prog: data.progs[w.id] ? { ...data.progs[w.id] } : null,
+      stats: { ...s.stats }
+    });
+    syncBackBtn();
+  }
+
   async function finish(correct) {
     const w = s.queue[s.i];
+    beforeAnswer();
     s.answered = true;
     if (correct) s.stats.ok++;
     else s.stats.bad++;
+    const before = data.progs[w.id];
     await writeResult(w, correct);
+    const after = data.progs[w.id];
     if (correct) {
-      showFeedback('true', '对了 ✓');
+      // 一路答对爬到"已掌握"会自动移出生疏库，值得说一声
+      if (after?.level === 'known' && after.levelFrom === 'mastered' && before?.level !== 'known') {
+        showFeedback('true', '对了 ✓ 已掌握，移出生疏词库');
+      } else {
+        showFeedback('true', '对了 ✓');
+      }
     } else {
-      showFeedback('false', `正确答案：${answerText(w, s.curDir)}`);
+      showFeedback('false', `正确答案：${answerText(w, s.curDir)}　·　已加入生疏词库`);
     }
     btnForce.hidden = true;
     btnNext.hidden = false;
@@ -404,6 +472,7 @@ export async function renderPractice(params = {}) {
   async function markAndNext(level) {
     const w = s.queue[s.i];
     if (!w || s.ended) return;
+    beforeAnswer();
     const now = Date.now();
     const next_prog = markLevel(data.progs[w.id] || newProg(w.id, now), level, { now });
     await put('prog', next_prog);
@@ -502,6 +571,7 @@ export async function renderPractice(params = {}) {
     if (e.key === 'Escape') location.hash = '#/';
   });
 
+  syncBackBtn(); // 一开始"上一题"是点不动的
   if (!s.queue.length) showNothing();
   else {
     setReview(s.review, { render: false }); // 先把模式对应的界面元素摆好

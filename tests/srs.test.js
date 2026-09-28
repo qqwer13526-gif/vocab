@@ -160,6 +160,47 @@ test('乱传等级要报错，而不是悄悄写坏数据', () => {
   assert.throws(() => markLevel(newProg('w', T0), 'maybe', { now: T0 }), /等级/);
 });
 
+// ---------------------------------------------------------------- 答错自动进生疏库
+
+test('答错的词自动进生疏库', () => {
+  const p = grade({ ...newProg('w', T0), box: 3, streak: 2 }, false, { now: T0, dir: 'en2zh' });
+  assert.equal(p.level, 'unfamiliar');
+  assert.equal(p.levelFrom, 'wrong');
+  assert.equal(p.levelAt, T0);
+});
+
+test('答错会覆盖之前的"熟记"标记', () => {
+  const p = grade({ ...newProg('w', T0), level: 'known', levelFrom: 'manual' }, false, { now: T0 });
+  assert.equal(p.level, 'unfamiliar', '答错了就不再是熟记');
+  assert.equal(p.levelFrom, 'wrong');
+});
+
+test('答对不会动标记（生疏的词答对一次仍留在生疏库）', () => {
+  const p = grade({ ...newProg('w', T0), box: 1, level: 'unfamiliar', levelFrom: 'wrong' }, true, { now: T0 });
+  assert.equal(p.level, 'unfamiliar');
+  assert.equal(p.levelFrom, 'wrong');
+});
+
+test('一路答对爬到盒 6 → 自动移出生疏库（改记成熟记）', () => {
+  let p = { ...newProg('w', T0), box: 5, level: 'unfamiliar', levelFrom: 'wrong' };
+  p = grade(p, true, { now: T0 });
+  assert.equal(p.box, MAX_BOX);
+  assert.equal(p.level, 'known');
+  assert.equal(p.levelFrom, 'mastered');
+  assert.equal(p.levelAt, T0);
+});
+
+test('已经是盒 6 再答对，不会反复刷标记时间', () => {
+  const p = grade({ ...newProg('w', T0), box: MAX_BOX, level: 'known', levelFrom: 'mastered', levelAt: T0 - 999 }, true, { now: T0 });
+  assert.equal(p.level, 'known');
+  assert.equal(p.levelAt, T0 - 999, '不该被再刷一次时间');
+});
+
+test('手动标记记下来源是手动', () => {
+  assert.equal(markLevel(newProg('w', T0), 'unfamiliar', { now: T0 }).levelFrom, 'manual');
+  assert.equal(markLevel(newProg('w', T0), 'known', { now: T0 }).levelFrom, 'manual');
+});
+
 // ---------------------------------------------------------------- 队列
 
 const words = [

@@ -70,6 +70,12 @@ try {
   eq('软删除只置标记', (await db.get('words', all[1].id)).deleted, true);
   eq('软删除会更新 updatedAt', (await db.get('words', all[1].id)).updatedAt, now + 1);
 
+  // ---------- 4b. 硬删除（回退上一题要用：把刚建出来的记录彻底删掉）----------
+  await db.put('prog', { wordId: 'w-tmp', box: 2, dueAt: now, streak: 1, lapses: 0, updatedAt: now });
+  await db.hardDelete('prog', 'w-tmp');
+  eq('硬删除后记录真的没了', await db.get('prog', 'w-tmp'), undefined);
+  eq('硬删除后连 deleted 标记都不留（那个词明天还能算新词）', (await db.all('prog')).some((p) => p.wordId === 'w-tmp'), false);
+
   // ---------- 5. 导入（一个事务） ----------
   await db.wipeAll();
   const plan = {

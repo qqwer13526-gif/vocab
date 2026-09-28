@@ -267,6 +267,66 @@ try {
   await waitFor(() => q(frame, '[data-testid="practice-input"]') && !q(frame, '[data-testid="practice-input"]').hidden, { label: '切到默写' });
   ok('默写模式不显示滑动提示', q(frame, '[data-testid="swipe-tip"]').hidden === true);
   ok('默写模式的卡片不接管横向手势', q(frame, '.prac-card').classList.contains('swipeable') === false);
+
+  // ---------------- 13. 答错自动进生疏库 ----------------
+  await db.wipeAll();
+  const lib7 = await seed();
+  // absorb 弄成"有历史记录且今天到期"，用来验证回退能把它还原
+  await db.put('prog', { wordId: 'w-absorb', box: 3, dueAt: NOW - 1000, streak: 2, lapses: 1, lastDir: 'en2zh', updatedAt: NOW });
+  frame = await openApp({ hash: `#/practice?lib=${lib7}&mode=quiz`, sel: '[data-testid="practice-prompt"]' });
+
+  ok('第一题时"上一题"是灰的', q(frame, '[data-testid="btn-back"]').disabled === true);
+  eq('先练到期的那个词', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+
+  type(q(frame, '[data-testid="practice-input"]'), '胡写');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(() => q(frame, '[data-testid="feedback"]')?.dataset.ok === 'false', { label: '判错' });
+  ok('答错的反馈里说明它进了生疏库', t(frame, '[data-testid="feedback"]').includes('生疏词库'), t(frame, '[data-testid="feedback"]'));
+  const wrongProg = await prog('w-absorb');
+  eq('答错 → 自动标生疏', [wrongProg.level, wrongProg.levelFrom], ['unfamiliar', 'wrong']);
+  eq('答错 → 回盒子 1', wrongProg.box, 1);
+
+  // ---------------- 14. 回退上一题（撤销那次作答）----------------
+  ok('答完一题后"上一题"可以点了', q(frame, '[data-testid="btn-back"]').disabled === false);
+  click(q(frame, '[data-testid="btn-back"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.box === 3, { label: '回退把记录还原' });
+  const restored = await prog('w-absorb');
+  eq('回退后盒子/连对/答错次数全还原', [restored.box, restored.streak, restored.lapses], [3, 2, 1]);
+  eq('回退后不再是生疏', restored.level, undefined);
+  eq('回退后回到同一题', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+  eq('回退后输入框清空，可以重新答', q(frame, '[data-testid="practice-input"]').value, '');
+  ok('回退后"上一题"又变灰（没有更早的了）', q(frame, '[data-testid="btn-back"]').disabled === true);
+
+  type(q(frame, '[data-testid="practice-input"]'), '吸收');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.box === 4, { label: '重新作答按新结果记' });
+  eq('重新答对 = 盒子 4（在还原出来的 3 之上）', (await prog('w-absorb')).box, 4);
+  eq('重新答对不再是生疏', (await prog('w-absorb')).level, undefined);
+
+  // 回退一个"从没学过"的词 → 记录要彻底删掉（否则那个词明天就不算新词了）
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '到 run' });
+  type(q(frame, '[data-testid="practice-input"]'), '乱写');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(async () => (await prog('w-run'))?.level === 'unfamiliar', { label: 'run 被判错' });
+  click(q(frame, '[data-testid="btn-back"]'));
+  await waitFor(async () => (await prog('w-run')) === undefined, { label: '回退后记录被彻底删掉' });
+  eq('回退没学过的词 → 记录彻底删除（不留 deleted 标记）', await prog('w-run'), undefined);
+
+  // ---------------- 15. 爬到"已掌握"自动移出生疏库 ----------------
+  await db.wipeAll();
+  const lib8 = await seed();
+  await db.put('meta', { key: 'settings', value: { dailyNewLimit: 0 }, updatedAt: NOW });
+  await db.put('prog', { wordId: 'w-book', box: 5, dueAt: NOW - 1000, streak: 4, lapses: 0, lastDir: 'en2zh', level: 'unfamiliar', levelFrom: 'wrong', levelAt: NOW, updatedAt: NOW });
+  frame = await openApp({ hash: `#/practice?lib=${lib8}&mode=quiz`, sel: '[data-testid="practice-prompt"]' });
+  eq('只练那一个到期的词', t(frame, '[data-testid="progress-text"]'), '第 1/1');
+
+  type(q(frame, '[data-testid="practice-input"]'), '书');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(async () => (await prog('w-book'))?.box === 6, { label: '答对进盒 6' });
+  const mastered = await prog('w-book');
+  eq('爬到盒 6 → 自动移出生疏库（改记成熟记）', [mastered.level, mastered.levelFrom], ['known', 'mastered']);
+  ok('反馈里说了一声"移出生疏词库"', t(frame, '[data-testid="feedback"]').includes('移出生疏词库'), t(frame, '[data-testid="feedback"]'));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
