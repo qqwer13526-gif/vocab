@@ -11,7 +11,7 @@
 /* 练习界面（任务 7）的界面测试：两个方向、判定、差点、写库、会话小结。
    跑法：python tool/browser_test.py tests/browser/ui-practice.test.html
 */
-import { click, eq, holdLoad, ok, openApp, pressEnter, report, type, wait, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, pressEnter, pressKey, report, type, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
 const NOW = Date.now();
@@ -342,6 +342,32 @@ try {
   frame.contentWindow.location.hash = `#/practice?lib=${lib9}&mode=quiz&dir=zh2en`;
   await waitFor(() => q(frame, '[data-testid="practice-prompt"]')?.classList.contains('is-word') === false, { label: '切到中→英' });
   ok('中文释义方向不用衬线（避免中文衬线在不同系统上不一致）', true);
+
+  // ---------------- 17. 键盘快捷键：1 = 生疏，2 = 熟记（只在没打字时抢键）----------------
+  await db.wipeAll();
+  const lib10 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib10}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  eq('过一遍第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+
+  pressKey(q(frame, '.prac-card'), '2'); // 熟记
+  await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '数字键 2 标熟记' });
+  eq('按 2 等于点「熟记」（盒子进 6）', (await prog('w-absorb')).box, 6);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '按完自动进下一个词' });
+
+  pressKey(q(frame, '.prac-card'), '1'); // 生疏
+  await waitFor(async () => (await prog('w-run'))?.level === 'unfamiliar', { label: '数字键 1 标生疏' });
+  eq('按 1 等于点「生疏」', (await prog('w-run')).level, 'unfamiliar');
+
+  // 默写模式下正在输入框里打字，"1" 是答案的一部分，绝不能被当成快捷键
+  await db.wipeAll();
+  const lib11 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib11}&mode=quiz`, sel: '[data-testid="practice-input"]' });
+  const inputEl = q(frame, '[data-testid="practice-input"]');
+  type(inputEl, '1');
+  pressKey(inputEl, '1');
+  await wait(120);
+  eq('在输入框里按 1 只是打字，不写库', await prog('w-absorb'), undefined);
+  eq('输入框里的 1 还在', inputEl.value, '1');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

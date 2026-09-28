@@ -129,6 +129,20 @@ try {
   } else {
     ok('没开减弱动效时，进度条是有过渡的（这条是上一条的对照）', dur !== '0s', `transition-duration=${dur}`);
   }
+
+  // ---------------- 层次与焦点圈 ----------------
+  const style2 = motionFrame.contentWindow.getComputedStyle.bind(motionFrame.contentWindow);
+  const cardEl = motionFrame.contentDocument.querySelector('.card');
+  const shadow = style2(cardEl).boxShadow;
+  ok('卡片有层次（box-shadow 令牌，不是只靠 1px 描边）', shadow && shadow !== 'none', `box-shadow=${shadow}`);
+
+  const wordFrame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-search"]', size: [390, 844] });
+  const searchEl = wordFrame.contentDocument.querySelector('[data-testid="word-search"]');
+  searchEl.focus();
+  const sStyle = wordFrame.contentWindow.getComputedStyle(searchEl);
+  ok('输入框聚焦时有可见的焦点圈（≥2px 实线）',
+     sStyle.outlineStyle === 'solid' && parseFloat(sStyle.outlineWidth) >= 2,
+     `outline=${sStyle.outlineStyle} ${sStyle.outlineWidth}`);
 } catch (e) {
   ok('无障碍检查脚本本身不能崩', false, (e && e.stack) || String(e));
 }

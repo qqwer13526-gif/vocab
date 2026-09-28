@@ -110,3 +110,8 @@ export function click(node) {
 export function pressEnter(node) {
   node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 }
+
+/** 按任意键（键盘快捷键测试用）。带 bubbles，让视图层的 keydown 委托能收到 */
+export function pressKey(node, key, init = {}) {
+  node.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+}

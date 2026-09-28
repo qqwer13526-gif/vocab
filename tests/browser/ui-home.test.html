@@ -44,27 +44,30 @@ async function seed() {
   await db.put('libs', { id: libA, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
   await db.put('libs', { id: libB, name: '考研', color: '#ff9f0a', order: 1, updatedAt: NOW });
 
-  // w1/w2 到期该复习；w3/w4/w6 是新词；w5 已掌握（盒子 6）
+  // w1/w2 到期该复习；w3/w4/w6 是新词；w5 已掌握（盒子 6）；w7 标了「生疏」
   const ws = [
     mkWord('absorb', ['take in or soak up吸收', '使专心'], NOW + 1),
     mkWord('acceptable', ['可接受的'], NOW + 2),
     mkWord('acceptance', ['接受'], NOW + 3),
     mkWord('access', ['存取'], NOW + 4),
     mkWord('accomplish', ['完成'], NOW + 5),
-    mkWord('additional', ['附加的'], NOW + 6)
+    mkWord('additional', ['附加的'], NOW + 6),
+    mkWord('adequate', ['足够的'], NOW + 7)
   ];
   for (const w of ws) await db.put('words', w);
-  const [w1, w2, w3, w4, w5, w6] = ws;
+  const [w1, w2, w3, w4, w5, w6, w7] = ws;
 
   const link = (w, lib) => db.put('links', { id: `${w.id}|${lib}`, wordId: w.id, libId: lib, addedAt: NOW, updatedAt: NOW });
-  for (const w of [w1, w2, w3, w5, w6]) await link(w, libA);
+  for (const w of [w1, w2, w3, w5, w6, w7]) await link(w, libA);
   await link(w4, libB);
 
   await db.put('prog', { wordId: w1.id, box: 2, dueAt: NOW - 1 * DAY, streak: 1, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
   await db.put('prog', { wordId: w2.id, box: 1, dueAt: NOW - 10 * MIN, streak: 0, lapses: 2, lastDir: 'zh2en', updatedAt: NOW });
   await db.put('prog', { wordId: w5.id, box: 6, dueAt: NOW + 20 * DAY, streak: 6, lapses: 0, lastDir: 'en2zh', updatedAt: NOW });
+  // 生疏但还没到期：只影响库里的"生疏"计数，不动今天的待复习/新词
+  await db.put('prog', { wordId: w7.id, box: 1, dueAt: NOW + 20 * DAY, streak: 0, lapses: 3, level: 'unfamiliar', levelFrom: 'manual', levelAt: NOW, updatedAt: NOW });
 
-  return { libA, libB, w1, w2, w3, w4, w5, w6 };
+  return { libA, libB, w1, w2, w3, w4, w5, w6, w7 };
 }
 
 const rowOf = (frame, libId) => frame.contentDocument.querySelector(`[data-testid="lib-row"][data-lib="${libId}"]`);
@@ -86,22 +89,36 @@ try {
   frame = await openApp({ sel: '[data-testid="lib-row"]' });
   doc = frame.contentDocument;
 
-  eq('今日待复习数量', txt(doc.querySelector('[data-testid="today-review"]')), '待复习 2');
-  eq('今日新词数量', txt(doc.querySelector('[data-testid="today-new"]')), '新词 3');
+  // 大数字 + 标签分开：数字是重点，标签是注解
+  eq('今日待复习的数量', txt(doc.querySelector('[data-testid="today-review-num"]')), '2');
+  eq('今日待复习的标签', txt(doc.querySelector('[data-testid="today-review"] .hero-label')), '待复习');
+  eq('今日新词的数量', txt(doc.querySelector('[data-testid="today-new-num"]')), '3');
+  eq('今日新词的标签', txt(doc.querySelector('[data-testid="today-new"] .hero-label')), '新词');
+
+  ok('智能库合成一张「自动收集」卡', !!doc.querySelector('[data-testid="smart-strip"]'), '找不到 smart-strip');
+  ok('智能库的行都在那张卡里', doc.querySelectorAll('[data-testid="smart-strip"] [data-testid="smart-row"]').length >= 1);
 
   const rows = doc.querySelectorAll('[data-testid="lib-row"]');
   eq('列出两个词库', rows.length, 2);
   eq('第一个词库是四级', txt(rowOf(frame, ids.libA).querySelector('.lib-name')), '四级 Test 1');
-  ok('词库行显示词数', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('共 5 词'), txt(rowOf(frame, ids.libA).querySelector('.lib-meta')));
+  ok('词库行显示词数', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('共 6 词'), txt(rowOf(frame, ids.libA).querySelector('.lib-meta')));
   ok('词库行显示该库待复习数', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('待复习 2'));
+  ok('词库行显示生疏数（0 个生疏时不显示，这里 1 个）', txt(rowOf(frame, ids.libA).querySelector('.lib-meta')).includes('生疏 1'), txt(rowOf(frame, ids.libA).querySelector('.lib-meta')));
   ok('考研库只有 1 个词', txt(rowOf(frame, ids.libB).querySelector('.lib-meta')).includes('共 1 词'));
 
   const bar = rowOf(frame, ids.libA).querySelector('[data-testid="lib-progress"] > i');
-  ok('掌握进度条按 box=6 的比例算（1/5 = 20%，用 scaleX 走 GPU 而不是动 width）',
-     bar && bar.style.transform === 'scaleX(0.2)' && bar.style.width === '',
+  ok('掌握进度条按 box=6 的比例算（1/6 ≈ 16.67%，用 scaleX 走 GPU 而不是动 width）',
+     bar && bar.style.transform === 'scaleX(0.1667)' && bar.style.width === '',
      bar ? `${bar.style.transform} / width=${bar.style.width}` : '没有进度条');
   const barB = rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress"] > i');
   ok('考研库还没有掌握的词 → 0%', barB && barB.style.transform === 'scaleX(0)', barB ? barB.style.transform : '没有进度条');
+
+  // 堆叠条第二段：生疏词（往右挪过"已掌握"那段，再按比例缩放）
+  const seg = rowOf(frame, ids.libA).querySelector('[data-testid="lib-progress-unfamiliar"]');
+  ok('生疏段落接着已掌握那段排（translateX + scaleX，都是 GPU 属性）',
+     seg && seg.style.transform === 'translateX(16.67%) scaleX(0.1667)',
+     seg ? seg.style.transform : '没有生疏段落');
+  ok('没有生疏词的库不长出这一段', !rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress-unfamiliar"]'));
 
   // ---------------- 3. 点击行为 ----------------
   click(doc.querySelector('[data-testid="btn-start"]'));

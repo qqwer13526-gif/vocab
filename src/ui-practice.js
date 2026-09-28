@@ -561,9 +561,10 @@ export async function renderPractice(params = {}) {
     renderQuestion();
   }
 
-  // 键盘：回车判定/下一题，Esc 退出
+  // 键盘：回车判定/下一题，Esc 退出，1/2 快速定级（只在没在打字时生效）
   keepFocusVisible(input); // 手机上聚焦后，等键盘动画结束把输入框滚进可视区
-  input.addEventListener('keydown', (e) => {    if (e.key === 'Enter') {
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
       e.preventDefault();
       onEnter();
     } else if (e.key === 'Escape') {
@@ -571,7 +572,18 @@ export async function renderPractice(params = {}) {
     }
   });
   view.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') location.hash = '#/';
+    if (e.key === 'Escape') {
+      location.hash = '#/';
+      return;
+    }
+    if (e.key !== '1' && e.key !== '2') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    // 正在输入框里打字就不抢键（默写模式下"1"是答案的一部分）
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (s.ended || card.hidden || summary.hidden === false) return;
+    e.preventDefault();
+    markAndNext(e.key === '1' ? 'unfamiliar' : 'known');
   });
 
   syncBackBtn(); // 一开始"上一题"是点不动的

@@ -199,13 +199,25 @@
 - 中文界面；字号/间距用 `rem`；遵循系统深浅色
 
 **非功能要求（按 Web Interface Guidelines）**
-- `:focus-visible` 焦点样式；所有图标按钮有 `aria-label`
+- `:focus-visible` 焦点样式（2px 实线，只在键盘操作时出现）；所有图标按钮有 `aria-label`
+- 键盘：练习页 `Enter` 判定/下一题、`Esc` 退出、`1`/`2` 快速定级（正在输入框里打字时不抢键）；
+  词条列表 `/` 跳搜索、`Esc` 清空条件
 - 输入框有 `<label>`；错误内联在字段旁
 - 数字用 `tabular-nums`；日期时间一律 `Intl.DateTimeFormat`
 - 移动端 `touch-action: manipulation`、`-webkit-tap-highlight-color`、安全区 `env(safe-area-inset-*)`
 - 大列表（>200 词）用 `content-visibility: auto` 或分页渲染
 - 长文本 `truncate` / `line-clamp`，flex 子项加 `min-w-0`
 - 校验内联、提交按钮保持可用直到请求开始（第二阶段同步时）
+
+**配色与层次（可验证的规矩）**
+- 颜色全部走令牌；改一个令牌会同时影响多个界面，所以用 `tool/check_contrast.py` 把
+  "真实用到的前景/背景组合"（含 `color-mix(... N%, transparent)` 的半透明底，先与 `--bg`/`--card` 合成）
+  算成对比度：正文/次要文字/强调色/对错色 **≥4.5:1（AA）**；四种处境（浅色/深色/高对比浅色/高对比深色）一起查
+- 「同色系浅底 + 同色系文字」用独立的 `--ok-ink` / `--warn-ink` / `--bad-ink`（浅底会把底压暗，原色压上去会掉到 3.9~4.5）
+- 实心底色上的字用 `var(--bg)`（浅色下是深底白字、深色下是亮底深字，一套规则两种主题都对）
+- `prefers-contrast: more`：正文拉到 **≥7:1（AAA）**、描边 ≥3:1、半透明浅底换成实底 + 内阴影描边
+  （用 `box-shadow: inset` 而不是 `border`，避免撑大盒子触发重排）；**只改颜色**，不动尺寸/间距/动效
+- 层次：浅色靠 `--shadow-1` 淡阴影，深色把卡片面提亮一档（`--card: #1c2024`）+ 1px 内高光（阴影在深色下看不见）
 
 **动效规矩（按 Emil Kowalski 的动画标准，由 `review-animations` 审）**
 - 字体：**英文词头**用本地打包的 Instrument Serif（衬线，SIL OFL，`fonts/`，离线可用）；
@@ -234,6 +246,7 @@
 4. 离线：断网后刷新仍能用（service worker 生效）
 5. 桌面尺寸与 iPhone 尺寸（390×844）各截图一张，无横向滚动、无溢出
 6. iPhone 真机：Safari 打开 https 地址 →「添加到主屏幕」→ 全屏打开 → 离线可用（**由用户在真机上确认**）
+7. 配色对比度：`tool/check_contrast.py` 全绿（AA；`prefers-contrast: more` 下 AAA）
 
 ### 验收记录
 
@@ -242,6 +255,8 @@
 | 2026-09-26 | 1–5 项全部通过 | `python tool/verify_all.py` → 11 步全绿；线上 17/17 文件与本地验证过的逐字节一致 |
 | 2026-09-26 | 第 6 项通过（真机确认） | https://qqwer13526-gif.github.io/vocab/ → Safari「添加到主屏幕」→ 离线可用 |
 | 2026-09-26 | 第 1 版增补：直接读 `.xlsx`、一键补音标、抽查时手动定级（熟记/生疏） | `verify_all.py` → 13 步全绿（含 Excel 读取、音标下载匹配、手动定级与筛选） |
+| 2026-09-26 | UI 打磨批次一（v15）：手机键盘避让、危险操作二次确认、词表分批、轻提示、间距/圆角尺度统一 | `verify_all.py` → 16 步全绿 + `node --test` 117 项 |
+| 2026-09-26 | UI 打磨批次二（v16）：首页信息层级（大数字 + 智能库合并 + 三段进度条）、空状态可操作、焦点圈与键盘、深色层次、配色达标（含 `prefers-contrast`） | `verify_all.py` → 17 步全绿；新增 `tool/check_contrast.py`（四种处境 × AA/AAA） |
 
 > 第 1 版的验收到此结束。以后每改一版，先跑 `python tool\verify_all.py` 再 `git push`（Pages 会自动重建）。
 

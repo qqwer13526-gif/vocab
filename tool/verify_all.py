@@ -18,34 +18,37 @@ ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 NODE_BIN = "node"
 
-STEPS: list[tuple[str, list[str], str]] = [
-    ("① 纯逻辑单元测试（SRS / 判定 / 解析）", [NODE_BIN, "--test", "tests/**/*.test.js"], "unit"),
-    ("② PWA 外壳与离线可用", [PY, "tool/verify_sw.py"], "sw"),
-    ("②b PWA 挂在子路径下（模拟 GitHub Pages 的 /vocab/）", [PY, "tool/verify_sw.py", "--prefix=/vocab"], "sw"),
-    ("③ 数据层 db.js（浏览器内）", [PY, "tool/browser_test.py", "tests/browser/db.test.html"], "ui"),
-    ("④ 界面：库列表", [PY, "tool/browser_test.py", "tests/browser/ui-home.test.html"], "ui"),
-    ("⑤ 界面：练习", [PY, "tool/browser_test.py", "tests/browser/ui-practice.test.html"], "ui"),
-    ("⑥ 界面：导入", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
-    ("⑦ 界面：词条", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
-    ("⑧ 布局：各界面无横向滚动", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),
-    ("⑨ 无障碍与移动端（常规）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
-    ("⑩ 无障碍与移动端（系统开启减弱动效）", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
-    ("⑪ 直接读 Excel（.xlsx）", [PY, "tool/browser_test.py", "tests/browser/xlsx.test.html"], "ui"),
-    ("⑫ 补音标（下载→匹配→写库）", [PY, "tool/browser_test.py", "tests/browser/phonetic.test.html"], "ui"),
-    ("⑬ 设置页：版本/检查更新/数据状态/备份恢复", [PY, "tool/browser_test.py", "tests/browser/settings.test.html"], "ui"),
-    ("⑭ 智能库：生疏词自动成库 + 专项练习", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
-    ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
+STEPS: list[tuple[str, str, list[str], str]] = [
+    # (标题, key, 命令, 类型)。key 是"验收清单"引用的稳定名字 —— 别用序号，插一步就全错位了。
+    ("① 纯逻辑单元测试（SRS / 判定 / 解析）", "unit", [NODE_BIN, "--test", "tests/**/*.test.js"], "unit"),
+    ("② PWA 外壳与离线可用", "sw", [PY, "tool/verify_sw.py"], "sw"),
+    ("②b PWA 挂在子路径下（模拟 GitHub Pages 的 /vocab/）", "sw-prefix", [PY, "tool/verify_sw.py", "--prefix=/vocab"], "sw"),
+    ("②c 配色对比度（WCAG AA；提高对比度模式下 AAA 7:1）", "contrast", [PY, "tool/check_contrast.py"], "unit"),
+    ("③ 数据层 db.js（浏览器内）", "db", [PY, "tool/browser_test.py", "tests/browser/db.test.html"], "ui"),
+    ("④ 界面：库列表", "ui-home", [PY, "tool/browser_test.py", "tests/browser/ui-home.test.html"], "ui"),
+    ("⑤ 界面：练习", "ui-practice", [PY, "tool/browser_test.py", "tests/browser/ui-practice.test.html"], "ui"),
+    ("⑥ 界面：导入", "ui-import", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
+    ("⑦ 界面：词条", "ui-word", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
+    ("⑧ 布局：各界面无横向滚动", "layout", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),
+    ("⑨ 无障碍与移动端（常规）", "a11y", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
+    ("⑩ 无障碍与移动端（系统开启减弱动效）", "a11y-reduced", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
+    ("⑪ 直接读 Excel（.xlsx）", "xlsx", [PY, "tool/browser_test.py", "tests/browser/xlsx.test.html"], "ui"),
+    ("⑫ 补音标（下载→匹配→写库）", "phonetic", [PY, "tool/browser_test.py", "tests/browser/phonetic.test.html"], "ui"),
+    ("⑬ 设置页：版本/检查更新/数据状态/备份恢复", "settings", [PY, "tool/browser_test.py", "tests/browser/settings.test.html"], "ui"),
+    ("⑭ 智能库：生疏词自动成库 + 专项练习", "smart", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
+    ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", "mobile", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
 ]
 
-CHECKLIST: list[tuple[str, list[int] | None]] = [
-    ("node --test 全绿（SRS / 判定 / 解析）", [1]),
-    ("浏览器内测试页全绿（IndexedDB 增删改查、软删除、事务原子性）", [3]),
-    ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", [4, 5, 6, 7]),
-    ("断网后刷新仍能用（service worker 生效）", [2]),
-    ("部署到子路径（GitHub Pages 的 /vocab/）后 service worker 仍正常", [11]),
-    ("手机与桌面尺寸都不出现横向滚动、不溢出", [8]),
-    ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", [9, 10]),
-    ("Excel（.xlsx）能直接导入；音标能一键补齐（下载→匹配→写库，之后离线）", [11, 12]),
+CHECKLIST: list[tuple[str, list[str] | None]] = [
+    ("node --test 全绿（SRS / 判定 / 解析）", ["unit"]),
+    ("浏览器内测试页全绿（IndexedDB 增删改查、软删除、事务原子性）", ["db"]),
+    ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", ["ui-home", "ui-practice", "ui-import", "ui-word"]),
+    ("断网后刷新仍能用（service worker 生效）", ["sw"]),
+    ("部署到子路径（GitHub Pages 的 /vocab/）后 service worker 仍正常", ["sw-prefix"]),
+    ("手机与桌面尺寸都不出现横向滚动、不溢出", ["layout"]),
+    ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", ["a11y", "a11y-reduced"]),
+    ("Excel（.xlsx）能直接导入；音标能一键补齐（下载→匹配→写库，之后离线）", ["xlsx", "phonetic"]),
+    ("配色对比度达标（正文 AA；提高对比度模式下 AAA）", ["contrast"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 
@@ -53,11 +56,11 @@ CHECKLIST: list[tuple[str, list[int] | None]] = [
 def main() -> int:
     quick = "--quick" in sys.argv
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    results: list[tuple[str, bool, str]] = []
+    results: list[tuple[str, str, bool, str]] = []  # (key, 标题, 是否通过, 最后一行)
 
-    for title, cmd, kind in STEPS:
+    for title, key, cmd, kind in STEPS:
         if quick and kind == "ui":
-            results.append((title, True, "（--quick 跳过）"))
+            results.append((key, title, True, "（--quick 跳过）"))
             print(f"\n=== {title} ===\n跳过")
             continue
         print(f"\n=== {title} ===")
@@ -75,23 +78,27 @@ def main() -> int:
         if proc.returncode != 0 and (proc.stderr or "").strip():
             print("    [stderr]", (proc.stderr or "").strip().splitlines()[-1][:300])
         last = next((ln for ln in reversed(tail) if "passed" in ln or "RESULT" in ln), "")
-        results.append((title, proc.returncode == 0, last.strip() or f"exit={proc.returncode}"))
+        results.append((key, title, proc.returncode == 0, last.strip() or f"exit={proc.returncode}"))
 
     print("\n" + "=" * 62)
     print("验证汇总")
     print("=" * 62)
-    for title, ok, last in results:
+    for _, title, ok, last in results:
         print(f"{'PASS' if ok else 'FAIL'}  {title}   {last}")
 
-    step_ok = {i + 1: ok for i, (_, ok, _) in enumerate(results)}
+    step_ok = {key: ok for key, _, ok, _ in results}
+    # key 写错时不能静默当成"跳过"：清单里引用了不存在的步骤就直接报出来
+    unknown = sorted({k for _, keys in CHECKLIST if keys for k in keys if k not in step_ok})
+    if unknown:
+        print("\n!! 验收清单引用了不存在的步骤 key：" + ", ".join(unknown))
     print("\n对照 SPEC.md §10 验收清单：")
-    for text, ids in CHECKLIST:
-        if ids is None:
+    for text, keys in CHECKLIST:
+        if keys is None:
             print(f"  ----  {text}（由你在手机上确认）")
         else:
-            print(f"  {'PASS' if all(step_ok.get(i, False) for i in ids) else 'FAIL'}  {text}")
+            print(f"  {'PASS' if all(step_ok.get(k, False) for k in keys) else 'FAIL'}  {text}")
 
-    failed = [t for t, ok, _ in results if not ok]
+    failed = [t for _, t, ok, _ in results if not ok]
     if failed:
         print("\n失败的步骤：")
         for f in failed:

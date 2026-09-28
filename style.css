@@ -17,10 +17,17 @@
   --muted: #6b7280;
   --line: #e5e7eb;
   --card: #f7f7f8;
-  --accent: #3b5bff;
-  --ok: #0f8a44;
-  --warn: #a86500;
+  --accent: #3b5bff;      /* 当底色用（主按钮、更新横幅），白字压它 5.09 */
+  --accent-text: #3b5bff; /* 当文字用（链接、选中 chip），卡片上 4.75 */
+  --ok: #0a7838;
+  --warn: #935800;
   --bad: #c0392b;
+  /* 「同色系浅底 + 同色系文字」专用墨色：12~18% 的 --ok/--bad/--warn 浅底会把底压暗，
+     原色压上去只有 3.90~4.46；这三个是最坏底（18% 压在 --card 上）≥4.8 的更深版本。
+     有浅底的规则一律用 --*-ink 当字色，没有浅底的（.lvl-known 这种）继续用原色。 */
+  --ok-ink: #096b32;
+  --warn-ink: #865000;
+  --bad-ink: #a73225;
 
   /* ---------------------------------------------------------------- 间距与圆角标度
    * 间距只有这 7 档（4px 网格 + 2px 微调步），圆角只有 4 档。
@@ -41,6 +48,11 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   --kb-inset: 0px; /* 键盘高度，由 src/viewport.js 实时写进来 */
+
+  /* 层次：浅色靠"更白 + 淡阴影"，深色靠"更亮的面 + 顶部一线高光"。
+     只靠 1px 描边在深色下会糊成一片（--card 和 --bg 只差 1.19 的对比度）。 */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 5%), 0 1px 3px rgb(0 0 0 / 4%);
+  --shadow-2: 0 6px 20px rgb(0 0 0 / 18%);
 
   /* ---------------------------------------------------------------- 动效令牌
    * 规矩（来自 Emil Kowalski 的动画标准，见 review-animations skill）：
@@ -72,10 +84,17 @@
     --fg: #f2f3f5;
     --muted: #9aa0a6;
     --line: #26282c;
-    --card: #17191c;
+    --card: #1c2024;   /* 原来 #17191c 跟底色只差一点点，卡片边界全靠描边；提亮一档 */
+    --accent-text: #8ea6ff; /* 深色下 #3b5bff 当字只有 3.46；浅蓝 7.59 */
     --ok: #4ade80;
     --warn: #fbbf24;
-    --bad: #f87171;
+    --bad: #fb8282;   /* 卡片提亮后 #f87171 在 18% 同色浅底上只剩 4.50（贴线），提亮一点回到 4.93 */
+    --ok-ink: var(--ok); /* 深色下同色浅底上文字本来就有 5~8 的余量，墨色=原色 */
+    --warn-ink: var(--warn);
+    --bad-ink: var(--bad);
+    /* 深色下阴影几乎看不见，真正起作用的是"面上沿的一线高光" */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), inset 0 1px 0 rgb(255 255 255 / 6%);
+    --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
   }
 }
 
@@ -114,6 +133,10 @@ input, textarea, .word-mean, .prac-answer, .summary-text, .settings-list, .setti
 /* hidden 必须真的隐藏：因为后面有用 display:flex/grid 的规则，会盖掉浏览器默认的 [hidden] */
 [hidden] { display: none !important; }
 
+/* 键盘操作才出现的焦点圈：鼠标/触摸点不会闪出蓝框，Tab 走位一定看得见。
+   （:focus-visible 由浏览器区分，别自己用 :focus 去模拟） */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001s !important;
@@ -151,6 +174,7 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: var(--sp);
+  box-shadow: var(--shadow-1);
 }
 
 .placeholder { color: var(--muted); text-align: center; }
@@ -224,9 +248,12 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 .settings-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .settings-plan-title { font-size: 15px; font-weight: 600; }
 
-/* ---------------------------------------------------------------- 智能库（生疏词） */
-
-.smart-row { border-style: dashed; }
+/* 智能库（生疏/熟记）合成的一张卡：整卡虚线框，行与行之间淡淡的虚线分隔 */
+.smart-strip { padding: 12px; }
+.strip-head { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 4px; }
+.smart-strip .lib-row { padding: 8px 0; }
+.smart-strip .lib-row + .lib-row { border-top: 1px dashed var(--line); }
+.smart-row { border: 0; }
 .smart-tag {
   margin-left: 8px;
   padding: 2px 8px;
@@ -243,8 +270,17 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 
 .home-head { display: grid; gap: 12px; margin-bottom: 12px; }
 .home-title { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
-.home-stats { display: flex; gap: 8px; color: var(--muted); font-size: 15px; }
-.dot-sep { color: var(--line); }
+/* 今天的量：两个大数字顶着标签，一眼能扫到（原来是一行小字，重点全埋在文字里） */
+.hero { display: flex; gap: 24px; align-items: baseline; }
+.hero-cell { display: grid; gap: 2px; }
+.hero-num {
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.hero-label { color: var(--muted); font-size: 13px; }
 
 .primary {
   width: 100%;
@@ -293,16 +329,22 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
   white-space: nowrap;
 }
 .lib-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
-.lib-bar { height: 6px; margin-top: 8px; border-radius: 3px; background: var(--line); overflow: hidden; }
-/* 进度用 scaleX 而不是 width：width 会触发布局（掉帧），transform 走 GPU */
+.lib-bar { position: relative; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--line); overflow: hidden; }
+/* 进度用 scaleX 而不是 width：width 会触发布局（掉帧），transform 走 GPU。
+   三段堆叠（已掌握 / 生疏 / 其余），所以每段都绝对定位、靠 translateX 排位置。 */
 .lib-bar > i {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
+  width: 100%;
   height: 100%;
   border-radius: 3px;
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform var(--dur-big) var(--ease-out-quint);
 }
+.lib-bar > i.seg-unfamiliar { background: var(--bad); }
 .lib-more { padding: 8px 12px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; }
 
 .empty { display: grid; gap: 8px; text-align: center; color: var(--muted); }
@@ -376,9 +418,9 @@ body[data-view='practice'] #tabbar { display: none; }
 .prac-input:disabled { color: var(--muted); }
 
 .feedback { padding: 12px 12px; border-radius: var(--r-sm); font-size: 15px; }
-.feedback[data-ok='true'] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
-.feedback[data-ok='false'] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
-.feedback[data-ok='near'], .feedback[data-ok='retry'] { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.feedback[data-ok='true'] { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
+.feedback[data-ok='false'] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-ink); }
+.feedback[data-ok='near'], .feedback[data-ok='retry'] { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn-ink); }
 
 .fb-actions { display: flex; gap: 12px; }
 .fb-actions > * { flex: 1; }
@@ -409,7 +451,7 @@ body[data-view='practice'] #tabbar { display: none; }
   min-height: 32px;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
   font-size: 13px;
 }
@@ -467,7 +509,7 @@ body[data-view='practice'] #tabbar { display: none; }
   line-clamp: 2;
   overflow: hidden;
 }
-.import-preview .is-term { color: var(--accent); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.import-preview .is-term { color: var(--accent-text); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 
 .lib-checks { display: grid; gap: 8px; margin-bottom: 12px; }
 .lib-check-label { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 15px; }
@@ -506,8 +548,8 @@ body[data-view='practice'] #tabbar { display: none; }
 .word-list { display: grid; gap: 8px; }
 .word-row-side { display: flex; align-items: center; gap: 8px; flex: none; }
 .level-pill { padding: 4px 8px; border-radius: var(--r-full); font-size: 12px; }
-.level-pill[data-level='known'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-.level-pill[data-level='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.level-pill[data-level='known'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok-ink); }
+.level-pill[data-level='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-ink); }
 .level-filter { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   min-height: 32px;
@@ -519,7 +561,7 @@ body[data-view='practice'] #tabbar { display: none; }
   font: inherit;
   font-size: 13px;
 }
-.chip[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 .word-phonetic { color: var(--muted); font-size: 13px; font-family: var(--ipa-font); }
 /* Windows 默认字体对 ɐ / ˈ / ɛ 这些 IPA 字符覆盖不好，会显示成空白；iOS 上本来就够用 */
 :root { --ipa-font: "Lucida Sans Unicode", "Charis SIL", "Doulos SIL", "Segoe UI", system-ui, sans-serif; }
@@ -549,15 +591,15 @@ body[data-view='practice'] #tabbar { display: none; }
   color: var(--bg);
   font-size: 14px;
   line-height: 1.4;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-2);
   transition: opacity var(--dur-ui) var(--ease-out-quint), transform var(--dur-ui) var(--ease-out-quint);
 }
 @starting-style {
   .toast { opacity: 0; transform: translateY(8px) scale(0.98); }
 }
 .toast-out { opacity: 0; transform: translateY(6px); }
-.toast[data-kind='ok'] { background: var(--ok); color: #fff; }
-.toast[data-kind='bad'] { background: var(--bad); color: #fff; }
+.toast[data-kind='ok'] { background: var(--ok); color: var(--bg); }
+.toast[data-kind='bad'] { background: var(--bad); color: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast-out { transform: none; }
 }
@@ -589,7 +631,7 @@ body[data-view='practice'] #tabbar { display: none; }
   color: var(--muted);
   font-size: 12px;
 }
-.box-pill[data-box='6'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.box-pill[data-box='6'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok-ink); }
 
 .word-edit { display: grid; gap: 12px; }
 .field {
@@ -615,11 +657,11 @@ body[data-view='practice'] #tabbar { display: none; }
   font-weight: 600;
   border-color: currentColor;
   background: color-mix(in srgb, var(--bad) 12%, transparent);
-  color: var(--bad);
+  color: var(--bad-ink);
 }
 .confirming-warn {
   background: color-mix(in srgb, var(--warn) 14%, transparent);
-  color: var(--warn);
+  color: var(--warn-ink);
 }
 
 /* ---------------------------------------------------------------- 动效
@@ -678,7 +720,62 @@ body[data-view='practice'] #tabbar { display: none; }
   font-weight: 600;
   pointer-events: none;
   background: color-mix(in srgb, var(--ok) 18%, transparent);
-  color: var(--ok);
+  color: var(--ok-ink);
 }
-.swipe-badge[data-dir='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.swipe-badge[data-dir='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-ink); }
 .swipe-tip { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2px; }
+
+/* ---------------------------------------------------------------- 系统「提高对比度」
+ * @media (prefers-contrast: more)（Windows 对比度主题 / 浏览器强制对比）：
+ * 只加对比 —— 不动尺寸、不动间距、不动动效，所以边框一律用 box-shadow 内阴影，
+ * 而不是 border（border 会把盒子撑大 2px，触发重排）。
+ *
+ * 放在文件最后：这些选择器要能盖住前面的 .feedback / .level-pill 等规则，
+ * 同权重时后写的赢；写成前面就得逐个提高选择器权重，反而更容易漏。
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #3f4652;   /* 次要文字提到准正文级（卡片上 8.88） */
+    --line: #7b838d;    /* 描边看得见（卡片上 3.58） */
+    /* 下面这些在普通模式下当「浅底上的墨字」，普通模式 4.5 就够；
+       提高对比度要做到 AAA（7:1），于是连"没有浅底"的场合也一起换深 */
+    --accent-text: #2a3fc8; /* 卡片上 7.42 */
+    --ok: #075427;          /* 8.50 */
+    --warn: #6e4000;        /* 8.19 */
+    --bad: #85261b;         /* 8.56 */
+    --ok-ink: var(--ok);
+    --warn-ink: var(--warn);
+    --bad-ink: var(--bad);
+  }
+  /* 把「--line 当底 + --muted 当字」的两个胶囊换成描边款：否则描边加深后它们会变成深底深字 */
+  .smart-tag, .box-pill { background: var(--bg); box-shadow: inset 0 0 0 1px var(--muted); color: var(--fg); }
+  .primary:disabled { background: var(--bg); box-shadow: inset 0 0 0 1px var(--muted); color: var(--muted); }
+  /* 半透明同色底在提高对比度下不可控 —— 换成实底 + 同色描边 */
+  .feedback, .level-pill, .swipe-badge, .confirming, .confirming-warn, .import-result {
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  /* 主按钮/更新横幅：高对比下改成「前景色当底、底色当字」，比品牌蓝更狠（白字压蓝只有 5.09） */
+  .primary, .update-bar { background: var(--fg); color: var(--bg); }
+  .update-bar button { background: var(--bg); color: var(--fg); }
+  /* 只有颜色区分的元素（链接、按钮边、卡片边）再加一层形状线索 */
+  .link-btn { text-decoration: underline; }
+  .chip, .ghost, .settings-plan { box-shadow: inset 0 0 0 1px var(--muted); }
+  .card, .lib-row { border-color: var(--muted); }
+  :focus-visible { outline-width: 3px; }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --muted: #c8ccd2;
+    --line: #6b7280;
+    /* 深色下要显式写回深色主题的亮色：上面那个 (prefers-contrast: more) 块里的深绿/深蓝
+       是给浅色用的，在深色主题下会变成"深底深字"。这块写在后面，所以能盖住。 */
+    --accent-text: #8ea6ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #fca5a5;   /* 原来的 #f87171 压在深底上只有 6.88，7:1 差一点 */
+    --ok-ink: var(--ok);
+    --warn-ink: var(--warn);
+    --bad-ink: var(--bad);
+  }
+}

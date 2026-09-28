@@ -87,13 +87,28 @@ async function renderList(view, params, data) {
         levelFilter = key;
         for (const b of e.currentTarget.parentElement.children) b.setAttribute('aria-pressed', String(b.dataset.level === key));
         // 筛选项进 URL，刷新/回退都还在
-        const qs = new URLSearchParams();
-        if (libId) qs.set('lib', libId);
-        if (key !== 'all') qs.set('level', key);
-        history.replaceState(null, '', `#/word${qs.toString() ? `?${qs}` : ''}`);
+        syncUrl();
         paint();
       }
     }, label);
+  }
+
+  /** 筛选状态 → URL（刷新、分享、回退都一致） */
+  function syncUrl() {
+    const qs = new URLSearchParams();
+    if (libId) qs.set('lib', libId);
+    if (levelFilter !== 'all') qs.set('level', levelFilter);
+    history.replaceState(null, '', `#/word${qs.toString() ? `?${qs}` : ''}`);
+  }
+
+  /** 搜索/筛选全清（空状态里的"清空条件"按钮用，也顺手把 URL 还原） */
+  function clearFilters() {
+    search.value = '';
+    levelFilter = 'all';
+    for (const b of chips.children) b.setAttribute('aria-pressed', String(b.dataset.level === 'all'));
+    syncUrl();
+    paint();
+    search.focus();
   }
 
   // 还差多少个词没音标 → 显示"补齐音标"按钮（已经查过、库里确实没有的不再算）
@@ -146,10 +161,30 @@ async function renderList(view, params, data) {
     rendered = 0;
     current = filtered;
     if (!filtered.length) {
+      // 空状态要给出"下一步做什么"，而不是只说没东西：
+      // 有筛选条件 → 一键清掉；库本身是空的 → 直接去导入。
+      const hasFilter = !!nq || levelFilter !== 'all';
       list.append(
         el('div', { className: 'card empty', dataset: { testid: 'word-empty' } }, [
-          el('div', { className: 'empty-title' }, '没有匹配的词条'),
-          el('div', { className: 'empty-sub' }, words.length ? '换个词试试，或者清空搜索/筛选。' : '这个词库还是空的，去导入一份词表吧。')
+          el('div', { className: 'empty-title' }, hasFilter ? '没有匹配的词条' : '这个词库还是空的'),
+          el('div', { className: 'empty-sub' }, hasFilter
+            ? `搜索「${query || '—'}」${levelFilter !== 'all' ? '（还带着档位筛选）' : ''}没找到。换个词，或者清掉条件看看全部 ${words.length} 个。`
+            : '去导入页粘一份词表（Excel 两列直接粘），或者手动加词。'),
+          hasFilter
+            ? el('button', {
+                className: 'ghost',
+                dataset: { testid: 'btn-clear-search' },
+                type: 'button',
+                onclick: () => clearFilters()
+              }, '清空搜索与筛选')
+            : el('button', {
+                className: 'ghost',
+                dataset: { testid: 'btn-empty-import' },
+                type: 'button',
+                onclick: () => {
+                  location.hash = '#/import';
+                }
+              }, '去导入词表')
         ])
       );
       return;
@@ -213,6 +248,22 @@ async function renderList(view, params, data) {
   }
 
   search.addEventListener('input', paint);
+
+  // 键盘：/ 直接跳进搜索框，Esc 清空（桌面端常用；手机上用不到也不碍事）
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && search.value) {
+      e.preventDefault();
+      clearFilters();
+    }
+  });
+  view.addEventListener('keydown', (e) => {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    search.focus();
+    search.select();
+  });
 
   view.replaceChildren(
     el('div', { className: 'word-head' }, [

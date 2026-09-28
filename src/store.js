@@ -40,18 +40,32 @@ export function libWordIds(data, libId) {
   return [...ids];
 }
 
-/** 某个库的统计：总词数 / 待复习 / 已掌握（盒子 6） */
+/** 某个库的统计：总词数 / 待复习 / 已掌握（盒子 6）/ 生疏（手动标过「生疏」的）
+ *
+ * 首页那条堆叠进度条要用三段的宽度，所以这里同时给出 mastered / unfamiliar 的原始个数，
+ * 不给百分比 —— 四舍五入过的百分比拼三段会凑不满或溢出 100%。
+ */
 export function libStats(data, libId, now) {
   let due = 0;
   let mastered = 0;
+  let unfamiliar = 0;
   for (const id of libWordIds(data, libId)) {
     const p = data.progs[id];
     if (!p) continue;
     if (p.box >= MAX_BOX) mastered++;
+    else if (p.level === 'unfamiliar') unfamiliar++;
     if (p.dueAt <= now) due++;
   }
   const total = libWordIds(data, libId).length;
-  return { total, due, mastered, percent: total ? Math.round((mastered / total) * 100) : 0 };
+  return {
+    total,
+    due,
+    mastered,
+    unfamiliar,
+    // 未掌握也没标生疏的（含"从没练过"）：堆叠条的第三段
+    rest: Math.max(0, total - mastered - unfamiliar),
+    percent: total ? Math.round((mastered / total) * 100) : 0
+  };
 }
 
 /** 中文的"今天/明天"式日期，界面统一用它 */

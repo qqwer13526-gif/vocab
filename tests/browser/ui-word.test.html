@@ -11,7 +11,7 @@
 /* 词条界面（任务 9）：列表、搜索、编辑、换库、重置进度、删除。
    跑法：python tool/browser_test.py tests/browser/ui-word.test.html
 */
-import { click, eq, holdLoad, ok, openApp, report, type, wait, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, pressKey, report, type, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
 const NOW = Date.now();
@@ -70,6 +70,24 @@ try {
   type(q(frame, '[data-testid="word-search"]'), 'zzz');
   await waitFor(() => !!q(frame, '[data-testid="word-empty"]'), { label: '出现空提示' });
   ok('搜不到时给提示', t(frame, '[data-testid="word-empty"]').includes('没有'), t(frame, '[data-testid="word-empty"]'));
+  // 空状态要给出下一步（否则用户只能自己猜怎么回去）
+  const clearBtn = q(frame, '[data-testid="btn-clear-search"]');
+  ok('搜不到时给「清空搜索与筛选」按钮', !!clearBtn, '找不到 btn-clear-search');
+  click(clearBtn);
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '点清空后恢复 4 条' });
+  ok('点一下就回到全部 4 条', true);
+  eq('搜索框也被清空了', q(frame, '[data-testid="word-search"]').value, '');
+  ok('URL 上的筛选参数也一起清掉', !frame.contentWindow.location.hash.includes('level='), frame.contentWindow.location.hash);
+
+  // ---------------- 2b. 键盘：/ 跳搜索，Esc 清空 ----------------
+  type(q(frame, '[data-testid="word-search"]'), 'acc');
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 3, { label: '先搜出 3 个' });
+  click(q(frame, '.word-head')); // 把焦点挪开（模拟"手不在搜索框里"）
+  pressKey(q(frame, '.word-head'), '/');
+  eq('/ 把焦点送进搜索框', frame.contentDocument.activeElement, q(frame, '[data-testid="word-search"]'));
+  pressKey(q(frame, '[data-testid="word-search"]'), 'Escape');
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: 'Esc 清空后恢复 4 条' });
+  ok('Esc 清掉搜索条件', true);
   type(q(frame, '[data-testid="word-search"]'), '');
   await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '清空搜索后恢复 4 条' });
 
