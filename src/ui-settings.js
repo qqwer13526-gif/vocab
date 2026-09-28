@@ -9,7 +9,9 @@
 
 import { icon } from './icons.js';
 import { $, el, checkForUpdate, updateState, applyUpdate } from './app.js';
+import { all } from './db.js';
 import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo } from './backup.js';
+import { countMissing, fillPhonetics } from './phonetic.js';
 import { confirmThen } from './confirm.js';
 import { showToast } from './toast.js';
 import { APP_VERSION } from './version.js';
@@ -75,6 +77,34 @@ export async function renderSettings() {
     }
   }, '申请持久化存储');
 
+  // 补音标：从首页搬过来的 —— 这是"数据维护"，属于设置；首页只留词库
+  const missing = await countMissing(await all('words'));
+  const btnPhonetic = missing
+    ? el('button', {
+        className: 'ghost',
+        dataset: { testid: 'btn-settings-phonetic' },
+        type: 'button',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          try {
+            const res = await fillPhonetics({
+              words: await all('words'),
+              onProgress: (p) => {
+                const which = p.dict === 'fallback' ? '美式兜底' : '英式';
+                btn.textContent = p.phase === 'download' ? `下载${which}音标库 ${Math.round((p.ratio || 0) * 100)}%` : '匹配中…';
+              }
+            });
+            say((res.filled ? `已补 ${res.filled} 个音标` : '没有可补的') + (res.missing ? `；${res.missing} 个音标库里没有收录` : ''));
+            await renderSettings();
+          } catch (err) {
+            say('补齐失败：' + (err && err.message ? err.message : err), 'bad');
+            btn.disabled = false;
+          }
+        }
+      }, `补齐音标（还差 ${missing} 个）`)
+    : null;
+
   const dataCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '本机数据'),
     el('div', { className: 'settings-list', dataset: { testid: 'storage-summary' } }, [
@@ -84,8 +114,9 @@ export async function renderSettings() {
       el('div', {}, `占用约 ${formatBytes(info.usage)}${info.quota ? `（可用 ${formatBytes(info.quota)}）` : ''}`)
     ]),
     persistLine,
-    btnPersist
-  ]);
+    btnPersist,
+    btnPhonetic
+  ].filter(Boolean));
 
   // ---------------------------------------------------------------- 备份 / 恢复
   const fileInput = el('input', {

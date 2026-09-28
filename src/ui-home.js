@@ -1,72 +1,64 @@
-/* 界面 A：库列表（首页）
+/* 界面 A：词库列表（首页）
  *
- * 顶部是今天的量 + 开始练习；下面每个词库一行（词数 / 待复习 / 掌握进度）；
- * 底部是导入词表与新建词库。没有词库时给引导，而不是空白。
+ * v18 的结构（用户定的）：首页**只有词库**，不放"今天"大卡片、不放导入/新建/设置按钮 ——
+ * 导入与设置搬到底部悬浮胶囊里。
+ *
+ *   左/上：固定入口  —— 总词库（所有词，删库也删不掉它）+ 自动收集（生疏词 / 熟记词）
+ *   右/下：我的词库  —— 每个库一行（点名字练这个库，⋯ 里有 看词条 / 重命名 / 删除）
+ *                      末尾一行虚线「＋ 新建词库」
+ *
+ * 数据模型本来就是"词是全局的、词库只是标签"（words + links 多对多），所以：
+ *   - 总词库不需要存任何东西，永远 = 所有还活着的词
+ *   - 删库只删"库 + 归属关系"，词一个都不删
  */
 
 import { $, el } from './app.js';
 import { put } from './db.js';
-import { countMissing, fillPhonetics } from './phonetic.js';
-import { buildQueue } from './srs.js';
-import { DEFAULT_NEW_LIMIT, PALETTE, libStats, loadAll, nextLibOrder } from './store.js';
+import { confirmThen } from './confirm.js';
 import { icon } from './icons.js';
 import { SMART_LIBS, smartCount } from './smart.js';
-import { APP_VERSION } from './version.js';
+import {
+  DEFAULT_NEW_LIMIT,
+  PALETTE,
+  allWordIds,
+  deleteLibCascade,
+  libStats,
+  loadAll,
+  nextLibOrder,
+  statsFor,
+  undoDeleteLibCascade
+} from './store.js';
+import { showToast } from './toast.js';
 
 export async function renderHome() {
   const view = $('#view-home');
   if (!view) return;
   const now = Date.now();
   const data = await loadAll();
-  const queue = buildQueue({
-    words: data.words,
-    progs: data.progs,
-    links: data.links,
-    libIds: null,
-    now,
-    newLimit: data.newLimit ?? DEFAULT_NEW_LIMIT
-  });
 
-  const dueToday = queue.review.length;
-  const newToday = queue.fresh.length;
-  const todo = dueToday + newToday;
+  // ---------------------------------------------------------------- 固定入口
+  const pinned = el('section', { className: 'pinned' });
 
-  // ---------------------------------------------------------------- 顶部
-  // 层级：标题 → 两个大数字（一眼看到今天的量）→ 主按钮。
-  // 数字用单独的元素装（data-testid 在外面那层，标签跟着数字一起读）。
-  const head = el('div', { className: 'card home-head' }, [
-    el('div', { className: 'home-title' }, '今天'),
-    el('div', { className: 'hero' }, [
-      el('div', { className: 'hero-cell', dataset: { testid: 'today-review' } }, [
-        el('b', { className: 'hero-num', dataset: { testid: 'today-review-num' } }, String(dueToday)),
-        el('span', { className: 'hero-label' }, '待复习')
-      ]),
-      el('div', { className: 'hero-cell', dataset: { testid: 'today-new' } }, [
-        el('b', { className: 'hero-num', dataset: { testid: 'today-new-num' } }, String(newToday)),
-        el('span', { className: 'hero-label' }, '新词')
-      ])
-    ]),
-    el(
-      'button',
-      {
-        className: 'primary',
-        dataset: { testid: 'btn-start' },
-        type: 'button',
-        disabled: todo === 0,
-        onclick: () => {
-          location.hash = '#/practice';
-        }
+  // 总词库：所有导入过的词。库被删了词也在这儿，所以它是"词不会丢"的兜底视图。
+  const all = statsFor(allWordIds(data), data, now);
+  pinned.append(
+    libRow({
+      testid: 'all-lib-row',
+      name: '总词库',
+      color: 'var(--accent)',
+      stats: all,
+      badge: '全部词',
+      hint: '所有导入过的词都在这里，跟词库怎么分类无关',
+      onPractice: () => {
+        location.hash = '#/practice';
       },
-      todo === 0 ? '今天的都练完了 🎉' : `开始练习（${todo}）`
-    )
-  ]);
+      menu: [
+        { testid: 'btn-all-menu-words', icon: 'list', label: '看全部词条', run: () => { location.hash = '#/word'; } }
+      ]
+    })
+  );
 
-  // ---------------------------------------------------------------- 词库列表
-  const list = el('section', { className: 'libs' });
-
-  // 智能库（生疏词 / 熟记词）合成一张"自动收集"卡：原来两张整卡太占地方，
-  // 而它们本来就不是真词库（没有自己的词，只是按标记筛出来的视图）。
-  // 练习时标「生疏」的词会自动进来，标「熟记」自动移出。
+  // 自动收集（智能库）：练习时标「生疏」自动进来，标「熟记」自动移出
   const smartRows = [];
   for (const smart of SMART_LIBS) {
     const n = smartCount(data, smart.id);
@@ -93,24 +85,20 @@ export async function renderHome() {
           // 有货的时候才补一句规则说明；空的时候上面那句已经把话说完了
           n ? el('div', { className: 'lib-meta smart-hint' }, smart.hint) : null
         ].filter(Boolean)),
-        el(
-          'button',
-          {
-            className: 'lib-more',
-            dataset: { testid: 'btn-smart-words' },
-            type: 'button',
-            'aria-label': `看「${smart.name}」的词条`,
-            onclick: () => {
-              location.hash = `#/word?smart=${encodeURIComponent(smart.id)}`;
-            }
-          },
-          [icon('chevronRight', { size: 20 })]
-        )
+        el('button', {
+          className: 'lib-more',
+          dataset: { testid: 'btn-smart-words' },
+          type: 'button',
+          'aria-label': `看「${smart.name}」的词条`,
+          onclick: () => {
+            location.hash = `#/word?smart=${encodeURIComponent(smart.id)}`;
+          }
+        }, [icon('chevronRight', { size: 20 })])
       ])
     );
   }
   if (smartRows.length) {
-    list.append(
+    pinned.append(
       el('section', { className: 'card smart-strip', dataset: { testid: 'smart-strip' } }, [
         el('div', { className: 'strip-head' }, '自动收集'),
         ...smartRows
@@ -118,12 +106,57 @@ export async function renderHome() {
     );
   }
 
+  // ---------------------------------------------------------------- 我的词库
+  const list = el('section', { className: 'libs' });
+
+  for (const lib of data.libs) {
+    list.append(
+      libRow({
+        testid: 'lib-row',
+        lib: lib.id,
+        name: lib.name,
+        color: lib.color || PALETTE[0],
+        stats: libStats(data, lib.id, now),
+        onPractice: () => {
+          location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`;
+        },
+        menu: [
+          { testid: 'btn-lib-menu-words', icon: 'list', label: '看词条', run: () => { location.hash = `#/word?lib=${encodeURIComponent(lib.id)}`; } },
+          { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, lib) },
+          {
+            testid: 'btn-lib-menu-delete',
+            icon: 'trash',
+            label: '删除词库',
+            danger: true,
+            // 两步确认由 toggleMenu 在"建元素时"装上（见那里的注释）
+            confirm: async () => {
+              const snap = await deleteLibCascade(data, lib.id);
+              closeMenu();
+              // 正在看/正在练这个库的话，路径已经失效 → 回首页
+              if (location.hash.includes(encodeURIComponent(lib.id))) location.hash = '#/';
+              showToast(`已删除「${lib.name}」，${snap.linkIds.length} 个词还在总词库里`, {
+                kind: 'ok',
+                action: {
+                  label: '撤销',
+                  onClick: async () => {
+                    await undoDeleteLibCascade(snap);
+                    await renderHome();
+                  }
+                }
+              });
+              await renderHome();
+            }
+          }
+        ]
+      })
+    );
+  }
+
   if (!data.libs.length) {
     list.append(
       el('div', { className: 'card empty', dataset: { testid: 'empty-state' } }, [
         el('div', { className: 'empty-title' }, '还没有词库'),
-        el('div', { className: 'empty-sub' }, '先导入一份词表（Excel 里选中单词和释义两列，Ctrl+C 粘进来），或者自己新建一个词库。'),
-        // 空状态自己带一个"下一步"，别让人去底部找
+        el('div', { className: 'empty-sub' }, '先导入一份词表（Excel 里选中单词和释义两列，Ctrl+C 粘进来），词会先进「总词库」，再按你的分类放进来。'),
         el('button', {
           className: 'primary',
           dataset: { testid: 'btn-empty-import' },
@@ -137,138 +170,156 @@ export async function renderHome() {
     );
   }
 
-  for (const lib of data.libs) {
-    const s = libStats(data, lib.id, now);
-    // 堆叠条三段：已掌握（库颜色）/ 生疏（红）/ 其余（轨道色）。
-    // 用比例而不是 percent：percent 四舍五入过，三段拼起来会凑不满或溢出 100%。
-    // 比例留 4 位小数：既是给人看的 transform 字符串（调试时好读），也让测试能精确断言。
-    const ratio = (n) => (s.total ? Number((n / s.total).toFixed(4)) : 0);
-    const pMastered = ratio(s.mastered);
-    const pUnfamiliar = ratio(s.unfamiliar);
-    list.append(
-      el('div', { className: 'card lib-row', dataset: { testid: 'lib-row', lib: lib.id } }, [
-        el('span', { className: 'lib-dot', style: { background: lib.color || PALETTE[0] } }),
-        el('div', { className: 'lib-body' }, [
-          el(
-            'button',
-            {
-              className: 'lib-name',
-              type: 'button',
-              title: `练「${lib.name}」`,
-              onclick: () => {
-                location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`;
-              }
-            },
-            lib.name
-          ),
-          el('div', { className: 'lib-meta' },
-            `共 ${s.total} 词 · 待复习 ${s.due} · 已掌握 ${s.mastered}` + (s.unfamiliar ? ` · 生疏 ${s.unfamiliar}` : '')),
-          el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
-            // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）
-            el('i', {
-              style: { transform: `scaleX(${pMastered})`, background: lib.color || PALETTE[0] },
-              dataset: { testid: 'lib-progress-fill' }
-            }),
-            pUnfamiliar
-              ? el('i', {
-                  className: 'seg-unfamiliar',
-                  style: { transform: `translateX(${pMastered * 100}%) scaleX(${pUnfamiliar})` },
-                  dataset: { testid: 'lib-progress-unfamiliar' }
-                })
-              : null
-          ].filter(Boolean))
-        ]),
-        el(
-          'button',
-          {
-            className: 'lib-more',
-            dataset: { testid: 'btn-lib-words' },
-            type: 'button',
-            'aria-label': `看「${lib.name}」的词条`,
-            onclick: () => {
-              location.hash = `#/word?lib=${encodeURIComponent(lib.id)}`;
-            }
-          },
-          [icon('chevronRight', { size: 20 })]
-        )
-      ])
-    );
+  // 新建词库：列表末尾的一行虚线（属于"词库列表"的一部分，不破坏"首页只有词库"）
+  list.append(
+    el('button', {
+      className: 'newlib-row',
+      dataset: { testid: 'btn-newlib' },
+      type: 'button',
+      onclick: (e) => openNewLibForm(e.currentTarget, data)
+    }, [icon('plus', { size: 18 }), el('span', {}, '新建词库')])
+  );
+
+  view.replaceChildren(pinned, list);
+
+  // ---------------------------------------------------------------- 行内操作
+
+  /** 一行的 DOM（总词库和普通词库共用）：点名字 = 练这一组；⋯ = 菜单 */
+  function libRow({ testid, lib = null, name, color, stats, badge = '', hint = '', onPractice, menu }) {
+    const metaText = `共 ${stats.total} 词 · 待复习 ${stats.due} · 已掌握 ${stats.mastered}` +
+      (stats.unfamiliar ? ` · 生疏 ${stats.unfamiliar}` : '');
+    const ratio = (n) => (stats.total ? Number((n / stats.total).toFixed(4)) : 0);
+    const pMastered = ratio(stats.mastered);
+    const pUnfamiliar = ratio(stats.unfamiliar);
+
+    const moreBtn = el('button', {
+      className: 'lib-more',
+      dataset: { testid: 'btn-lib-more' },
+      type: 'button',
+      'aria-label': `「${name}」的更多操作`,
+      'aria-expanded': 'false',
+      onclick: () => toggleMenu(moreBtn, menu)
+    }, [icon('more', { size: 20 })]);
+
+    return el('div', {
+      className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : ''),
+      dataset: lib ? { testid, lib } : { testid }
+    }, [
+      el('span', { className: 'lib-dot', style: { background: color } }),
+      el('div', { className: 'lib-body' }, [
+        el('button', {
+          className: 'lib-name',
+          type: 'button',
+          title: `练「${name}」`,
+          onclick: onPractice
+        }, badge ? [name, el('span', { className: 'smart-tag' }, badge)] : name),
+        el('div', { className: 'lib-meta' }, metaText),
+        hint ? el('div', { className: 'lib-meta smart-hint' }, hint) : null,
+        el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
+          // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）
+          el('i', { style: { transform: `scaleX(${pMastered})`, background: color }, dataset: { testid: 'lib-progress-fill' } }),
+          pUnfamiliar
+            ? el('i', {
+                className: 'seg-unfamiliar',
+                style: { transform: `translateX(${pMastered * 100}%) scaleX(${pUnfamiliar})` },
+                dataset: { testid: 'lib-progress-unfamiliar' }
+              })
+            : null
+        ].filter(Boolean))
+      ].filter(Boolean)),
+      moreBtn
+    ]);
   }
 
-  // ---------------------------------------------------------------- 底部
-  const foot = el('div', { className: 'home-foot' }, [
-    el(
-      'button',
-      {
-        className: 'ghost',
-        dataset: { testid: 'btn-import' },
-        type: 'button',
-        onclick: () => {
-          location.hash = '#/import';
-        }
-      },
-      '导入词表'
-    ),
-    el(
-      'button',
-      {
-        className: 'ghost',
-        dataset: { testid: 'btn-newlib' },
-        type: 'button',
-        onclick: (e) => openNewLibForm(e.currentTarget, data)
-      },
-      '新建词库'
-    ),
-    el(
-      'button',
-      {
-        className: 'ghost',
-        dataset: { testid: 'btn-settings' },
-        type: 'button',
-        onclick: () => {
-          location.hash = '#/settings';
-        }
-      },
-      '设置 · ' + APP_VERSION
-    )
-  ]);
+  /** ⋯ 菜单：行内展开（和"新建词库"同一套模式），不是弹窗 */
+  function toggleMenu(btn, items) {
+    const open = view.querySelector('[data-testid="lib-menu"]');
+    if (open) {
+      closeMenu();
+      return;
+    }
+    const menu = el('div', { className: 'lib-menu', dataset: { testid: 'lib-menu' }, role: 'menu' });
+    for (const it of items) {
+      // 直接建元素再挂监听：确认类操作要改"这个菜单项自己"的文案，得拿到它的引用
+      const item = el('button', {
+        className: 'lib-menu-item' + (it.danger ? ' is-danger' : ''),
+        dataset: { testid: it.testid },
+        role: 'menuitem',
+        type: 'button'
+      }, [icon(it.icon, { size: 18 }), el('span', {}, it.label)]);
+      if (it.confirm) {
+        // ⚠️ 确认必须在**建元素时**装一次：装进 click 处理器里会导致"第一次点只是注册了监听、
+        //    同一事件的监听列表已经快照过了"→ 要等下一次点击才武装（真踩过这个坑）
+        confirmThen(item, it.confirm, { label: '确认删除' });
+      } else {
+        item.addEventListener('click', () => it.run(menu, item));
+      }
+      menu.append(item);
+    }
+    const cancel = el('button', {
+      className: 'lib-menu-item',
+      dataset: { testid: 'btn-lib-menu-cancel' },
+      role: 'menuitem',
+      type: 'button'
+    }, [icon('close', { size: 18 }), el('span', {}, '取消')]);
+    cancel.addEventListener('click', () => closeMenu());
+    menu.append(cancel);
 
-  // 有词缺音标时，底部多一个入口（补完自己就消失）
-  const missing = await countMissing(data.words);
-  const phoneticBtn = missing
-    ? el('button', {
-        className: 'ghost home-phonetic',
-        dataset: { testid: 'btn-home-phonetic' },
-        type: 'button',
-        onclick: async (e) => {
-          const btn = e.currentTarget;
-          btn.disabled = true;
-          try {
-            await fillPhonetics({
-              words: data.words,
-              onProgress: (p) => {
-                const which = p.dict === 'fallback' ? '美式兜底' : '英式';
-                btn.textContent = p.phase === 'download' ? `下载${which}音标库 ${Math.round((p.ratio || 0) * 100)}%` : '匹配中…';
-              }
-            });
-          } catch (err) {
-            btn.textContent = `补齐失败：${err && err.message ? err.message : err}`;
-            btn.disabled = false;
-            return;
-          }
-          await renderHome();
-        }
-      }, `补齐音标（还差 ${missing} 个）`)
-    : null;
+    btn.setAttribute('aria-expanded', 'true');
+    btn.closest('.lib-row').insertAdjacentElement('afterend', menu);
+    // Esc 关掉（键盘用户不必去找那个 ⋯）
+    menu.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeMenu();
+        btn.focus();
+      }
+    });
+    menu.querySelector('button')?.focus();
+  }
 
-  // ⚠️ 不能直接 replaceChildren(head, list, foot, phoneticBtn)：phoneticBtn 可能是 null，
-  //    而 replaceChildren(null) 会在页面上渲染出字符串 "null"
-  view.replaceChildren(...[head, list, foot, phoneticBtn].filter(Boolean));
+  function closeMenu() {
+    for (const m of view.querySelectorAll('[data-testid="lib-menu"], [data-testid="rename-form"]')) m.remove();
+    for (const b of view.querySelectorAll('[aria-expanded="true"]')) b.setAttribute('aria-expanded', 'false');
+  }
+
+  /** 行内重命名：菜单原地换成一个小表单（不用 window.prompt —— 会打断、手机上更难看） */
+  function renameLib(menu, lib) {
+    const input = el('input', {
+      className: 'field',
+      dataset: { testid: 'rename-input' },
+      type: 'text',
+      value: lib.name,
+      maxlength: '40',
+      'aria-label': '词库名字'
+    });
+    const form = el('form', { className: 'lib-menu', dataset: { testid: 'rename-form' } }, [
+      input,
+      el('div', { className: 'row-2' }, [
+        el('button', { className: 'ghost', type: 'button', onclick: () => closeMenu() }, '取消'),
+        el('button', { className: 'primary', dataset: { testid: 'btn-rename-ok' }, type: 'submit' }, '保存')
+      ])
+    ]);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) {
+        input.focus();
+        return;
+      }
+      await put('libs', { ...lib, name, updatedAt: Date.now() });
+      await renderHome();
+    });
+    menu.replaceWith(form);
+    input.focus();
+    input.select();
+  }
+
+  /** 删除词库：两步确认由 toggleMenu 装；这里不再自己调 confirmThen */
 }
 
 /** 内联的新建词库表单（不用浏览器 prompt：难看、手机上体验也差） */
 function openNewLibForm(anchor, data) {
-  const existing = anchor.parentElement.querySelector('[data-testid="newlib-form"]');
+  const existing = document.querySelector('[data-testid="newlib-form"]');
   if (existing) {
     existing.remove();
     return;
@@ -318,6 +369,7 @@ function openNewLibForm(anchor, data) {
     await renderHome();
   });
 
-  anchor.parentElement.append(form);
+  // 替换锚点本身：它现在是词库列表里的一行，表单要顶在那一行的位置
+  anchor.replaceWith(form);
   input.focus();
 }

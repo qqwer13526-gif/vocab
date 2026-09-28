@@ -4,7 +4,7 @@
  * 不做增量索引——简单、够快、不会有缓存不同步的 bug。
  */
 
-import { all, get } from './db.js';
+import { all, get, put, softDelete } from './db.js';
 import { MAX_BOX } from './srs.js';
 
 export const DEFAULT_NEW_LIMIT = 10;
@@ -46,17 +46,31 @@ export function libWordIds(data, libId) {
  * 不给百分比 —— 四舍五入过的百分比拼三段会凑不满或溢出 100%。
  */
 export function libStats(data, libId, now) {
+  return statsFor(libId ? libWordIds(data, libId) : allWordIds(data), data, now);
+}
+
+/** 总词库：**所有**导入过的词（不属于任何库、或库被删掉的词也在这里）
+ *
+ * 数据模型本来就是"词是全局的、库只是标签"（words + links 多对多），
+ * 所以总词库不需要存任何东西 —— 它永远是"所有还活着的词"，删库也删不掉它。
+ */
+export function allWordIds(data) {
+  return [...data.wordsById.keys()];
+}
+
+/** 一组词 id 的统计（libStats 与总词库共用） */
+export function statsFor(ids, data, now) {
   let due = 0;
   let mastered = 0;
   let unfamiliar = 0;
-  for (const id of libWordIds(data, libId)) {
+  for (const id of ids) {
     const p = data.progs[id];
     if (!p) continue;
     if (p.box >= MAX_BOX) mastered++;
     else if (p.level === 'unfamiliar') unfamiliar++;
     if (p.dueAt <= now) due++;
   }
-  const total = libWordIds(data, libId).length;
+  const total = ids.length;
   return {
     total,
     due,
@@ -66,6 +80,34 @@ export function libStats(data, libId, now) {
     rest: Math.max(0, total - mastered - unfamiliar),
     percent: total ? Math.round((mastered / total) * 100) : 0
   };
+}
+
+// ---------------------------------------------------------------- 删除词库
+//
+// 语义（用户 2026-09-26 定的）：**删库不删词**。
+// 词永远留在"总词库"里；删掉的只是"这个词库"和"词与它的归属关系"。
+// 所以级联范围只有 libs + links，一个字都不动 words。
+// 全部是软删除，配一个可撤销快照。
+
+/**
+ * 删除一个词库：软删除 它的关联 + 它自己。返回撤销快照。
+ * @returns {{libId: string, linkIds: string[], at: number}}
+ */
+export async function deleteLibCascade(data, libId, now = Date.now()) {
+  const linkIds = data.links.filter((l) => l.libId === libId).map((l) => l.id);
+  for (const id of linkIds) await softDelete('links', id, now);
+  await softDelete('libs', libId, now);
+  return { libId, linkIds, at: now };
+}
+
+/** 撤销上面那次删除（把 deleted 标记清回去） */
+export async function undoDeleteLibCascade(snap) {
+  for (const id of snap.linkIds) {
+    const row = await get('links', id);
+    if (row) await put('links', { ...row, deleted: false, updatedAt: Date.now() });
+  }
+  const lib = await get('libs', snap.libId);
+  if (lib) await put('libs', { ...lib, deleted: false, updatedAt: Date.now() });
 }
 
 /** 中文的"今天/明天"式日期，界面统一用它 */

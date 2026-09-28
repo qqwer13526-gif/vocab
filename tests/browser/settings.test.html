@@ -146,11 +146,11 @@ try {
   await waitFor(() => t(frame, '[data-testid="settings-status"]').includes('读不了'), { label: '给出错误提示' });
   ok('选错文件明确报错，而且没有动数据', (await db.count('words')) > 0);
 
-  // ---------------- 8. 首页能进设置 ----------------
-  const home = await openApp({ hash: '#/', sel: '[data-testid="btn-settings"]' });
-  click(q(home, '[data-testid="btn-settings"]'));
+  // ---------------- 8. 底部胶囊能进设置 ----------------
+  const home = await openApp({ hash: '#/', sel: '[data-testid="tab-settings"]' });
+  click(q(home, '[data-testid="tab-settings"]'));
   await waitFor(() => home.contentWindow.location.hash.includes('settings'), { label: '跳到设置页' });
-  ok('首页底部能进设置页', home.contentWindow.location.hash === '#/settings', home.contentWindow.location.hash);
+  ok('底部胶囊的"设置"能进设置页', home.contentWindow.location.hash === '#/settings', home.contentWindow.location.hash);
 
   // ---------------- 9. 服务端有新版时，横幅要自己冒出来 ----------------
   // 把"版本探测文件"指向一个假装是 v99 的文件（真实流程是取线上的 version.json）

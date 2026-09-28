@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>删除词库 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 删词库（v18）。用户定的语义：**删库不删词** ——
+   删掉的只是"这个词库"和"词与它的归属关系"，词全部留在总词库里，所以模型里 words 一个字都不动。
+   另外：两步确认（第一下绝不真删）+ 6 秒内可撤销。
+   跑法：python tool/browser_test.py tests/browser/ui-lib-delete.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, type, wait, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+const q = (f, s) => f.contentDocument.querySelector(s);
+const qa = (f, s) => [...f.contentDocument.querySelectorAll(s)];
+
+async function seed() {
+  await db.wipeAll();
+  await db.put('libs', { id: 'lib-a', name: '要删的库', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: 'lib-b', name: '留下的库', color: '#34c759', order: 1, updatedAt: NOW });
+  // w-shared 同时属于两个库；w-only 只属于 lib-a
+  for (const id of ['w-shared', 'w-only']) {
+    await db.put('words', { id, term: id, termNorm: id, phonetic: '', pos: '', meanings: ['释义'], example: '', note: '', createdAt: NOW, updatedAt: NOW });
+  }
+  await db.put('links', { id: 'w-shared|lib-a', wordId: 'w-shared', libId: 'lib-a', addedAt: NOW, updatedAt: NOW });
+  await db.put('links', { id: 'w-shared|lib-b', wordId: 'w-shared', libId: 'lib-b', addedAt: NOW, updatedAt: NOW });
+  await db.put('links', { id: 'w-only|lib-a', wordId: 'w-only', libId: 'lib-a', addedAt: NOW, updatedAt: NOW });
+}
+
+const libRow = (f, id) => qa(f, '[data-testid="lib-row"]').find((r) => r.dataset.lib === id);
+const rawWord = async (id) => (await db.all('words')).find((w) => w.id === id);
+const rawLink = async (id) => (await db.all('links')).find((l) => l.id === id);
+const rawLib = async (id) => (await db.all('libs')).find((l) => l.id === id);
+
+try {
+  db = await import('../../src/db.js');
+  await seed();
+  const frame = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+
+  // ---------------- 1. ⋯ 菜单 ----------------
+  const row = libRow(frame, 'lib-a');
+  ok('每行都有 ⋯ 更多操作', !!row.querySelector('[data-testid="btn-lib-more"]'));
+  eq('⋯ 默认没展开', row.querySelector('[data-testid="btn-lib-more"]').getAttribute('aria-expanded'), 'false');
+  click(row.querySelector('[data-testid="btn-lib-more"]'));
+  await waitFor(() => q(frame, '[data-testid="lib-menu"]'), { label: '菜单打开' });
+  const menu = q(frame, '[data-testid="lib-menu"]');
+  ok('菜单里有"看词条"', !!menu.querySelector('[data-testid="btn-lib-menu-words"]'));
+  ok('菜单里有"重命名"', !!menu.querySelector('[data-testid="btn-lib-menu-rename"]'));
+  ok('菜单里有"删除词库"', !!menu.querySelector('[data-testid="btn-lib-menu-delete"]'));
+  eq('展开后 aria-expanded 变 true', row.querySelector('[data-testid="btn-lib-more"]').getAttribute('aria-expanded'), 'true');
+
+  // ---------------- 2. 两步确认：第一下绝不能真删 ----------------
+  const del = menu.querySelector('[data-testid="btn-lib-menu-delete"]');
+  click(del);
+  await wait(60);
+  eq('第一下只变成"确认删除"', txt(del), '确认删除');
+  ok('此时数据库还没动', (await rawLib('lib-a')).deleted !== true);
+
+  // ---------------- 3. 真删：只删库与归属，词一个都不删 ----------------
+  click(del);
+  await waitFor(async () => (await rawLib('lib-a'))?.deleted === true, { label: '第二次点才真删' });
+  eq('只属于它的词条**不删**（留在总词库）', (await rawWord('w-only')).deleted, undefined);
+  eq('共享的词条也不删', (await rawWord('w-shared')).deleted, undefined);
+  eq('它的关联被软删除', (await rawLink('w-only|lib-a')).deleted, true);
+  eq('共享词的那条关联也删了', (await rawLink('w-shared|lib-a')).deleted, true);
+  eq('别的库的关联不动', (await rawLink('w-shared|lib-b')).deleted, undefined);
+  ok('列表里没有这个库了', !libRow(frame, 'lib-a'));
+
+  // 总词库还是那两个词（这就是"删库不删词"）
+  const allMeta = txt(q(frame, '[data-testid="all-lib-row"] .lib-meta'));
+  ok('总词库仍然有 2 个词', allMeta.includes('共 2 词'), allMeta);
+
+  // ---------------- 4. 撤销 ----------------
+  const toast = q(frame, '[data-testid="toast"]');
+  ok('提示条里给了「撤销」', !!toast && !!toast.querySelector('.toast-action'), toast ? txt(toast) : '没有提示条');
+  ok('提示条说明了词还在总词库', /总词库/.test(txt(toast)), txt(toast));
+  click(toast.querySelector('.toast-action'));
+  await waitFor(async () => (await rawLib('lib-a'))?.deleted === false, { label: '撤销恢复词库' });
+  eq('撤销后关联也回来', (await rawLink('w-shared|lib-a')).deleted, false);
+  await waitFor(() => libRow(frame, 'lib-a'), { label: '列表里又出现了' });
+  ok('撤销后这个词库又回到列表', true);
+
+  // ---------------- 5. store.js 的删除契约（UI 已覆盖主流程，这里盯住"快照里绝不能有词"）----------------
+  const store = await import('../../src/store.js');
+  const data1 = await store.loadAll();
+  const snap = await store.deleteLibCascade(data1, 'lib-b');
+  eq('快照只记库 id 与关联 id，不含任何词 id', Object.keys(snap).sort().join(','), 'at,libId,linkIds');
+  eq('再次删除同一个库：词条数不变（2 个词一个没少）', (await store.loadAll()).words.length, 2);
+  await store.undoDeleteLibCascade(snap);
+  eq('撤销后关联恢复', (await rawLink('w-shared|lib-b')).deleted, false);
+  eq('撤销后词库也恢复', (await rawLib('lib-b')).deleted, false);
+  eq('总词库口径始终是"所有活着的词"', (await store.loadAll()).words.length, 2);
+
+  // ---------------- 6. 重命名：行内表单，不是浏览器弹窗 ----------------
+  const frame3 = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  click(libRow(frame3, 'lib-b').querySelector('[data-testid="btn-lib-more"]'));
+  await waitFor(() => q(frame3, '[data-testid="lib-menu"]'), { label: '菜单打开' });
+  click(q(frame3, '[data-testid="btn-lib-menu-rename"]'));
+  await waitFor(() => q(frame3, '[data-testid="rename-form"]'), { label: '出现行内重命名表单' });
+  ok('重命名是行内输入框（不是 prompt）', !!q(frame3, '[data-testid="rename-input"] input, input[data-testid="rename-input"]'));
+  type(q(frame3, '[data-testid="rename-input"]'), '改过名字的库');
+  click(q(frame3, '[data-testid="btn-rename-ok"]'));
+  await waitFor(async () => (await rawLib('lib-b'))?.name === '改过名字的库', { label: '名字写进库' });
+  await waitFor(() => txt(libRow(frame3, 'lib-b').querySelector('.lib-name')) === '改过名字的库', { label: '列表刷新' });
+  ok('重命名立刻生效', true);
+} catch (e) {
+  ok('删除词库测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

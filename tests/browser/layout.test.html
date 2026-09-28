@@ -98,11 +98,11 @@ try {
 
   const wide = await openApp({ hash: '#/', size: DESKTOP, sel: '[data-testid="lib-row"]' });
   const wideDoc = wide.contentDocument;
-  const headBox = wideDoc.querySelector('.home-head').getBoundingClientRect();
+  const pinBox = wideDoc.querySelector('.pinned').getBoundingClientRect();
   const libsBox = wideDoc.querySelector('.libs').getBoundingClientRect();
-  ok('宽屏首页是两栏（词库列表在今天的量的右边）', libsBox.left >= headBox.right - 1,
-     `head.right=${Math.round(headBox.right)} libs.left=${Math.round(libsBox.left)}`);
-  ok('宽屏两栏都压在上半屏，不出现空荡荡的细长列',
+  ok('宽屏首页是两栏（词库列表在固定入口的右边）', libsBox.left >= pinBox.right - 1,
+     `pinned.right=${Math.round(pinBox.right)} libs.left=${Math.round(libsBox.left)}`);
+  ok('宽屏容器放宽了，不是一条细长的中间带',
      wideDoc.querySelector('#app').getBoundingClientRect().width > 800,
      `#app 宽 ${Math.round(wideDoc.querySelector('#app').getBoundingClientRect().width)}`);
 } catch (e) {

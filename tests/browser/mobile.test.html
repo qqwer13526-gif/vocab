@@ -58,9 +58,9 @@ try {
   eqs('html 声明了文字不被系统放大', css(win, doc.documentElement, '-webkit-text-size-adjust'), '100%');
 
   // ---------------- 3. 控件 vs 内容的可选择性 ----------------
-  const btn = q(frame, '[data-testid="btn-import"]');
-  eqs('按钮文字不能被长按选中', css(win, btn, 'user-select'), 'none');
-  eqs('按钮不参与双击缩放（没有点按延迟）', css(win, btn, 'touch-action'), 'manipulation');
+  const btn = q(frame, '[data-testid="tab-import"]');
+  eqs('控件文字不能被长按选中', css(win, btn, 'user-select'), 'none');
+  eqs('控件不参与双击缩放（没有点按延迟）', css(win, btn, 'touch-action'), 'manipulation');
 
   frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
   const mean = frame.contentDocument.querySelector('.word-mean');

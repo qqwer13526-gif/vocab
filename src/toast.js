@@ -28,9 +28,10 @@ function ensureStack() {
  * @param text    文案（一句话，别写太长）
  * @param kind    'info' | 'ok' | 'bad'
  * @param timeout 多久自动消失；点一下可以提前关掉
+ * @param action  可选的一个动作按钮（例如「撤销」）：{ label, onClick, timeout }
  * @returns 立刻关掉它的函数
  */
-export function showToast(text, { kind = 'info', timeout = 2600 } = {}) {
+export function showToast(text, { kind = 'info', timeout = 2600, action = null } = {}) {
   const host = ensureStack();
   const node = document.createElement('div');
   node.className = 'toast';
@@ -49,6 +50,22 @@ export function showToast(text, { kind = 'info', timeout = 2600 } = {}) {
     node.classList.add('toast-out');
     setTimeout(() => node.remove(), 240);
   };
+
+  // 有动作时给足时间：撤销窗口太短等于没有（默认 6 秒）
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // 别让外面那层"点一下关掉"抢走这次点击
+      hide();
+      action.onClick();
+    });
+    node.append(btn);
+    timeout = action.timeout ?? 6000;
+  }
+
   const timer = setTimeout(hide, timeout);
   node.addEventListener('click', hide); // 点一下就能关掉
   return hide;

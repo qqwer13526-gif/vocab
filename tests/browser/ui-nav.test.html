@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>底部导航 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 底部悬浮胶囊导航（v18）。
+   用户定的：词库 / 导入 / 设置 三项，导入和设置以前挂在首页页脚，现在收进这里。
+   跑法：python tool/browser_test.py tests/browser/ui-nav.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+
+const release = holdLoad();
+
+try {
+  const frame = await openApp({ hash: '#/', sel: '#view-home:not([hidden])' });
+  const doc = frame.contentDocument;
+  const tabs = [...doc.querySelectorAll('#tabbar a')];
+
+  eq('胶囊里是三项', tabs.length, 3);
+  eq('三项分别是词库/导入/设置', tabs.map((a) => a.dataset.nav).join(','), 'home,import,settings');
+  ok('每项都有内联 SVG 图标', tabs.every((a) => a.querySelector('svg path')), '有的项没有 svg');
+  ok('每项都有可见文字', tabs.every((a) => a.textContent.trim().length > 0), tabs.map((a) => a.textContent.trim()).join('|'));
+  eq('在首页时"词库"是当前项', doc.querySelector('#tabbar a[data-nav="home"]').getAttribute('aria-current'), 'page');
+  ok('没选中的项不带 aria-current', !doc.querySelector('#tabbar a[data-nav="import"]').hasAttribute('aria-current'));
+
+  // 点按目标：手机上要够大（无障碍）
+  const box = tabs[0].getBoundingClientRect();
+  ok('点按区域 ≥44px 高', box.height >= 44, `${Math.round(box.height)}px`);
+
+  // 悬浮胶囊：内缩 + 离底，不是通栏横条
+  const bar = doc.querySelector('#tabbar').getBoundingClientRect();
+  const vw = doc.documentElement.clientWidth;
+  const vh = doc.documentElement.clientHeight;
+  ok('胶囊左右内缩（不是通栏横条）', bar.left > 0 && bar.right < vw, `left=${Math.round(bar.left)} right=${Math.round(bar.right)} vw=${vw}`);
+  ok('胶囊底部离屏幕下沿有距离', bar.bottom < vh, `bottom=${Math.round(bar.bottom)} vh=${vh}`);
+  ok('胶囊有圆角（药丸形）', parseFloat(frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).borderTopLeftRadius) >= 20,
+     frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).borderTopLeftRadius);
+
+  // 内容不能被胶囊盖住：最后一个可见元素的底边要在胶囊顶边之上（或能滚出来）
+  const app = doc.querySelector('#app');
+  const padBottom = parseFloat(frame.contentWindow.getComputedStyle(app).paddingBottom);
+  ok('主区底部留白够放胶囊（≥ 胶囊高 + 底距）', padBottom >= bar.height + 8, `padding-bottom=${padBottom} 胶囊高=${Math.round(bar.height)}`);
+
+  click(doc.querySelector('#tabbar a[data-nav="settings"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('settings'), { label: '去设置' });
+  await waitFor(() => doc.querySelector('[data-testid="settings-version"]'), { label: '设置页渲染' });
+  eq('在设置页时"设置"是当前项', doc.querySelector('#tabbar a[data-nav="settings"]').getAttribute('aria-current'), 'page');
+  eq('切页后"词库"不再是当前项', doc.querySelector('#tabbar a[data-nav="home"]').getAttribute('aria-current'), null);
+
+  click(doc.querySelector('#tabbar a[data-nav="import"]'));
+  await waitFor(() => doc.body.dataset.view === 'import', { label: '去导入' });
+  eq('在导入页时"导入"是当前项', doc.querySelector('#tabbar a[data-nav="import"]').getAttribute('aria-current'), 'page');
+
+  // 练习页不显示胶囊（沉浸式，避免误触退出）
+  frame.contentWindow.location.hash = '#/practice';
+  await waitFor(() => doc.body.dataset.view === 'practice', { label: '切到练习' });
+  eq('练习页隐藏胶囊', frame.contentWindow.getComputedStyle(doc.querySelector('#tabbar')).display, 'none');
+} catch (e) {
+  ok('导航测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

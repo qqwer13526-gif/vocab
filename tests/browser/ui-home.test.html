@@ -84,26 +84,31 @@ try {
   ok('空状态引导里指向导入', txt(doc.querySelector('[data-testid="empty-state"]')).includes('导入'));
   ok('空状态也能新建词库', !!doc.querySelector('[data-testid="btn-newlib"]'));
 
-  // ---------------- 2. 有数据时的首页 ----------------
+  // ---------------- 2. 有数据时的首页（v18：首页只有词库）----------------
   const ids = await seed();
   frame = await openApp({ sel: '[data-testid="lib-row"]' });
   doc = frame.contentDocument;
 
-  // 大数字 + 标签分开：数字是重点，标签是注解
-  eq('今日待复习的数量', txt(doc.querySelector('[data-testid="today-review-num"]')), '2');
-  eq('今日待复习的标签', txt(doc.querySelector('[data-testid="today-review"] .hero-label')), '待复习');
-  eq('今日新词的数量', txt(doc.querySelector('[data-testid="today-new-num"]')), '3');
-  eq('今日新词的标签', txt(doc.querySelector('[data-testid="today-new"] .hero-label')), '新词');
+  ok('首页没有"今天"大卡片了', !doc.querySelector('.home-head'), '还有 .home-head');
+  ok('首页也没有大数字 hero', !doc.querySelector('.hero-num'), '还有 .hero-num');
+  ok('首页没有导入/新建/设置三个页脚按钮', !doc.querySelector('.home-foot'), '还有 .home-foot');
+  eq('首页只有两块：固定入口 + 我的词库', doc.querySelector('#view-home').children.length, 2);
+
+  // 总词库：所有导入过的词都在这儿 —— 库被删了词也不会丢
+  const allRow = doc.querySelector('[data-testid="all-lib-row"]');
+  ok('钉了一行「总词库」', !!allRow && txt(allRow.querySelector('.lib-name')).includes('总词库'), allRow ? txt(allRow.querySelector('.lib-name')) : '没有这一行');
+  ok('总词库统计的是全部词（6 + 1 = 7）', txt(allRow.querySelector('.lib-meta')).includes('共 7 词'), txt(allRow.querySelector('.lib-meta')));
 
   ok('智能库合成一张「自动收集」卡', !!doc.querySelector('[data-testid="smart-strip"]'), '找不到 smart-strip');
   ok('智能库的行都在那张卡里', doc.querySelectorAll('[data-testid="smart-strip"] [data-testid="smart-row"]').length >= 1);
+  ok('固定入口排在词库列表前面', doc.querySelector('.pinned').compareDocumentPosition(doc.querySelector('.libs')) & Node.DOCUMENT_POSITION_FOLLOWING);
 
   // 图标是内联 SVG，不是字体里的 ‹ › ✕（字形跨系统不齐、字号一变就乱）
-  const arrow = rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-words"]');
-  ok('箭头按钮里是 SVG 图标', !!arrow.querySelector('svg path'), arrow.innerHTML.slice(0, 60));
-  ok('箭头按钮不再用文字符号', !/[›‹✕]/.test(arrow.textContent), arrow.textContent);
-  ok('装饰性图标对读屏隐藏（aria-hidden）', arrow.querySelector('svg').getAttribute('aria-hidden') === 'true');
-  ok('图标按钮仍有可访问名字（aria-label）', !!arrow.getAttribute('aria-label'), arrow.getAttribute('aria-label'));
+  const more = rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-more"]');
+  ok('⋯ 按钮里是 SVG 图标', !!more.querySelector('svg path'), more.innerHTML.slice(0, 60));
+  ok('⋯ 按钮不再用文字符号', !/[›‹✕]/.test(more.textContent), more.textContent);
+  ok('装饰性图标对读屏隐藏（aria-hidden）', more.querySelector('svg').getAttribute('aria-hidden') === 'true');
+  ok('图标按钮仍有可访问名字（aria-label）', !!more.getAttribute('aria-label'), more.getAttribute('aria-label'));
 
   const rows = doc.querySelectorAll('[data-testid="lib-row"]');
   eq('列出两个词库', rows.length, 2);
@@ -128,9 +133,10 @@ try {
   ok('没有生疏词的库不长出这一段', !rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress-unfamiliar"]'));
 
   // ---------------- 3. 点击行为 ----------------
-  click(doc.querySelector('[data-testid="btn-start"]'));
+  // 综合练习（不分库）现在挂在"总词库"这一行上：首页不再有"开始练习"大按钮
+  click(allRow.querySelector('.lib-name'));
   await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习页' });
-  ok('点开始练习 → 进练习页', frame.contentWindow.location.hash.startsWith('#/practice'), frame.contentWindow.location.hash);
+  ok('点总词库 → 进综合练习（不带 lib 参数）', frame.contentWindow.location.hash === '#/practice', frame.contentWindow.location.hash);
 
   frame.contentWindow.location.hash = '#/';
   await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
@@ -139,17 +145,26 @@ try {
   await waitFor(() => frame.contentWindow.location.hash.includes(ids.libB), { label: '带库 id 进练习' });
   ok('点库名 → 只练这个库', frame.contentWindow.location.hash === `#/practice?lib=${ids.libB}`, frame.contentWindow.location.hash);
 
+  // 看词条：进了 ⋯ 菜单里（行本身只留"练"）
   frame.contentWindow.location.hash = '#/';
   await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
   doc = frame.contentDocument;
-  click(rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-words"]'));
+  click(rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-more"]'));
+  const menu = await waitFor(() => doc.querySelector('[data-testid="lib-menu"]'), { label: '⋯ 菜单展开' });
+  ok('菜单里有"看词条 / 重命名 / 删除词库"',
+     !!menu.querySelector('[data-testid="btn-lib-menu-words"]') &&
+     !!menu.querySelector('[data-testid="btn-lib-menu-rename"]') &&
+     !!menu.querySelector('[data-testid="btn-lib-menu-delete"]'));
+  click(menu.querySelector('[data-testid="btn-lib-menu-words"]'));
   await waitFor(() => frame.contentWindow.location.hash.includes('word'), { label: '进词条页' });
-  ok('点箭头 → 看这个词库的词条', frame.contentWindow.location.hash === `#/word?lib=${ids.libA}`, frame.contentWindow.location.hash);
+  ok('点菜单里的"看词条" → 进这个词库的词条', frame.contentWindow.location.hash === `#/word?lib=${ids.libA}`, frame.contentWindow.location.hash);
 
-  // ---------------- 4. 新建词库 ----------------
+  // ---------------- 4. 新建词库（列表末尾那一行）----------------
   frame = await openApp({ sel: '[data-testid="lib-row"]' });
   doc = frame.contentDocument;
-  click(doc.querySelector('[data-testid="btn-newlib"]'));
+  const newRow = doc.querySelector('[data-testid="btn-newlib"]');
+  ok('新建词库是词库列表末尾的一行', !!newRow && !!newRow.closest('.libs'), newRow ? newRow.className : '找不到');
+  click(newRow);
   const form = await waitFor(() => doc.querySelector('[data-testid="newlib-form"]'), { label: '出现新建词库表单' });
   ok('新建词库是内联表单，不是浏览器弹窗', !!form.querySelector('input[name="name"]'));
   eq('提供 6 种颜色可选', form.querySelectorAll('button.color').length, 6);
@@ -164,18 +179,24 @@ try {
   const libsInDb = await db.all('libs');
   ok('新词库真的写进了数据库', libsInDb.some((l) => l.name === '六级'), JSON.stringify(libsInDb.map((l) => l.name)));
 
-  // ---------------- 5. 点导入 ----------------
-  click(doc.querySelector('[data-testid="btn-import"]'));
+  // ---------------- 5. 底部胶囊：导入与设置 ----------------
+  click(doc.querySelector('[data-testid="tab-import"]'));
   await waitFor(() => frame.contentWindow.location.hash.includes('import'), { label: '跳到导入页' });
-  ok('点导入词表 → 进导入页', frame.contentWindow.location.hash.startsWith('#/import'), frame.contentWindow.location.hash);
+  ok('胶囊里的"导入" → 进导入页', frame.contentWindow.location.hash.startsWith('#/import'), frame.contentWindow.location.hash);
 
-  // ---------------- 6. 底部"设置"按钮上带版本号（用来一眼确认更新是否到位）----------------
-  const home2 = await openApp({ sel: '[data-testid="btn-settings"]' });
-  const settingsLabel = txt(home2.contentDocument.querySelector('[data-testid="btn-settings"]'));
-  ok('首页底部"设置"按钮上带版本号', /^设置 · v\d+$/.test(settingsLabel), settingsLabel);
-  eq('版本号和 body 上标的一致', settingsLabel.replace('设置 · ', ''), home2.contentDocument.body.dataset.appVersion);
-  ok('首页不会渲染出多余的 "null" 文本', !home2.contentDocument.querySelector('#view-home').textContent.includes('null'),
-     home2.contentDocument.querySelector('#view-home').textContent.slice(-80));
+  frame.contentWindow.location.hash = '#/';
+  await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
+  doc = frame.contentDocument;
+  click(doc.querySelector('[data-testid="tab-settings"]'));
+  await waitFor(() => frame.contentDocument.querySelector('[data-testid="settings-version"]'), { label: '进设置页' });
+  const versionLabel = txt(frame.contentDocument.querySelector('[data-testid="settings-version"]'));
+  ok('设置页显示版本号（一眼确认更新是否到位）', /^v\d+$/.test(versionLabel), versionLabel);
+  eq('版本号和 body 上标的一致', versionLabel, frame.contentDocument.body.dataset.appVersion);
+
+  frame.contentWindow.location.hash = '#/';
+  await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
+  ok('首页不会渲染出多余的 "null" 文本', !frame.contentDocument.querySelector('#view-home').textContent.includes('null'),
+     frame.contentDocument.querySelector('#view-home').textContent.slice(-80));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

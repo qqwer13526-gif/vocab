@@ -165,7 +165,7 @@ body {
   max-width: 720px;
   margin: 0 auto;
   /* 底部留白要把"键盘高度"算进去（--kb-inset 由 src/viewport.js 维护） */
-  padding: calc(var(--safe-t) + 12px) 16px calc(72px + var(--safe-b) + var(--kb-inset, 0px));
+  padding: calc(var(--safe-t) + 12px) 16px calc(92px + var(--safe-b) + var(--kb-inset, 0px));
 }
 
 .view[hidden] { display: none; }
@@ -180,33 +180,47 @@ body {
 
 .placeholder { color: var(--muted); text-align: center; }
 
+/* 底部导航：内缩的悬浮胶囊 + 毛玻璃（内容从它下面穿过去），不是通栏横条 */
 #tabbar {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: calc(var(--sp-3) + var(--safe-b));
   display: flex;
-  gap: 8px;
-  justify-content: center;
-  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + var(--safe-b));
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line);
-  transition: transform var(--dur-ui) var(--ease-out-quint);
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: var(--shadow-2);
+  transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) var(--ease-out-quint);
 }
 /* 键盘弹出时把底部导航收起来（否则它会浮在键盘上面） */
-body[data-keyboard='open'] #tabbar { transform: translateY(140%); }
+body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; pointer-events: none; }
 
 #tabbar a {
   flex: 1;
-  max-width: 160px;
-  text-align: center;
-  padding: 12px;
-  border-radius: var(--r-sm);
-  color: var(--fg);
+  max-width: 200px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 8px var(--sp-1);
+  border-radius: var(--r-full);
+  color: var(--muted);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 11px;
+  line-height: 1.1;
 }
-
+#tabbar a svg { display: block; }
+/* 选中态两条通道：药丸底（形状）+ 颜色与字重，不只靠颜色 */
+#tabbar a[aria-current='page'] { background: var(--card); color: var(--fg); font-weight: 650; }
 #tabbar a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 系统要求"减少透明"时毛玻璃会糊住内容，换实底 */
+@media (prefers-reduced-transparency: reduce) {
+  #tabbar { background: var(--bg); backdrop-filter: none; box-shadow: inset 0 0 0 1px var(--line); }
+}
 
 /* ---------------------------------------------------------------- 顶部"有新版本" */
 
@@ -267,21 +281,13 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 }
 .smart-hint { opacity: 0.85; }
 
-/* ---------------------------------------------------------------- 库列表首页 */
+/* ---------------------------------------------------------------- 库列表首页（v18：只有词库）
+ * 左/上 .pinned（总词库 + 自动收集）、右/下 .libs（我的词库 + 新建）。
+ * 原来那张"今天"大卡片和页脚三个按钮都去掉了：导入/设置进了底部胶囊。 */
 
-.home-head { display: grid; gap: 12px; margin-bottom: 12px; }
-.home-title { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
-/* 今天的量：两个大数字顶着标签，一眼能扫到（原来是一行小字，重点全埋在文字里） */
-.hero { display: flex; gap: 24px; align-items: baseline; }
-.hero-cell { display: grid; gap: 2px; }
-.hero-num {
-  font-size: 32px;
-  font-weight: 650;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-.hero-label { color: var(--muted); font-size: 13px; }
+.pinned { display: grid; gap: 12px; align-content: start; }
+/* 总词库：跟普通词库同一套行样式，只是钉在最上面、用强调色 */
+.all-lib-row { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
 
 .primary {
   width: 100%;
@@ -352,7 +358,19 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 .empty-title { color: var(--fg); font-weight: 600; }
 .empty-sub { font-size: 14px; }
 
-.home-foot { display: flex; gap: 12px; margin-top: 12px; }
+/* 新建词库：词库列表末尾的一行虚线 */
+.newlib-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 52px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+}
 
 .newlib-form { display: grid; gap: 12px; margin-top: 12px; }
 .newlib-form input {
@@ -579,7 +597,7 @@ body[data-view='practice'] #tabbar { display: none; }
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(78px + var(--safe-b) + var(--kb-inset, 0px));
+  bottom: calc(98px + var(--safe-b) + var(--kb-inset, 0px));
   z-index: 30;
   display: grid;
   gap: 8px;
@@ -587,6 +605,8 @@ body[data-view='practice'] #tabbar { display: none; }
   pointer-events: none;
 }
 .toast {
+  display: flex;
+  align-items: center;
   pointer-events: auto;
   max-width: min(92vw, 420px);
   padding: 12px 12px;
@@ -602,6 +622,19 @@ body[data-view='practice'] #tabbar { display: none; }
   .toast { opacity: 0; transform: translateY(8px) scale(0.98); }
 }
 .toast-out { opacity: 0; transform: translateY(6px); }
+/* 提示条上的动作（「撤销」）：描边胶囊，跟文字同色 */
+.toast-action {
+  flex: none;
+  margin-left: var(--sp-2);
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-full);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
 .toast[data-kind='ok'] { background: var(--ok); color: var(--bg); }
 .toast[data-kind='bad'] { background: var(--bad); color: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
@@ -655,6 +688,34 @@ body[data-view='practice'] #tabbar { display: none; }
 .word-status[data-kind='ok'] { color: var(--ok); }
 .word-status[data-kind='bad'] { color: var(--bad); }
 .ghost.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+
+/* 词库行的行内菜单：贴在那一行下面，不弹窗、不遮上下文 */
+.lib-menu {
+  display: grid;
+  gap: var(--sp-0);
+  margin-top: calc(-1 * var(--sp-2));
+  padding: var(--sp-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-1);
+}
+.lib-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+}
+.lib-menu-item:active { background: var(--card); }
+.lib-menu-item.is-danger { color: var(--bad); }
 
 /* 二次确认的"武装"状态：明显、但仍可撤销 */
 .confirming {
@@ -766,6 +827,7 @@ body[data-view='practice'] #tabbar { display: none; }
   .link-btn { text-decoration: underline; }
   .chip, .ghost, .settings-plan { box-shadow: inset 0 0 0 1px var(--muted); }
   .card, .lib-row { border-color: var(--muted); }
+  #tabbar { background: var(--bg); backdrop-filter: none; box-shadow: inset 0 0 0 1px var(--muted); }
   :focus-visible { outline-width: 3px; }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
@@ -785,10 +847,13 @@ body[data-view='practice'] #tabbar { display: none; }
 }
 
 /* 宽屏（平板横放 / 电脑）：720px 的单列在 1400 的屏幕上会拉成一条细长的中间带，
-   左右全是空白。所以放宽容器，首页改成"左边今天的量、右边词库列表"两栏。
+   左右全是空白。所以放宽容器，首页改成"左边固定入口、右边词库列表"两栏。
    只改布局，不改任何界面结构 —— 手机上仍然是单列。 */
 @media (min-width: 900px) {
   #app { max-width: 960px; }
+  /* 宽屏上胶囊别跟着拉到 960：三项导航摊那么开反而不好点，收成一个居中的 420 胶囊 */
+  #tabbar { left: 50%; right: auto; width: 420px; transform: translateX(-50%); }
+  body[data-keyboard='open'] #tabbar { transform: translateX(-50%) translateY(160%); opacity: 0; }
   #view-home:not([hidden]) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
@@ -796,8 +861,6 @@ body[data-view='practice'] #tabbar { display: none; }
     align-content: start;
     align-items: start;
   }
-  #view-home .libs { grid-column: 2; grid-row: 1 / span 3; }
-  #view-home .home-head,
-  #view-home .home-foot,
-  #view-home .home-phonetic { grid-column: 1; }
+  #view-home .libs { grid-column: 2; grid-row: 1; }
+  #view-home .pinned { grid-column: 1; grid-row: 1; }
 }

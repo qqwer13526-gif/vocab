@@ -29,6 +29,8 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑤ 界面：练习", "ui-practice", [PY, "tool/browser_test.py", "tests/browser/ui-practice.test.html"], "ui"),
     ("⑥ 界面：导入", "ui-import", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
     ("⑦ 界面：词条", "ui-word", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
+    ("⑦b 界面：底部导航（三项 / aria-current / 点按尺寸 / 练习页隐藏）", "ui-nav", [PY, "tool/browser_test.py", "tests/browser/ui-nav.test.html"], "ui"),
+    ("⑦c 界面：删除词库（两步确认 / 只删库不删词 / 撤销）", "ui-lib-delete", [PY, "tool/browser_test.py", "tests/browser/ui-lib-delete.test.html"], "ui"),
     ("⑧ 布局：各界面无横向滚动", "layout", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),
     ("⑨ 无障碍与移动端（常规）", "a11y", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html"], "ui"),
     ("⑩ 无障碍与移动端（系统开启减弱动效）", "a11y-reduced", [PY, "tool/browser_test.py", "tests/browser/a11y.test.html", "--reduced-motion"], "ui"),
@@ -42,13 +44,14 @@ STEPS: list[tuple[str, str, list[str], str]] = [
 CHECKLIST: list[tuple[str, list[str] | None]] = [
     ("node --test 全绿（SRS / 判定 / 解析）", ["unit"]),
     ("浏览器内测试页全绿（IndexedDB 增删改查、软删除、事务原子性）", ["db"]),
-    ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", ["ui-home", "ui-practice", "ui-import", "ui-word"]),
+    ("四个界面都能打开并走完一次真实操作（导入 → 练习 → 判定 → 进度更新）", ["ui-home", "ui-practice", "ui-import", "ui-word", "ui-nav"]),
     ("断网后刷新仍能用（service worker 生效）", ["sw"]),
     ("部署到子路径（GitHub Pages 的 /vocab/）后 service worker 仍正常", ["sw-prefix"]),
     ("手机与桌面尺寸都不出现横向滚动、不溢出", ["layout"]),
     ("无障碍：按钮有名字、输入有标签、点按区域够大、输入框字号 ≥16px、减弱动效生效", ["a11y", "a11y-reduced"]),
     ("Excel（.xlsx）能直接导入；音标能一键补齐（下载→匹配→写库，之后离线）", ["xlsx", "phonetic"]),
     ("配色对比度达标（正文 AA；提高对比度模式下 AAA）", ["contrast"]),
+    ("删词库：两步确认、只删库不删词（词留在总词库）、6 秒内可撤销", ["ui-lib-delete"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

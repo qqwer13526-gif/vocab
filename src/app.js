@@ -9,8 +9,10 @@
 
 import { renderHome } from './ui-home.js';
 import { renderPractice } from './ui-practice.js';
-import { renderImport } from './ui-import.js';import { renderWord } from './ui-word.js';
+import { renderImport } from './ui-import.js';
+import { renderWord } from './ui-word.js';
 import { renderSettings } from './ui-settings.js';
+import { icon } from './icons.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
 
@@ -61,6 +63,11 @@ export function show(name, params = {}) {
   }
   current = { name, params };
   document.body.dataset.view = name;
+  // 底部导航的"当前项"：视觉靠 CSS 的 [aria-current='page']，语义也靠它（读屏会说"当前页"）
+  for (const a of document.querySelectorAll('#tabbar a')) {
+    if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  }
   delete document.body.dataset.ready;
   const fn = RENDER[name];
   if (!fn) return;
@@ -260,6 +267,11 @@ function wireUpdateButton() {
 
 function boot() {
   markSW();
+  // 底部导航的图标只写在 icons.js 一处，这里按 data-nav 注入（HTML 里保持纯文字）
+  const TAB_ICONS = { home: 'layers', import: 'upload', settings: 'settings' };
+  for (const a of document.querySelectorAll('#tabbar a')) {
+    a.prepend(icon(TAB_ICONS[a.dataset.nav], { size: 22 }));
+  }
   // 先把界面渲染出来：service worker 是后台的事，注册失败/挂起都不能挡着用
   route();
   wireUpdateButton();
