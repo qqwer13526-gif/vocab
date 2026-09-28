@@ -11,6 +11,7 @@
 import { $, el } from './app.js';
 import { hardDelete, put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
+import { decideFlip, rubberbandBeyond, runSpring, velocityFrom } from './spring.js';
 import { icon } from './icons.js';
 import { buildQueue, grade, markLevel, newProg } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
@@ -287,33 +288,89 @@ export async function renderPractice(params = {}) {
   }
 
   // ---------------------------------------------------------------- 过一遍模式的手势
-  // 横向拖动卡片：跟手 → 松手按"距离或速度"决定飞出去还是弹回来（可打断，不是 keyframes 重放）
-  const SWIPE_THRESHOLD = 96; // px
-  const SWIPE_VELOCITY = 0.5; // px/ms
+  // 1:1 跟手 → 松手按"速度投射出来的落点"决定翻页还是回弹 → 把手指末速交给弹簧接着跑。
+  // 三条规矩来自 apple-design：可打断（飞行中能抓住）、速度不断层（接管时读当前值）、越界有橡皮筋。
+  const SPRING_FLY = { damping: 0.85, response: 0.34 }; // 甩出去：带一点点回弹
+  const SPRING_BACK = { damping: 0.9, response: 0.3 };  // 没够：回原位，几乎不弹
   let drag = null;
+  let spring = null;
+  let cardX = 0; // 卡片当前的横向位移（松手动画和"抓住"都从这里接着走）
   const canSwipe = () => s.review && !s.ended && !card.hidden;
+  const cardW = () => card.getBoundingClientRect().width || 320;
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function resetCard() {
+  function stopSpring() {
+    spring?.stop();
+    spring = null;
+  }
+
+  /** 角标：拖到 35% 卡宽时完全亮起 */
+  function paintBadge(ratio) {
+    if (ratio == null) {
+      swipeBadge.hidden = true;
+      return;
+    }
+    swipeBadge.hidden = false;
+    swipeBadge.dataset.dir = ratio >= 0 ? 'known' : 'unfamiliar';
+    swipeBadge.textContent = ratio >= 0 ? '熟记' : '生疏';
+    swipeBadge.style.opacity = String(Math.min(1, Math.abs(ratio)));
+  }
+
+  function applyX(next, { badge = true } = {}) {
+    cardX = next;
+    card.style.transform = `translateX(${next}px)`;
+    if (badge) paintBadge(next / (cardW() * 0.35));
+  }
+
+  /** 回原位（带松手速度）。返回 Promise，方便测试等它结束 */
+  function resetCard(velocity = 0) {
     card.classList.remove('swiping');
+    stopSpring();
+    if (reduced()) {
+      applyX(0, { badge: false });
+      card.style.transform = '';
+      card.style.opacity = '';
+      swipeBadge.hidden = true;
+      cardX = 0;
+      return Promise.resolve();
+    }
     card.classList.add('snapping');
-    card.style.transform = '';
-    card.style.opacity = '';
-    swipeBadge.hidden = true;
-    setTimeout(() => card.classList.remove('snapping'), 260);
+    return new Promise((done) => {
+      spring = runSpring({
+        from: cardX,
+        velocity,
+        to: 0,
+        ...SPRING_BACK,
+        onFrame: (x) => applyX(x),
+        onDone: () => {
+          spring = null;
+          card.classList.remove('snapping');
+          card.style.transform = '';
+          card.style.opacity = '';
+          paintBadge(null);
+          cardX = 0;
+          done();
+        }
+      });
+    });
   }
 
   function onDown(e) {
     if (!canSwipe() || (e.button != null && e.button !== 0)) return;
-    drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: performance.now(), active: false };
+    // 飞行中抓住：停掉动画，从"当前屏幕上的位置"接着跟手（不是从 0 重来）
+    stopSpring();
+    card.classList.remove('snapping');
+    const now = performance.now();
+    drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, baseX: cardX, active: false, hist: [{ t: now, x: e.clientX }] };
   }
 
   function onMove(e) {
     if (!drag || e.pointerId !== drag.id) return;
-    const dx = e.clientX - drag.x0;
+    const dxRaw = e.clientX - drag.x0;
     const dy = e.clientY - drag.y0;
     if (!drag.active) {
-      // 先分清是"横向滑动"还是"纵向滚动/轻点"
-      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
+      // 先分清"横向滑动"还是"纵向滚动/轻点"（10px 的迟滞，苹果那条"手势要有一点阈值"）
+      if (Math.abs(dxRaw) < 10 || Math.abs(dxRaw) < Math.abs(dy)) return;
       drag.active = true;
       try {
         card.setPointerCapture(e.pointerId);
@@ -322,41 +379,56 @@ export async function renderPractice(params = {}) {
       }
       card.classList.add('swiping');
     }
-    drag.dx = dx;
-    card.style.transform = `translateX(${dx}px)`;
-    const p = Math.min(1, Math.abs(dx) / SWIPE_THRESHOLD);
-    swipeBadge.hidden = false;
-    swipeBadge.dataset.dir = dx > 0 ? 'known' : 'unfamiliar';
-    swipeBadge.textContent = dx > 0 ? '熟记' : '生疏';
-    swipeBadge.style.opacity = String(p);
+    const now = performance.now();
+    drag.hist.push({ t: now, x: e.clientX });
+    if (drag.hist.length > 6) drag.hist.shift();
+    // 拖过 1.05 张卡宽之后上橡皮筋：再拖也走不远（"到边界要变硬"，而不是无限跟手）
+    applyX(rubberbandBeyond(drag.baseX + dxRaw, cardW() * 1.05, cardW()));
   }
 
   async function onUp(e) {
     if (!drag || (e && e.pointerId != null && e.pointerId !== drag.id)) return;
-    const { dx, t0, active } = drag;
+    const d = drag;
     drag = null;
-    if (!active) return; // 只是轻点，让按钮自己处理
-    // 速度：采样间隔太短（<8ms）就不算 —— 否则一次极快的轻微拖动会被误判成"甩出去"
-    const dt = Math.max(1, performance.now() - t0);
-    const v = dt >= 8 ? dx / dt : 0;
-    const flew = Math.abs(dx) > SWIPE_THRESHOLD || (Math.abs(dx) > 24 && Math.abs(v) > SWIPE_VELOCITY);
-    if (!flew) return resetCard();
+    if (!d.active) return; // 只是轻点，交给按钮
+    const v = velocityFrom(d.hist, performance.now()); // px/s，只取最近 80ms
+    const dx = cardX;
+    const w = cardW();
+    card.classList.remove('swiping');
+
+    if (!decideFlip(dx, v, w)) {
+      resetCard(v); // 回弹也带着速度回来，不会"啪"一下停住
+      return;
+    }
+
     const dir = dx > 0 ? 'known' : 'unfamiliar';
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!reduce) {
-      card.classList.remove('swiping');
+    if (!reduced()) {
       card.classList.add('snapping');
-      card.style.transform = `translateX(${dx > 0 ? 120 : -120}%)`;
-      card.style.opacity = '0';
-      // 等多久看的是同一个时长令牌，不写魔法数字（改了 --dur-ui 这里跟着变）
-      const ms = Number((getComputedStyle(document.documentElement).getPropertyValue('--dur-ui') || '').replace('ms', '')) || 170;
-      await new Promise((r) => setTimeout(r, ms + 30));
+      await new Promise((done) => {
+        spring = runSpring({
+          from: cardX,
+          velocity: v, // ⭐ 速度接管：动画从手指的末速接着跑
+          to: Math.sign(dx) * w * 1.2,
+          ...SPRING_FLY,
+          onFrame: (x) => {
+            cardX = x;
+            card.style.transform = `translateX(${x}px)`;
+            card.style.opacity = String(Math.max(0, 1 - Math.abs(x) / (w * 1.1)));
+          },
+          onDone: () => {
+            spring = null;
+            done();
+          }
+        });
+      });
     }
     await markAndNext(dir); // 会渲染下一题
+    stopSpring();
     card.classList.remove('snapping');
     card.style.transform = '';
     card.style.opacity = '';
-    swipeBadge.hidden = true;
+    paintBadge(null);
+    cardX = 0;
   }
 
   card.addEventListener('pointerdown', onDown);

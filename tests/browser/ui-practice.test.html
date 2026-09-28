@@ -368,6 +368,109 @@ try {
   await wait(120);
   eq('在输入框里按 1 只是打字，不写库', await prog('w-absorb'), undefined);
   eq('输入框里的 1 还在', inputEl.value, '1');
+  // ---------------- 18. 滑动是真拖拽（v21）：1:1 / 橡皮筋 / 惯性投射 / 速度接管 / 可打断 ----------------
+  await db.wipeAll();
+  const libS = await seed();
+  const openReview = () => openApp({ hash: `#/practice?lib=${libS}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  const cardEl2 = () => q(frame, '.prac-card');
+  const tx = () => {
+    const m = cardEl2().style.transform.match(/translateX\((-?[\d.]+)px\)/);
+    return m ? Number(m[1]) : 0;
+  };
+  const pe2 = (type, x, y = 300, id = 21) =>
+    cardEl2().dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
+  const sample = async (ms) => {
+    const out = [];
+    const t0 = performance.now();
+    await new Promise((r) => {
+      const tick = () => {
+        out.push(tx());
+        if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+        else r();
+      };
+      requestAnimationFrame(tick);
+    });
+    return out;
+  };
+
+  // (a) 1:1 跟手（不吸附到中心）
+  frame = await openReview();
+  pe2('pointerdown', 200);
+  pe2('pointermove', 260);
+  eq('拖 60px 卡片就走 60px（1:1）', Math.round(tx()), 60);
+  eq('角标同步写着"熟记"', t(frame, '[data-testid="swipe-badge"]'), '熟记');
+
+  // (b) 橡皮筋：拖过 1.05 张卡宽之后，卡片走得比手指慢
+  pe2('pointermove', 200 + 520);
+  const damped = tx();
+  ok('拖过一张卡宽后上橡皮筋（走不到手指那么远）', damped > 300 && damped < 520 * 0.92,
+     `手指 520px → 卡片 ${damped.toFixed(0)}px`);
+  pe2('pointerup', 200 + 520);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') !== 'absorb', { label: '拖到底松手翻页' });
+  ok('拖到底松手 → 翻页', true);
+
+  // (c) 惯性投射：只拖 40px 但松手很快 → 靠"投射出来的落点"翻页
+  frame = await openReview();
+  pe2('pointerdown', 200);
+  await wait(20);
+  pe2('pointermove', 240);
+  await wait(20);
+  pe2('pointerup', 240);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') !== 'absorb', { label: '轻扫翻页' });
+  ok('只拖 40px、速度快 → 投射把它送过阈值（翻页）', true);
+
+  // (d) 对照组：同样 40px，但松手前停住 → 回原位、不写库
+  frame = await openReview();
+  const progBefore = JSON.stringify(await prog('w-absorb') || null); // 前面几段可能已经写过，所以比"有没有变化"
+  pe2('pointerdown', 200);
+  pe2('pointermove', 240);
+  await wait(90); // 让"最近 80ms"里没有位移 → 末速 0
+  pe2('pointerup', 240);
+  await wait(500);
+  eq('同样 40px 但慢慢松手 → 回原位', Math.round(tx()), 0);
+  eq('回弹不算数，学习记录没被改动', JSON.stringify(await prog('w-absorb') || null), progBefore);
+
+  // (e) 速度接管：先造一个"真的在动"的末速（事件之间要给够时间，否则 dt<8ms 会被算成 0）
+  const releaseTravel = async ({ flick }) => {
+    frame = await openReview();
+    pe2('pointerdown', 200);
+    if (flick) {
+      // 拖到 100px，且最后 20ms 还在快速移动 → 末速 ≈ 3000px/s
+      await wait(20);
+      pe2('pointermove', 240);
+      await wait(20);
+      pe2('pointermove', 300);
+    } else {
+      // 拖到 200px，然后停住 → 末速 0（靠距离翻页）
+      pe2('pointermove', 400);
+      await wait(120);
+    }
+    const before = tx();
+    pe2('pointerup', 400);
+    const xs = await sample(50);
+    return Math.abs(xs[xs.length - 1] - before);
+  };
+  const fromRest = await releaseTravel({ flick: false }); // 位移大、松手时静止
+  const withFlick = await releaseTravel({ flick: true }); // 位移小、松手时还在动
+  ok('速度接管：松手时手还在动 → 头 50ms 走得更远（哪怕起始位移更小）',
+     withFlick > fromRest * 1.15,
+     `静止松手（起点 200px）${fromRest.toFixed(1)}px vs 带速度松手（起点 100px）${withFlick.toFixed(1)}px`);
+
+  // (f) 可打断：回弹飞行途中再抓住，位置必须连续（不能跳回起点）
+  frame = await openReview();
+  pe2('pointerdown', 200);
+  pe2('pointermove', 280);
+  await wait(90);
+  pe2('pointerup', 280); // 末速 0、距离 80px → 回弹
+  await wait(60);        // 让它飞一会儿
+  const midFlight = tx();
+  pe2('pointerdown', 500, 300, 33); // 另一个手指抓住
+  const grabbed = tx();
+  ok('回弹途中抓住卡片 → 从当前位置接管（不跳变）', Math.abs(grabbed - midFlight) <= 8,
+     `${midFlight.toFixed(1)}px → ${grabbed.toFixed(1)}px`);
+  pe2('pointermove', 560, 300, 33);
+  eq('抓住后继续跟手（+60px）', Math.round(tx() - grabbed), 60);
+  pe2('pointerup', 560, 300, 33);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

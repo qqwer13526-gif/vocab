@@ -48,7 +48,6 @@ export async function renderHome() {
       color: 'var(--accent)',
       stats: all,
       badge: '全部词',
-      hint: '所有导入过的词都在这里，跟词库怎么分类无关',
       onPractice: () => {
         location.hash = '#/practice';
       },
@@ -58,43 +57,35 @@ export async function renderHome() {
     })
   );
 
-  // 自动收集（智能库）：练习时标「生疏」自动进来，标「熟记」自动移出
+  // 自动收集（智能库）：练习时标「生疏」自动进来，标「熟记」自动移出。
+  // v21 起不再写说明句（"练习时点「生疏」就会自动进来"这种），只留数字 —— 和词库行统一。
   const smartRows = [];
   for (const smart of SMART_LIBS) {
     const n = smartCount(data, smart.id);
     // 生疏词永远露个脸（哪怕是 0，也是个提示）；熟记词有货才显示
     if (n === 0 && smart.level !== 'unfamiliar') continue;
     smartRows.push(
-      el('div', { className: 'lib-row smart-row', dataset: { testid: 'smart-row', smart: smart.id } }, [
-        el('span', { className: 'lib-dot', style: { background: smart.color } }),
-        el('div', { className: 'lib-body' }, [
-          el(
-            'button',
-            {
-              className: 'lib-name',
-              type: 'button',
-              title: `专项练习「${smart.name}」`,
-              onclick: () => {
-                location.hash = `#/practice?smart=${encodeURIComponent(smart.id)}`;
-              }
-            },
-            [smart.name, el('span', { className: 'smart-tag' }, '自动')]
-          ),
-          el('div', { className: 'lib-meta', dataset: { testid: 'smart-count' } },
-            n ? `${n} 个词 · 点名字开始过一遍` : '还没有——练习时点「生疏」就会自动进来'),
-          // 有货的时候才补一句规则说明；空的时候上面那句已经把话说完了
-          n ? el('div', { className: 'lib-meta smart-hint' }, smart.hint) : null
-        ].filter(Boolean)),
-        el('button', {
-          className: 'lib-more',
-          dataset: { testid: 'btn-smart-words' },
-          type: 'button',
-          'aria-label': `看「${smart.name}」的词条`,
-          onclick: () => {
+      libRow({
+        testid: 'smart-row',
+        smart: smart.id,
+        name: smart.name,
+        color: smart.color,
+        badge: '自动',
+        metaTestid: 'smart-count',
+        meta: n ? `${n} 个词` : '还没有',
+        onPractice: () => {
+          location.hash = `#/practice?smart=${encodeURIComponent(smart.id)}`;
+        },
+        // 智能库只有一个次要动作（看词条），就直接给箭头，不套一层菜单
+        trailing: {
+          testid: 'btn-smart-words',
+          label: `看「${smart.name}」的词条`,
+          icon: 'chevronRight',
+          run: () => {
             location.hash = `#/word?smart=${encodeURIComponent(smart.id)}`;
           }
-        }, [icon('chevronRight', { size: 20 })])
-      ])
+        }
+      })
     );
   }
   if (smartRows.length) {
@@ -184,26 +175,41 @@ export async function renderHome() {
 
   // ---------------------------------------------------------------- 行内操作
 
-  /** 一行的 DOM（总词库和普通词库共用）：点名字 = 练这一组；⋯ = 菜单 */
-  function libRow({ testid, lib = null, name, color, stats, badge = '', hint = '', onPractice, menu }) {
-    const metaText = `共 ${stats.total} 词 · 待复习 ${stats.due} · 已掌握 ${stats.mastered}` +
-      (stats.unfamiliar ? ` · 生疏 ${stats.unfamiliar}` : '');
-    const ratio = (n) => (stats.total ? Number((n / stats.total).toFixed(4)) : 0);
-    const pMastered = ratio(stats.mastered);
-    const pUnfamiliar = ratio(stats.unfamiliar);
+  /** 一行的 DOM：总词库 / 词库 / 智能库共用一套（保证等高、等距、同圆角）。
+   *  点名字 = 练这一组；右侧要么是 ⋯ 菜单（多个动作），要么是一个箭头（只有一个动作）。
+   *  ◎ meta 给了就不画进度条（智能库那两行不画"掌握率"，那是没意义的数据）。 */
+  function libRow({ testid, lib = null, smart = null, name, color, stats = null, badge = '', meta = '', metaTestid = '', onPractice, menu = null, trailing = null }) {
+    const metaText = meta || (
+      `共 ${stats.total} 词 · 待复习 ${stats.due} · 已掌握 ${stats.mastered}` +
+      (stats.unfamiliar ? ` · 生疏 ${stats.unfamiliar}` : '')
+    );
+    const ratio = (n) => (stats && stats.total ? Number((n / stats.total).toFixed(4)) : 0);
+    const pMastered = ratio(stats ? stats.mastered : 0);
+    const pUnfamiliar = ratio(stats ? stats.unfamiliar : 0);
 
-    const moreBtn = el('button', {
-      className: 'lib-more',
-      dataset: { testid: 'btn-lib-more' },
-      type: 'button',
-      'aria-label': `「${name}」的更多操作`,
-      'aria-expanded': 'false',
-      onclick: () => toggleMenu(moreBtn, menu)
-    }, [icon('more', { size: 20 })]);
+    let action;
+    if (trailing) {
+      action = el('button', {
+        className: 'lib-more',
+        dataset: { testid: trailing.testid },
+        type: 'button',
+        'aria-label': trailing.label,
+        onclick: trailing.run
+      }, [icon(trailing.icon, { size: 20 })]);
+    } else {
+      action = el('button', {
+        className: 'lib-more',
+        dataset: { testid: 'btn-lib-more' },
+        type: 'button',
+        'aria-label': `「${name}」的更多操作`,
+        'aria-expanded': 'false',
+        onclick: () => toggleMenu(action, menu)
+      }, [icon('more', { size: 20 })]);
+    }
 
     return el('div', {
-      className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : ''),
-      dataset: lib ? { testid, lib } : { testid }
+      className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : '') + (smart ? ' smart-row' : ''),
+      dataset: lib ? { testid, lib } : smart ? { testid, smart } : { testid }
     }, [
       el('span', { className: 'lib-dot', style: { background: color } }),
       el('div', { className: 'lib-body' }, [
@@ -213,21 +219,22 @@ export async function renderHome() {
           title: `练「${name}」`,
           onclick: onPractice
         }, badge ? [name, el('span', { className: 'smart-tag' }, badge)] : name),
-        el('div', { className: 'lib-meta' }, metaText),
-        hint ? el('div', { className: 'lib-meta smart-hint' }, hint) : null,
-        el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
-          // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）
-          el('i', { style: { transform: `scaleX(${pMastered})`, background: color }, dataset: { testid: 'lib-progress-fill' } }),
-          pUnfamiliar
-            ? el('i', {
-                className: 'seg-unfamiliar',
-                style: { transform: `translateX(${pMastered * 100}%) scaleX(${pUnfamiliar})` },
-                dataset: { testid: 'lib-progress-unfamiliar' }
-              })
-            : null
-        ].filter(Boolean))
+        el('div', { className: 'lib-meta', dataset: metaTestid ? { testid: metaTestid } : {} }, metaText),
+        stats
+          ? el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
+              // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）
+              el('i', { style: { transform: `scaleX(${pMastered})`, background: color }, dataset: { testid: 'lib-progress-fill' } }),
+              pUnfamiliar
+                ? el('i', {
+                    className: 'seg-unfamiliar',
+                    style: { transform: `translateX(${pMastered * 100}%) scaleX(${pUnfamiliar})` },
+                    dataset: { testid: 'lib-progress-unfamiliar' }
+                  })
+                : null
+            ].filter(Boolean))
+          : null
       ].filter(Boolean)),
-      moreBtn
+      action
     ]);
   }
 

@@ -42,14 +42,16 @@ try {
   const vh = doc.documentElement.clientHeight;
   // 固定定位元素的参照宽度：html 的 rect 宽度（不含滚动条槽位，桌面上滚动条会占 15px）
   const refW = doc.documentElement.getBoundingClientRect().width;
-  ok('胶囊高度 ≈ 52px（视频量到 53pt）', Math.abs(box.height - 52) <= 2, `${box.height.toFixed(1)}px`);
-  ok('左右各留 ≈ 28px（视频里是 30pt，比以前 12px 收窄了一圈）',
-     Math.abs(box.left - 28) <= 2 && Math.abs(refW - box.right - 28) <= 2,
-     `left=${box.left.toFixed(1)} right=${(refW - box.right).toFixed(1)}（参照宽 ${refW.toFixed(0)}px）`);
   const ratio = box.width / refW;
-  ok('胶囊占宽 ≈ 85%（视频 85%，改前 94%）', ratio > 0.82 && ratio < 0.89, `${(ratio * 100).toFixed(0)}%`);
+  ok('胶囊高度 ≈ 60px（视频量到 61pt）', Math.abs(box.height - 60) <= 2, `${box.height.toFixed(1)}px`);
+  ok('胶囊占宽 ≈ 70%（视频 68~71%；v20 是 86%）', ratio > 0.66 && ratio < 0.74, `${(ratio * 100).toFixed(0)}%`);
+  ok('左右留白 ≈ 参照宽的 15%（视频 ≈58pt）',
+     Math.abs(box.left - refW * 0.15) <= 2 && Math.abs(refW - box.right - refW * 0.15) <= 2,
+     `left=${box.left.toFixed(1)} right=${(refW - box.right).toFixed(1)}（参照宽 ${refW.toFixed(0)}px）`);
   const cell = tabs[0].getBoundingClientRect();
   ok('每格点按区域 ≥44px 高（无障碍下限）', cell.height >= 44, `${cell.height.toFixed(1)}px`);
+  ok('胶囊贴着底部（无安全区时退回 12px，有安全区时比安全区还低 13px）',
+     Math.abs(vh - box.bottom - 12) <= 2, `距底 ${(vh - box.bottom).toFixed(1)}px`);
   ok('胶囊底部离屏幕下沿有距离', box.bottom < vh, `bottom=${Math.round(box.bottom)} vh=${vh}`);
   ok('胶囊是药丸形（圆角 ≥ 高度一半）',
      parseFloat(win.getComputedStyle(bar).borderTopLeftRadius) >= box.height / 2 - 1,

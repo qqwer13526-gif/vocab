@@ -12,13 +12,15 @@
 
 :root {
   --font-headword: 'Instrument Serif', Georgia, 'Times New Roman', serif;
-  --bg: #ffffff;
+  /* 页面底是灰的、卡片是白的（iOS 惯例）。以前是反的（白底灰卡），
+     导致半透明的悬浮胶囊和页面底一个颜色、只能靠阴影辨认 —— 换过来它才"比页面亮"。 */
+  --bg: #f2f2f7;
   --fg: #111111;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --card: #f7f7f8;
+  --muted: #666c76;       /* 灰底上 4.74 / 白卡上 5.29（原 #6b7280 在灰底只有 4.33，会掉出 AA） */
+  --line: #d8dade;        /* 白卡与灰底上都看得见的描边 */
+  --card: #ffffff;
   --accent: #3b5bff;      /* 当底色用（主按钮、更新横幅），白字压它 5.09 */
-  --accent-text: #3b5bff; /* 当文字用（链接、选中 chip），卡片上 4.75 */
+  --accent-text: #3552e8; /* 当文字用（链接、选中 chip）：灰底 5.34 / 白卡 5.96 */
   --ok: #0a7838;
   --warn: #935800;
   --bad: #c0392b;
@@ -178,7 +180,7 @@ body {
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   padding: var(--sp);
   box-shadow: var(--shadow-1);
 }
@@ -190,13 +192,15 @@ body {
    左右各留 28（= 24 + 4）、整体高 52、三格等宽（每格 44 高，正好卡住无障碍的 44pt 下限）。 */
 #tabbar {
   position: fixed;
-  left: calc(var(--sp-5) + var(--sp-1));
-  right: calc(var(--sp-5) + var(--sp-1));
-  bottom: calc(var(--sp-3) + var(--safe-b));
+  /* 尺寸全部来自参考视频的逐帧测量：宽占屏 70%、高 60、下沿比安全区还低 13pt（贴着 Home Indicator） */
+  left: 15%;
+  right: 15%;
+  bottom: max(var(--sp-3), calc(var(--safe-b) - 13px));
   display: flex;
-  padding: var(--sp-1);
+  padding: 6px;
   border-radius: var(--r-full);
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  /* 材质用"卡片色"而不是"页面底色"：视频里胶囊比页面亮（250 vs 242） */
+  background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   /* 第二层是玻璃上沿那道细亮边（视频里能看到），不是普通投影 */
   box-shadow: var(--shadow-2), inset 0 1px 0 rgb(255 255 255 / 45%);
@@ -210,12 +214,13 @@ body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; po
    170ms + 轻微过冲（--ease-spring-soft），对应视频里量到的"167ms、冲过一点再回落"。 */
 #tabbar .nav-pill {
   position: absolute;
-  top: var(--sp-1);
-  bottom: var(--sp-1);
-  left: var(--sp-1);
-  width: calc((100% - var(--sp-1) * 2) / var(--nav-count, 3));
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / var(--nav-count, 3));
   border-radius: var(--r-full);
-  background: var(--card);
+  /* 比胶囊再暗一点点（视频里选中药丸 244、胶囊 251） */
+  background: color-mix(in srgb, var(--fg) 4%, var(--card));
   transform: translateX(calc(var(--nav-i, 0) * 100%));
   transition: transform var(--dur-ui) var(--ease-nav);
   pointer-events: none;
@@ -227,12 +232,13 @@ body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; po
   display: grid;
   justify-items: center;
   gap: 2px;
-  min-height: 44px;
-  padding: var(--sp-1);
+  min-height: 48px;
+  padding: var(--sp-1);   /* 上下 4：内容 39.2 + 8 = 47.2，格子取 min-height 48 → 胶囊正好 60 */
+
   border-radius: var(--r-full);
   color: var(--muted);
   text-decoration: none;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.1;
   /* 颜色也是交叉淡入：旧的先褪、新的再亮，不跟位移硬切在一起 */
   transition: color var(--fade-ui) ease;
@@ -285,13 +291,13 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 .settings-list { display: grid; gap: 4px; font-size: 15px; }
 .settings-notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
 .settings-notes li { margin-bottom: 8px; }
-.settings-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.settings-plan { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); }
 .settings-plan-title { font-size: 15px; font-weight: 600; }
 
 /* 智能库（生疏/熟记）合成的一张卡：整卡虚线框，行与行之间淡淡的虚线分隔 */
 .smart-strip { padding: 12px; }
 .strip-head { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 4px; }
-.smart-strip .lib-row { padding: 8px 0; }
+.smart-strip .lib-row { padding: var(--sp-2) 0; }
 .smart-strip .lib-row + .lib-row { border-top: 1px dashed var(--line); }
 .smart-row { border: 0; }
 .smart-tag {
@@ -341,7 +347,14 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 }
 
 .libs { display: grid; gap: 12px; }
-.lib-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; }
+.lib-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--row-min, 72px);   /* 所有行等高：总词库 / 词库 / 自动收集里的行 */
+  padding: var(--sp-3) var(--sp-4);
+}
 .lib-dot { width: 10px; height: 10px; border-radius: 50%; }
 .lib-body { min-width: 0; }
 .lib-name {
@@ -389,9 +402,9 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  min-height: 52px;
+  min-height: 56px;
   border: 1px dashed var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   background: none;
   color: var(--muted);
   font: inherit;
@@ -721,7 +734,7 @@ body[data-view='practice'] #tabbar { display: none; }
   margin-top: calc(-1 * var(--sp-2));
   padding: var(--sp-1);
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   background: var(--bg);
   box-shadow: var(--shadow-1);
 }
@@ -852,6 +865,7 @@ body[data-view='practice'] #tabbar { display: none; }
   .link-btn { text-decoration: underline; }
   .chip, .ghost, .settings-plan { box-shadow: inset 0 0 0 1px var(--muted); }
   .card, .lib-row { border-color: var(--muted); }
+  .nav-pill { background: var(--card); box-shadow: inset 0 0 0 1px var(--muted); }
   #tabbar { background: var(--bg); backdrop-filter: none; box-shadow: inset 0 0 0 1px var(--muted); }
   :focus-visible { outline-width: 3px; }
 }

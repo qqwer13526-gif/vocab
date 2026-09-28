@@ -101,6 +101,25 @@ try {
 
   ok('智能库合成一张「自动收集」卡', !!doc.querySelector('[data-testid="smart-strip"]'), '找不到 smart-strip');
   ok('智能库的行都在那张卡里', doc.querySelectorAll('[data-testid="smart-strip"] [data-testid="smart-row"]').length >= 1);
+
+  // ---------------- 2b. v21：去掉说明句 + 所有行等高 + 圆角加大 ----------------
+  const homeText = doc.querySelector('#view-home').textContent;
+  for (const phrase of ['所有导入过的词都在这里', '点名字开始过一遍', '练习时点「生疏」', '练习时点「熟记」']) {
+    ok(`首页不再有说明句「${phrase}」`, !homeText.includes(phrase), '还找得到这句');
+  }
+  // 「统一词库大小」= 词库类卡片彼此等高（总词库 vs 各词库），组内的行也彼此等高。
+  // 自动收集是另一种卡（组头 + 两行），行内没有进度条，所以比词库行矮一档 —— 这是有意的。
+  const libRowHs = [doc.querySelector('[data-testid="all-lib-row"]'), rowOf(frame, ids.libA), rowOf(frame, ids.libB)]
+    .map((n) => n.getBoundingClientRect().height);
+  ok('总词库与各词库行等高', Math.max(...libRowHs) - Math.min(...libRowHs) <= 1,
+     libRowHs.map((h) => h.toFixed(1)).join(' / '));
+  const smartHs = [...doc.querySelectorAll('[data-testid="smart-row"]')].map((n) => n.getBoundingClientRect().height);
+  ok('自动收集卡里的两行彼此等高（且比词库行矮）', smartHs.length >= 1 && Math.max(...smartHs) - Math.min(...smartHs) <= 1 && smartHs[0] < libRowHs[0],
+     `smart=${smartHs.map((h) => h.toFixed(1)).join('/')} lib=${libRowHs[0].toFixed(1)}`);
+  const radius = parseFloat(frame.contentWindow.getComputedStyle(rowOf(frame, ids.libA)).borderTopLeftRadius);
+  ok('卡片圆角 ≥16px（v21 从 12 加大）', radius >= 16, `${radius}px`);
+  ok('智能库行的计数还在（只是不再写说明）', /\d+ 个词|还没有/.test(txt(doc.querySelector('[data-testid="smart-count"]'))),
+     txt(doc.querySelector('[data-testid="smart-count"]')));
   ok('固定入口排在词库列表前面', doc.querySelector('.pinned').compareDocumentPosition(doc.querySelector('.libs')) & Node.DOCUMENT_POSITION_FOLLOWING);
 
   // 图标是内联 SVG，不是字体里的 ‹ › ✕（字形跨系统不齐、字号一变就乱）

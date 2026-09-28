@@ -280,7 +280,7 @@ function boot() {
   // 底部导航的图标只写在 icons.js 一处，这里按 data-nav 注入（HTML 里保持纯文字）
   const TAB_ICONS = { home: 'layers', import: 'upload', settings: 'settings' };
   for (const a of document.querySelectorAll('#tabbar a')) {
-    a.prepend(icon(TAB_ICONS[a.dataset.nav], { size: 22 }));
+    a.prepend(icon(TAB_ICONS[a.dataset.nav], { size: 24 }));
   }
   // 先把界面渲染出来：service worker 是后台的事，注册失败/挂起都不能挡着用
   route();
