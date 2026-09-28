@@ -208,6 +208,8 @@
 - 校验内联、提交按钮保持可用直到请求开始（第二阶段同步时）
 
 **动效规矩（按 Emil Kowalski 的动画标准，由 `review-animations` 审）**
+- 字体：**英文词头**用本地打包的 Instrument Serif（衬线，SIL OFL，`fonts/`，离线可用）；
+  中文界面/按钮/释义一律系统无衬线；中→英方向不用衬线（中文衬线跨系统差异大）
 - 只动 `transform` / `opacity`（GPU）；绝不动 `width`/`height`/`top`/`left`
 - 时长走令牌：`--dur-tap` 110ms（高频微反馈）/ `--dur-ui` 170ms（常规）/ `--dur-big` 240ms（罕见）
 - 进场用强 ease-out（`--ease-out-quint`），**不用** `ease-in`；不用 `scale(0)`，从 `scale(0.97)`+透明度起
