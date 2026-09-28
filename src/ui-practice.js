@@ -250,6 +250,8 @@ export async function renderPractice(params = {}) {
       hint.textContent = [s.curDir === 'en2zh' ? w.phonetic : '', w.pos].filter(Boolean).join(' · ');
       answerLine.textContent = '';
     }
+    // 提示里是英文词的时候用词头字体（字典式衬线）；中文释义保持系统无衬线
+    prompt.classList.toggle('is-word', s.review || s.curDir === 'en2zh');
     input.value = '';
     input.placeholder = s.curDir === 'en2zh' ? '写出中文意思' : '写出英文单词';
     input.disabled = false;

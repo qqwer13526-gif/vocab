@@ -205,7 +205,7 @@ async function renderEditor(view, params, data) {
   const links = (await byIndex('links', 'by_word', w.id)).filter((l) => !l.deleted);
   const myLibs = new Set(links.map((l) => l.libId));
 
-  const term = el('h2', { className: 'page-title', dataset: { testid: 'word-term' } }, w.term);
+  const term = el('h2', { className: 'page-title is-word', dataset: { testid: 'word-term' } }, w.term);
   const phonetic = el('input', { className: 'field', dataset: { testid: 'word-phonetic' }, type: 'text', value: w.phonetic || '', placeholder: '音标', 'aria-label': '音标' });
   const pos = el('input', { className: 'field', dataset: { testid: 'word-pos' }, type: 'text', value: w.pos || '', placeholder: '词性，例如 v.', 'aria-label': '词性' });
   const meanings = el('textarea', { className: 'field', dataset: { testid: 'word-meanings' }, rows: '3', 'aria-label': '释义（一行一条）' });

@@ -1,6 +1,17 @@
 /* 背单词 App 样式（任务 1 只放外壳；完整设计令牌与无障碍收口在任务 10） */
 
+/* 词头字体：模仿纸质词典 —— 英文词头用衬线体，中文界面/按钮/释义一律系统无衬线
+ * （本地打包的 OFL 字体，不走 CDN；许可证见 fonts/OFL.txt） */
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('fonts/InstrumentSerif-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
+  --font-headword: 'Instrument Serif', Georgia, 'Times New Roman', serif;
   --bg: #ffffff;
   --fg: #111111;
   --muted: #6b7280;
@@ -289,6 +300,16 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .prac-card { display: grid; gap: 14px; padding: 20px 18px; }
 .prac-prompt { font-size: clamp(26px, 7.5vw, 42px); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+/* 英文词头：换成字典式衬线体（衬线在小字重下光学显小，所以字号和行距略调大一点） */
+.prac-prompt.is-word {
+  font-family: var(--font-headword);
+  font-weight: 400;
+  font-size: clamp(30px, 8.5vw, 46px);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+/* 词条编辑页的标题也是词头 */
+.word-head .page-title.is-word { font-family: var(--font-headword); font-weight: 400; }
 .prac-hint { color: var(--muted); font-size: 14px; font-family: var(--ipa-font); }
 
 .prac-input {

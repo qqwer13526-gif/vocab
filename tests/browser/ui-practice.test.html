@@ -327,6 +327,21 @@ try {
   const mastered = await prog('w-book');
   eq('爬到盒 6 → 自动移出生疏库（改记成熟记）', [mastered.level, mastered.levelFrom], ['known', 'mastered']);
   ok('反馈里说了一声"移出生疏词库"', t(frame, '[data-testid="feedback"]').includes('移出生疏词库'), t(frame, '[data-testid="feedback"]'));
+
+  // ---------------- 16. 词头字体（本地打包的衬线体，离线也有）----------------
+  await db.wipeAll();
+  const lib9 = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib9}&mode=quiz`, sel: '[data-testid="practice-prompt"]' });
+  const win = frame.contentWindow;
+  await win.document.fonts.ready;
+  ok('词头字体真的加载了（不是被系统字体兜底）', win.document.fonts.check('40px "Instrument Serif"'), 'document.fonts.check 返回 false');
+  const promptFont = win.getComputedStyle(q(frame, '[data-testid="practice-prompt"]')).fontFamily;
+  ok('英文词头用上了这个字体', promptFont.includes('Instrument Serif'), promptFont);
+  eq('英文词头带 is-word 类', q(frame, '[data-testid="practice-prompt"]').classList.contains('is-word'), true);
+
+  frame.contentWindow.location.hash = `#/practice?lib=${lib9}&mode=quiz&dir=zh2en`;
+  await waitFor(() => q(frame, '[data-testid="practice-prompt"]')?.classList.contains('is-word') === false, { label: '切到中→英' });
+  ok('中文释义方向不用衬线（避免中文衬线在不同系统上不一致）', true);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
