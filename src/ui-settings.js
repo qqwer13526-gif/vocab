@@ -9,6 +9,8 @@
 
 import { $, el, checkForUpdate, updateState, applyUpdate } from './app.js';
 import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo } from './backup.js';
+import { confirmThen } from './confirm.js';
+import { showToast } from './toast.js';
 import { APP_VERSION } from './version.js';
 
 export async function renderSettings() {
@@ -133,7 +135,12 @@ export async function renderSettings() {
         el('div', { className: 'row-2' }, [
           el('button', { className: 'ghost', type: 'button', dataset: { testid: 'btn-restore-cancel' }, onclick: () => { plan.hidden = true; pending = null; } }, '取消'),
           el('button', { className: 'ghost', type: 'button', dataset: { testid: 'btn-restore-merge' }, onclick: () => doRestore('merge') }, '合并进来'),
-          el('button', { className: 'primary', type: 'button', dataset: { testid: 'btn-restore-replace' }, onclick: () => doRestore('replace') }, '覆盖本机')
+          (() => {
+            // 「覆盖」会清掉本机数据 → 点一下只武装，再点一下才执行
+            const btn = el('button', { className: 'primary', type: 'button', dataset: { testid: 'btn-restore-replace' } }, '覆盖本机');
+            confirmThen(btn, () => doRestore('replace'), { label: '确认覆盖？' });
+            return btn;
+          })()
         ]),
         el('div', { className: 'settings-note' }, '「合并」把备份里较新的那份并进来（推荐换手机时用）；「覆盖」会清掉本机现有数据再导入。')
       );
@@ -151,8 +158,12 @@ export async function renderSettings() {
       const res = await importFromText(pending, { mode });
       pending = null;
       plan.hidden = true;
-      say(`恢复完成（${mode === 'replace' ? '覆盖' : '合并'}）：词条 ${res.counts.words} · 词库 ${res.counts.libs} · 归属 ${res.counts.links} · 学习记录 ${res.counts.prog}`);
-      setTimeout(() => renderSettings(), 1200);
+      // 恢复完界面会重渲染，就地提示留不住 → 用提示条
+      showToast(
+        `恢复完成（${mode === 'replace' ? '覆盖' : '合并'}）：词条 ${res.counts.words} · 词库 ${res.counts.libs} · 学习记录 ${res.counts.prog}`,
+        { kind: 'ok', timeout: 4000 }
+      );
+      await renderSettings();
     } catch (err) {
       say('恢复失败：' + (err && err.message ? err.message : err), 'bad');
     }

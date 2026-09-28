@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>移动端基线 · 审计</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 移动端"这就是网页"的信号审计（见 mobile-native skill）：
+ * 点按灰闪 / 长按选中按钮文字 / 橡皮筋 / 状态栏配色 / 键盘遮挡 / 聚焦滚动。
+ * 跑法：python tool/browser_test.py tests/browser/mobile.test.html
+ * 注意：真机专属行为（灰闪、橡皮筋、键盘高度）没法在这里复现 —— 那部分只能靠手机确认。
+ */
+import { holdLoad, ok, openApp, report, wait } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const css = (win, node, prop) => win.getComputedStyle(node).getPropertyValue(prop);
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-a';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  let i = 0;
+  for (const [term, meanings] of [['absorb', ['吸收']], ['apply', ['申请', '应用']]]) {
+    const id = `w-${term}`;
+    await db.put('words', { id, term, termNorm: term, phonetic: '/test/', pos: 'v.', meanings, example: '', note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  }
+  return lib;
+}
+
+try {
+  db = await import('../../src/db.js');
+
+  // ---------------- 1. head 里的移动端 meta ----------------
+  const shell = await (await fetch('../../index.html')).text();
+  const vp = (shell.match(/<meta name="viewport" content="([^"]+)"/) || [])[1] || '';
+  ok('viewport 有 viewport-fit=cover（不然安全区是 0）', vp.includes('viewport-fit=cover'), vp);
+  ok('viewport 有 interactive-widget=resizes-content（安卓键盘会缩视口）', vp.includes('interactive-widget=resizes-content'), vp);
+  ok('viewport 没有禁止缩放', !/maximum-scale|user-scalable\s*=\s*no/.test(vp), vp);
+  const themes = [...shell.matchAll(/<meta name="theme-color"([^>]*)>/g)].map((m) => m[1]);
+  ok('状态栏颜色分了深浅两套', themes.length === 2 && themes.some((t) => t.includes('light')) && themes.some((t) => t.includes('dark')), JSON.stringify(themes));
+  ok('声明了 color-scheme', /<meta name="color-scheme" content="light dark"/.test(shell));
+
+  // ---------------- 2. html 层的移动端基线 ----------------
+  const lib = await seed();
+  let frame = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+  eqs('html 关掉了点按灰闪', css(win, doc.documentElement, '-webkit-tap-highlight-color'), 'rgba(0, 0, 0, 0)');
+  eqs('html 关掉了整页橡皮筋/下拉刷新抢滚动', css(win, doc.documentElement, 'overscroll-behavior'), 'none');
+  eqs('html 声明了文字不被系统放大', css(win, doc.documentElement, '-webkit-text-size-adjust'), '100%');
+
+  // ---------------- 3. 控件 vs 内容的可选择性 ----------------
+  const btn = q(frame, '[data-testid="btn-import"]');
+  eqs('按钮文字不能被长按选中', css(win, btn, 'user-select'), 'none');
+  eqs('按钮不参与双击缩放（没有点按延迟）', css(win, btn, 'touch-action'), 'manipulation');
+
+  frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
+  const mean = frame.contentDocument.querySelector('.word-mean');
+  ok('释义这类正文仍然可以选中复制', css(frame.contentWindow, mean, 'user-select') === 'text', css(frame.contentWindow, mean, 'user-select'));
+
+  // ---------------- 4. 键盘高度变量 ----------------
+  frame = await openApp({ hash: `#/practice?lib=${lib}`, sel: '[data-testid="practice-input"]' });
+  const kb = frame.contentDocument.documentElement.style.getPropertyValue('--kb-inset');
+  ok('--kb-inset 被写进了根元素（键盘高度）', /^\d+px$/.test(kb), `--kb-inset=${kb}`);
+  eqs('没有键盘时状态是 closed', frame.contentDocument.body.dataset.keyboard, 'closed');
+
+  const inset = await frame.contentWindow.eval('0');
+  ok('viewport 模块在无键盘环境下算出来是 0', kb === '0px', kb);
+
+  // ---------------- 5. 聚焦后把输入框滚进可视区 ----------------
+  let scrolled = 0;
+  const input = q(frame, '[data-testid="practice-input"]');
+  const before = scrolled;
+  input.scrollIntoView = () => { scrolled++; };
+  input.dispatchEvent(new FocusEvent('focus'));
+  await wait(400); // keepFocusVisible 会等键盘动画（260ms）再滚
+  ok('聚焦后调用了 scrollIntoView（键盘不会盖住输入框）', scrolled - before >= 1, `调用了 ${scrolled - before} 次`);
+
+  // ---------------- 6. 键盘弹出时底部导航收起（在首页查，练习页本来就没底部导航）----------------
+  const home = await openApp({ hash: '#/', sel: '#tabbar' });
+  home.contentDocument.body.dataset.keyboard = 'open';
+  await wait(120);
+  const tab = q(home, '#tabbar');
+  const shifted = css(home.contentWindow, tab, 'transform') !== 'none';
+  ok('键盘弹出时底部导航被收起（有位移）', shifted, css(home.contentWindow, tab, 'transform'));
+  home.contentDocument.body.dataset.keyboard = 'closed';
+  await wait(220);
+  ok('键盘收起后底部导航归位', css(home.contentWindow, tab, 'transform') === 'none' || css(home.contentWindow, tab, 'transform') === 'matrix(1, 0, 0, 1, 0, 0)', css(home.contentWindow, tab, 'transform'));
+} catch (e) {
+  ok('移动端审计脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+function eqs(name, actual, expected) {
+  ok(name, String(actual) === String(expected), `期望 ${expected}，实际 ${actual}`);
+}
+
+report();
+release();
+</script>
+</body>
+</html>

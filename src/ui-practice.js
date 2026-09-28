@@ -14,6 +14,7 @@ import { judgeEn2Zh, judgeZh2En } from './judge.js';
 import { buildQueue, grade, markLevel, newProg } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { loadAll } from './store.js';
+import { keepFocusVisible } from './viewport.js';
 
 const DIRS = [
   { key: 'en2zh', label: '英→中' },
@@ -561,8 +562,8 @@ export async function renderPractice(params = {}) {
   }
 
   // 键盘：回车判定/下一题，Esc 退出
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+  keepFocusVisible(input); // 手机上聚焦后，等键盘动画结束把输入框滚进可视区
+  input.addEventListener('keydown', (e) => {    if (e.key === 'Enter') {
       e.preventDefault();
       onEnter();
     } else if (e.key === 'Escape') {

@@ -9,10 +9,10 @@
 
 import { renderHome } from './ui-home.js';
 import { renderPractice } from './ui-practice.js';
-import { renderImport } from './ui-import.js';
-import { renderWord } from './ui-word.js';
+import { renderImport } from './ui-import.js';import { renderWord } from './ui-word.js';
 import { renderSettings } from './ui-settings.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
+import { setupViewport } from './viewport.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -264,6 +264,7 @@ function boot() {
   route();
   wireUpdateButton();
   setupServiceWorker();
+  setupViewport(); // 键盘高度写进 CSS 变量，输入框不会被键盘盖住
 }
 
 addEventListener('hashchange', route);

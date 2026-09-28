@@ -11,7 +11,7 @@
 /* 词条界面（任务 9）：列表、搜索、编辑、换库、重置进度、删除。
    跑法：python tool/browser_test.py tests/browser/ui-word.test.html
 */
-import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, report, type, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
 const NOW = Date.now();
@@ -114,25 +114,60 @@ try {
   click(q(frame, '[data-testid="btn-save"]'));
   await waitFor(async () => (await db.byIndex('links', 'by_word', 'w-absorb')).some((l) => l.libId === libA && !l.deleted), { label: '换回原库' });
 
-  // ---------------- 6. 重置进度 ----------------
+  // ---------------- 6. 重置进度（要二次确认）----------------
   frame.contentWindow.location.hash = '#/word?id=w-access&lib=' + libA;
   await waitFor(() => q(frame, '[data-testid="word-edit"]') && t(frame, '[data-testid="word-term"]') === 'access', { label: '打开 access' });
+  click(q(frame, '[data-testid="btn-reset-progress"]'));
+  await wait(120);
+  ok('重置进度第一次点只武装（不执行）', (await db.get('prog', 'w-access')).box !== 1, `box=${(await db.get('prog', 'w-access')).box}`);
+  ok('按钮文字变成确认', t(frame, '[data-testid="btn-reset-progress"]').includes('确认'), t(frame, '[data-testid="btn-reset-progress"]'));
   click(q(frame, '[data-testid="btn-reset-progress"]'));
   await waitFor(async () => (await db.get('prog', 'w-access')).box === 1, { label: '进度被重置' });
   const p = await db.get('prog', 'w-access');
   eq('重置后回到盒子 1、连对清零', [p.box, p.streak, p.lapses], [1, 0, 0]);
   ok('重置后马上可以再练', p.dueAt <= Date.now() + 1000, String(p.dueAt - Date.now()));
 
-  // ---------------- 7. 删除 ----------------
+  // ---------------- 7. 删除（要二次确认）----------------
+  click(q(frame, '[data-testid="btn-delete"]'));
+  await wait(120);
+  ok('删除第一次点只武装（数据还在）', (await db.get('words', 'w-access')).deleted !== true, '一次点击就删了');
+  eq('武装状态标在按钮上', q(frame, '[data-testid="btn-delete"]').dataset.armed, '1');
   click(q(frame, '[data-testid="btn-delete"]'));
   await waitFor(async () => (await db.get('words', 'w-access')).deleted === true, { label: '软删除写库' });
   ok('删除是软删除（记录还在）', !!(await db.get('words', 'w-access')));
+
+  // 删除后界面跳走了，就地提示看不见 → 必须有一条提示条
+  const toast = frame.contentDocument.querySelector('[data-testid="toast"]');
+  ok('删除后有提示条说了一声', !!toast && toast.textContent.includes('已删除'), toast ? toast.textContent : '没有提示条');
+  ok('提示条是"成功"样式', toast && toast.dataset.kind === 'ok', toast ? toast.dataset.kind : '');
   await waitFor(() => frame.contentWindow.location.hash.startsWith('#/word') && !q(frame, '[data-testid="word-edit"]'), { label: '回到列表' });
   const after = qa(frame, '[data-testid="word-row"]');
   eq('列表里少了一个词', after.length, 3);
   ok('删掉的词不在列表里', !after.some((r) => r.dataset.id === 'w-access'));
 
-  // ---------------- 8. 熟记 / 生疏：徽章与筛选 ----------------
+  // ---------------- 8. 二次确认组件本身（超时 / 点别处 / 连点两次）----------------
+  const cf = await import('../../src/confirm.js');
+  const probe = document.createElement('button');
+  probe.textContent = '删';
+  document.body.append(probe);
+  let fired = 0;
+  cf.confirmThen(probe, () => fired++, { label: '确认？', timeout: 120 });
+  probe.click();
+  eq('武装后文字变了', probe.textContent, '确认？');
+  await wait(200);
+  eq('超时后自动解除（不会一直挂着）', probe.textContent, '删');
+  probe.click();
+  await wait(20);
+  document.body.click();
+  await wait(20);
+  eq('点别处解除', probe.textContent, '删');
+  probe.click();
+  await wait(20);
+  probe.click();
+  eq('连点两次才真的执行', fired, 1);
+  probe.remove();
+
+  // ---------------- 9. 熟记 / 生疏：徽章与筛选 ----------------
   await db.wipeAll();
   const libX = 'lib-lvl';
   await db.put('libs', { id: libX, name: '分级测试', color: '#34c759', order: 0, updatedAt: NOW });
@@ -185,6 +220,39 @@ try {
   click(qa(frame, '[data-testid="level-filter"] .chip').find((c) => c.dataset.level === 'all'));
   await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '回到全部' });
   eq('点"全部"恢复 4 个', qa(frame, '[data-testid="word-row"]').length, 4);
+
+  // ---------------- 10. 长列表分批渲染（几百个词也不卡）----------------
+  await db.wipeAll();
+  const libBig = 'lib-big';
+  await db.put('libs', { id: libBig, name: '大词库', color: '#3b5bff', order: 0, updatedAt: NOW });
+  const bigRows = [];
+  for (let i = 0; i < 134; i++) {
+    bigRows.push({
+      id: `w-big-${String(i).padStart(3, '0')}`,
+      term: `word${String(i).padStart(3, '0')}`,
+      termNorm: `word${i}`,
+      phonetic: '', pos: '', meanings: [`意思${i}`], example: '', note: '',
+      createdAt: NOW + i, updatedAt: NOW
+    });
+  }
+  await db.putMany('words', bigRows);
+  await db.putMany('links', bigRows.map((r) => ({ id: `${r.id}|${libBig}`, wordId: r.id, libId: libBig, addedAt: NOW, updatedAt: NOW })));
+
+  frame = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="word-row"]' });
+  eq('一次只渲染 60 行（不是一次建 134 个节点）', qa(frame, '[data-testid="word-row"]').length, 60);
+  ok('底部给出"继续加载"', !!q(frame, '[data-testid="btn-list-more"]'));
+  ok('提示还剩多少个', t(frame, '[data-testid="btn-list-more"]').includes('还有 74 个'), t(frame, '[data-testid="btn-list-more"]'));
+
+  click(q(frame, '[data-testid="btn-list-more"]'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 120, { label: '再加载 60 行' });
+  click(q(frame, '[data-testid="btn-list-more"]'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 134, { label: '加载完' });
+  ok('加载完后"继续加载"自己消失', !q(frame, '[data-testid="btn-list-more"]'));
+
+  type(q(frame, '[data-testid="word-search"]'), 'word12');
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length > 0 && qa(frame, '[data-testid="word-row"]').length < 60, { label: '搜索结果' });
+  const hits = qa(frame, '[data-testid="word-row"]').length;
+  ok('搜索是在全部 134 个里搜（不只是已渲染的那些）', hits >= 10 && hits < 60, String(hits));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

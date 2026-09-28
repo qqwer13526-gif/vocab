@@ -34,6 +34,7 @@ STEPS: list[tuple[str, list[str], str]] = [
     ("⑫ 补音标（下载→匹配→写库）", [PY, "tool/browser_test.py", "tests/browser/phonetic.test.html"], "ui"),
     ("⑬ 设置页：版本/检查更新/数据状态/备份恢复", [PY, "tool/browser_test.py", "tests/browser/settings.test.html"], "ui"),
     ("⑭ 智能库：生疏词自动成库 + 专项练习", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
+    ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[int] | None]] = [

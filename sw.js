@@ -11,7 +11,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v14';
+const VERSION = 'v15';
 const CACHE = `vocab-${VERSION}`;
 
 const ASSETS = [
@@ -25,6 +25,9 @@ const ASSETS = [
   './fonts/InstrumentSerif-Regular.ttf',
   './src/app.js',
   './src/version.js',
+  './src/viewport.js',
+  './src/confirm.js',
+  './src/toast.js',
   './src/db.js',
   './src/store.js',
   './src/smart.js',

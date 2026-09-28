@@ -12,7 +12,7 @@
  * 这一页是"数据不会再莫名丢掉"的保险，所以测得细一点。
  * 跑法：python tool/browser_test.py tests/browser/settings.test.html
  */
-import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, report, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
 const NOW = Date.now();
@@ -113,11 +113,28 @@ try {
   // 合并也要能改动数据：先加一个本机独有的词，再合并
   await db.put('words', { id: 'w-local', term: 'local', termNorm: 'local', phonetic: '', pos: '', meanings: ['本机独有'], example: '', note: '', createdAt: NOW + 9, updatedAt: NOW + 9 });
   click(q(frame, '[data-testid="btn-restore-merge"]'));
-  await waitFor(() => t(frame, '[data-testid="settings-status"]').includes('恢复完成'), { label: '合并恢复完成' });
+  // 恢复后界面会重渲染，就地文字留不住 → 结果用提示条说（这也是它存在的理由）
+  await waitFor(() => {
+    const el = q(frame, '[data-testid="toast"]');
+    return el && el.textContent.includes('恢复完成');
+  }, { label: '合并恢复完成' });
   const words = await db.all('words');
   eq('合并后本机独有的词还在', words.some((w) => w.id === 'w-local'), true);
   eq('合并后备份里的词也在', words.some((w) => w.id === 'w-absorb'), true);
-  ok('合并恢复给出汇总', t(frame, '[data-testid="settings-status"]').includes('学习记录'), t(frame, '[data-testid="settings-status"]'));
+  const restoreToast = t(frame, '[data-testid="toast"]');
+  ok('恢复结果里带汇总（词条/词库/学习记录）', restoreToast.includes('学习记录'), restoreToast);
+
+  // 覆盖是危险操作：第一次点只武装
+  frame = await openApp({ hash: '#/settings', sel: '[data-testid="btn-pick-backup"]' });
+  const input2 = q(frame, '[data-testid="import-backup"]');
+  const dt3 = new DataTransfer();
+  dt3.items.add(new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' }));
+  input2.files = dt3.files;
+  input2.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitFor(() => !q(frame, '[data-testid="backup-plan"]').hidden, { label: '恢复确认出现' });
+  click(q(frame, '[data-testid="btn-restore-replace"]'));
+  await wait(120);
+  ok('覆盖本机需要二次确认（第一次只武装）', t(frame, '[data-testid="btn-restore-replace"]').includes('确认'), t(frame, '[data-testid="btn-restore-replace"]'));
 
   // ---------------- 7. 选错文件要说清楚 ----------------
   frame = await openApp({ hash: '#/settings', sel: '[data-testid="btn-pick-backup"]' });

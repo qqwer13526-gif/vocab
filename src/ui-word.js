@@ -5,12 +5,14 @@
  */
 
 import { $, el } from './app.js';
+import { confirmThen } from './confirm.js';
 import { all, byIndex, put, softDelete } from './db.js';
 import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
+import { showToast } from './toast.js';
 
 export async function renderWord(params = {}) {
   const view = $('#view-word');
@@ -57,6 +59,17 @@ async function renderList(view, params, data) {
     : params.level === 'known' || params.level === 'unfamiliar' || params.level === 'none'
       ? params.level
       : 'all';
+
+  // 分批渲染用：一次 60 行，滚到底自动续
+  const PAGE_SIZE = 60;
+  let rendered = 0;
+  let current = [];
+  let sentinel = null;
+  const observer = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) appendBatch();
+      }, { rootMargin: '200px' })
+    : null;
   const chips = el('div', { className: 'level-filter', dataset: { testid: 'level-filter' } }, [
     chip('all', `全部 ${counts.all}`),
     chip('known', `熟记 ${counts.known}`),
@@ -130,6 +143,8 @@ async function renderList(view, params, data) {
 
     count.textContent = `${filtered.length} 个词${query || levelFilter !== 'all' ? `（共 ${words.length}）` : ''}`;
     list.replaceChildren();
+    rendered = 0;
+    current = filtered;
     if (!filtered.length) {
       list.append(
         el('div', { className: 'card empty', dataset: { testid: 'word-empty' } }, [
@@ -139,38 +154,62 @@ async function renderList(view, params, data) {
       );
       return;
     }
-    for (const w of filtered) {
-      const p = data.progs[w.id];
-      const lv = levelOf(w);
-      list.append(
-        el('button', {
-          className: 'card word-row',
-          type: 'button',
-          dataset: { testid: 'word-row', id: w.id },
-          onclick: () => {
-            location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}`;
-          }
-        }, [
-          el('div', { className: 'word-row-main' }, [
-            el('span', { className: 'word-term' }, w.term),
-            w.phonetic ? el('span', { className: 'word-phonetic', dataset: { testid: 'word-phonetic' } }, w.phonetic) : null,
-            el('span', { className: 'word-mean' }, w.meanings.join('；'))
-          ]),
-          el('div', { className: 'word-row-side' }, [
-            lv
-              ? el('span', {
-                  className: 'level-pill',
-                  dataset: { testid: 'level-pill', level: lv }
-                }, LEVEL_LABEL[lv] || lv)
-              : null,
-            el('span', {
-              className: 'box-pill',
-              dataset: { testid: 'box-pill', box: String(p ? p.box : 0) }
-            }, p ? `盒 ${p.box}` : '新')
-          ])
-        ])
-      );
+    appendBatch();
+  }
+
+  /** 一次只画一屏多一点（60 行）；滚到底自动接着画 —— 几百个词也不会一次建上千个节点 */
+  function appendBatch() {
+    const slice = current.slice(rendered, rendered + PAGE_SIZE);
+    for (const w of slice) list.append(rowFor(w));
+    rendered += slice.length;
+
+    if (sentinel) {
+      observer?.unobserve(sentinel);
+      sentinel.remove();
+      sentinel = null;
     }
+    if (rendered < current.length) {
+      const left = current.length - rendered;
+      sentinel = el('button', {
+        className: 'ghost list-more',
+        type: 'button',
+        dataset: { testid: 'btn-list-more' }
+      }, `还有 ${left} 个 · 继续加载`);
+      sentinel.addEventListener('click', appendBatch);
+      list.append(sentinel);
+      observer?.observe(sentinel);
+    }
+  }
+
+  function rowFor(w) {
+    const p = data.progs[w.id];
+    const lv = levelOf(w);
+    return el('button', {
+      className: 'card word-row',
+      type: 'button',
+      dataset: { testid: 'word-row', id: w.id },
+      onclick: () => {
+        location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}`;
+      }
+    }, [
+      el('div', { className: 'word-row-main' }, [
+        el('span', { className: 'word-term' }, w.term),
+        w.phonetic ? el('span', { className: 'word-phonetic', dataset: { testid: 'word-phonetic' } }, w.phonetic) : null,
+        el('span', { className: 'word-mean' }, w.meanings.join('；'))
+      ]),
+      el('div', { className: 'word-row-side' }, [
+        lv
+          ? el('span', {
+              className: 'level-pill',
+              dataset: { testid: 'level-pill', level: lv }
+            }, LEVEL_LABEL[lv] || lv)
+          : null,
+        el('span', {
+          className: 'box-pill',
+          dataset: { testid: 'box-pill', box: String(p ? p.box : 0) }
+        }, p ? `盒 ${p.box}` : '新')
+      ])
+    ]);
   }
 
   search.addEventListener('input', paint);
@@ -236,8 +275,11 @@ async function renderEditor(view, params, data) {
   };
 
   const save = el('button', { className: 'primary', dataset: { testid: 'btn-save' }, type: 'button', onclick: () => doSave() }, '保存');
-  const reset = el('button', { className: 'ghost', dataset: { testid: 'btn-reset-progress' }, type: 'button', onclick: () => doReset() }, '重置进度');
-  const del = el('button', { className: 'ghost danger', dataset: { testid: 'btn-delete' }, type: 'button', onclick: () => doDelete() }, '删除');
+  // 删除 / 重置进度都是"会丢东西"的操作：点一下只武装，再点一下才真的执行
+  const reset = el('button', { className: 'ghost', dataset: { testid: 'btn-reset-progress' }, type: 'button' }, '重置进度');
+  confirmThen(reset, () => doReset(), { label: '确认重置？', kind: 'warn' });
+  const del = el('button', { className: 'ghost danger', dataset: { testid: 'btn-delete' }, type: 'button' }, '删除');
+  confirmThen(del, () => doDelete(), { label: '确认删除？' });
 
   async function doSave() {
     const list = meanings.value.split('\n').map((x) => x.trim()).filter(Boolean);
@@ -280,6 +322,8 @@ async function renderEditor(view, params, data) {
 
   async function doDelete() {
     await softDelete('words', w.id, Date.now());
+    // 界面马上跳回列表，就地提示看不见 → 用提示条说一声
+    showToast(`已删除「${w.term}」（记录还留着，可以从备份恢复）`, { kind: 'ok' });
     location.hash = backHash;
   }
 
