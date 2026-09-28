@@ -471,6 +471,26 @@ try {
   pe2('pointermove', 560, 300, 33);
   eq('抓住后继续跟手（+60px）', Math.round(tx() - grabbed), 60);
   pe2('pointerup', 560, 300, 33);
+  // (g) 真机能不能拖的关键：swipeable 卡片的 touch-action 必须是 none
+  //     （pan-y 时 iOS 会把"带一点纵向的拖拽"判给滚动并甩 pointercancel，表现就是完全拖不动）
+  eq('过一遍模式的卡片 touch-action = none（否则 iOS 会抢走手势）',
+     frame.contentWindow.getComputedStyle(cardEl2()).touchAction, 'none');
+
+  // (h) ?debug=1 的真机调试浮层：手机上出问题时靠它区分"事件没来"还是"模式不对"
+  const dbgFrame = await openApp({ hash: `#/practice?lib=${libS}&mode=review&debug=1`, sel: '[data-testid="debug-hud"]' });
+  const hud = () => t(dbgFrame, '[data-testid="debug-hud"]');
+  ok('调试浮层显示了模式和 touch-action', hud().includes('过一遍') && hud().includes('touch-action：none'), hud());
+  const hudCard = dbgFrame.contentDocument.querySelector('.prac-card');
+  const hudPe = (type, x, y = 300) =>
+    hudCard.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
+  hudPe('pointerdown', 200);
+  hudPe('pointermove', 260);
+  hudPe('pointerup', 260);
+  await wait(80);
+  ok('浮层里的 down/move/up 计数会跟着涨', /down 1 · move 1 · up 1/.test(hud()), hud());
+  const quizFrame = await openApp({ hash: `#/practice?lib=${libS}&mode=quiz&debug=1`, sel: '[data-testid="debug-hud"]' });
+  ok('默写模式下浮层明确说"滑不动"',
+     t(quizFrame, '[data-testid="debug-hud"]').includes('默写'), t(quizFrame, '[data-testid="debug-hud"]'));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

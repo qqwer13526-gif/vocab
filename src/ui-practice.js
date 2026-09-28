@@ -187,6 +187,25 @@ export async function renderPractice(params = {}) {
   const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, dirSwitch]);
   view.replaceChildren(top, modeRow, cardWrap, summary);
 
+  // ---------------------------------------------------------------- 真机调试浮层（?debug=1）
+  // 无头浏览器里合成 PointerEvent 跑得通，不代表 iOS 真实触摸跑得通（touch-action / pointercancel
+  // 这些只有真机才会暴露）。所以留一个浮层：把"模式 / touch-action / 各类事件计数 / 当前位移"
+  // 摆在屏幕上，真机上出问题时一眼就能看出是"事件没来"还是"模式不对"。
+  const debugOn = (params && params.debug === '1') || localStorage.getItem('vocab.debug') === '1';
+  const dbg = debugOn ? { down: 0, move: 0, up: 0, cancel: 0, grab: false, node: null } : null;
+  if (dbg) {
+    // 注意：节点在函数末尾才建（paintDebug 里要读 cardX，那时才初始化完）
+  }
+  function paintDebug() {
+    if (!dbg || !dbg.node) return;
+    const ta = getComputedStyle(card).touchAction;
+    dbg.node.textContent =
+      `滑动调试\n模式：${s.review ? '过一遍（可拖）' : '默写（滑不动，点右上角换模式）'}\n` +
+      `touch-action：${ta}\nclick 阈值：${card.classList.contains('swipeable') ? '可拖' : '未启用'}\n` +
+      `down ${dbg.down} · move ${dbg.move} · up ${dbg.up} · cancel ${dbg.cancel}\n` +
+      `拖动中：${dbg.grab ? '是' : '否'} · dx ${Math.round(cardX)}px`;
+  }
+
   // ---------------------------------------------------------------- 逻辑
   const answerText = (w, dir) => (dir === 'en2zh' ? w.meanings.join('；') : w.term);
 
@@ -356,6 +375,11 @@ export async function renderPractice(params = {}) {
   }
 
   function onDown(e) {
+    if (dbg) {
+      dbg.down++;
+      dbg.grab = false;
+      paintDebug();
+    }
     if (!canSwipe() || (e.button != null && e.button !== 0)) return;
     // 飞行中抓住：停掉动画，从"当前屏幕上的位置"接着跟手（不是从 0 重来）
     stopSpring();
@@ -365,12 +389,17 @@ export async function renderPractice(params = {}) {
   }
 
   function onMove(e) {
+    if (dbg) {
+      dbg.move++;
+      if (drag && drag.active) dbg.grab = true;
+      paintDebug();
+    }
     if (!drag || e.pointerId !== drag.id) return;
     const dxRaw = e.clientX - drag.x0;
     const dy = e.clientY - drag.y0;
     if (!drag.active) {
-      // 先分清"横向滑动"还是"纵向滚动/轻点"（10px 的迟滞，苹果那条"手势要有一点阈值"）
-      if (Math.abs(dxRaw) < 10 || Math.abs(dxRaw) < Math.abs(dy)) return;
+      // 先分清"横向滑动"还是"纵向滚动/轻点"（6px 迟滞：阈值太大，手指一动 iOS 就把手势收走了）
+      if (Math.abs(dxRaw) < 6 || Math.abs(dxRaw) < Math.abs(dy)) return;
       drag.active = true;
       try {
         card.setPointerCapture(e.pointerId);
@@ -387,6 +416,12 @@ export async function renderPractice(params = {}) {
   }
 
   async function onUp(e) {
+    if (dbg) {
+      if (e && e.type === 'pointercancel') dbg.cancel++;
+      else dbg.up++;
+      dbg.grab = false;
+      paintDebug();
+    }
     if (!drag || (e && e.pointerId != null && e.pointerId !== drag.id)) return;
     const d = drag;
     drag = null;
@@ -666,5 +701,12 @@ export async function renderPractice(params = {}) {
   else {
     setReview(s.review, { render: false }); // 先把模式对应的界面元素摆好
     renderQuestion();
+  }
+
+  // 调试浮层到这里才建：paintDebug 要读 cardX，而它在手势那段才初始化
+  if (dbg) {
+    dbg.node = el('div', { className: 'debug-hud', dataset: { testid: 'debug-hud' } });
+    view.append(dbg.node);
+    paintDebug();
   }
 }

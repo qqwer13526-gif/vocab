@@ -118,6 +118,26 @@ export async function renderSettings() {
     btnPhonetic
   ].filter(Boolean));
 
+  // ---------------------------------------------------------------- 调试（真机上定位交互问题用）
+  // 无头浏览器里合成的事件跑得通，不代表 iOS 真实触摸跑得通。真机出问题时打开这个开关，
+  // 练习页左上角会把"模式 / touch-action / 各类事件计数 / 当前位移"直接摆在屏幕上。
+  const dbgBox = el('input', {
+    type: 'checkbox',
+    dataset: { testid: 'debug-toggle' },
+    checked: localStorage.getItem('vocab.debug') === '1',
+    onchange: (e) => {
+      if (e.currentTarget.checked) localStorage.setItem('vocab.debug', '1');
+      else localStorage.removeItem('vocab.debug');
+    }
+  });
+  const debugCard = el('div', { className: 'card settings-card' }, [
+    el('div', { className: 'field-label' }, '调试'),
+    el('label', { className: 'settings-note', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+      dbgBox,
+      el('span', {}, '练习页显示「滑动调试浮层」（手机上排查拖不动的问题用）')
+    ])
+  ]);
+
   // ---------------------------------------------------------------- 备份 / 恢复
   const fileInput = el('input', {
     type: 'file',
@@ -228,6 +248,7 @@ export async function renderSettings() {
     updateCard,
     dataCard,
     backupCard,
+    debugCard,
     notes,
     status
   );

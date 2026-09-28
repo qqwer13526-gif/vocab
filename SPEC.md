@@ -269,6 +269,11 @@
 - 缓动走令牌：`--ease-out-quint`（进场）、`--ease-spring-soft`（过冲 5%）、`--ease-nav`（底部指示器
   专用，过冲 2~3%，来自参考视频的逐帧测量）
 - 进场用强 ease-out（`--ease-out-quint`），**不用** `ease-in`；不用 `scale(0)`，从 `scale(0.97)`+透明度起
+- 滑动卡片必须 `.prac-card.swipeable { touch-action: none }`：用 `pan-y` 时 iOS 会把"带一点纵向
+  的拖拽"判给页面滚动并发出 `pointercancel`，我们一个 `pointermove` 都收不到 —— 真机表现就是
+  **完全拖不动**（无头浏览器里合成事件测不出来，v22 踩过）。代价：在卡片上拖不再能滚页面
+- 真机排障：`?debug=1`（或 设置 → 调试 的开关，存 `localStorage.vocab.debug`）会在练习页左上角
+  显示「模式 / touch-action / down·move·up·cancel 计数 / 当前位移」，用来区分"事件没来"和"模式不对"
 - 手势（过一遍模式的左右滑动）是**真拖拽**（`src/spring.js` + `ui-practice.js`）：
   1:1 跟手（`setPointerCapture`，抓住点不跳变）→ 松手用 **Apple 的惯性投射**
   `dx + (v/1000)·d/(1−d)`（d=0.998）算落点决定翻页还是回弹 → **把手指末速交给弹簧**接着跑 →
@@ -315,6 +320,7 @@
 | 2026-09-26 | UI 打磨批次三（v17）：图标改内联 SVG、宽屏两栏 | `verify_all.py` → 17 步全绿；`tool/check_live.py` 报线上 26/26 一致（换行归一后）+ 版本 v17 |
 | 2026-09-26 | UI 批次四（v18）：首页只留词库（新增"总词库"钉在顶部）、导入/设置收进底部三项悬浮胶囊、词库可删除（只删库不删词 + 撤销） | `verify_all.py` → 19 步全绿（新增 ui-nav / ui-lib-delete 两步）；`node --test` 117 项 |
 | 2026-09-26 | UI 批次五（v19）：底部胶囊按参考视频（iCost 录屏）逐帧量出的比例收窄，选中态改成"白药丸滑过去 + 颜色交叉淡入 + 2~3% 过冲"（实测 170ms 内到位） | `verify_all.py` → 19 步全绿；`ui-nav` 38 项（含逐帧采样的动效断言）；线上 v19 |
+| 2026-09-26 | 真机修复（v22）：`touch-action: pan-y` → `none`（iOS 把带纵向的拖拽判给滚动、甩 pointercancel，导致真机完全拖不动）；激活阈值 10→6px；新增真机调试浮层（设置里的开关或 `?debug=1`） | `ui-practice` 110 项（新增 touch-action 与浮层断言）、`settings` 37 项；`verify_all` 19 步全绿；线上 v22 |
 | 2026-09-26 | UI 批次六（v21）：胶囊按视频**逐帧实测值** 1:1 复刻（宽 70% / 高 60 / 下沿贴底 / 图标 24）+ 页面底与卡片对调（灰底白卡，胶囊才"比页面亮"）；首页行统一（删掉全部说明句、词库行等高、圆角 12→16）；过一遍滑动改成**真拖拽**（惯性投射 + 速度接管 + 可打断 + 橡皮筋，弹簧用解析解） | `verify_all.py` → 19 步全绿（含新增 `tests/spring.test.js` 13 项与 `ui-practice` 的 6 条拖拽断言）；线上 v21 |
 
 > 第 1 版的验收到此结束。以后每改一版，先跑 `python tool\verify_all.py` 再 `git push`（Pages 会自动重建）。

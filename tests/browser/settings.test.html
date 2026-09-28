@@ -152,6 +152,17 @@ try {
   await waitFor(() => home.contentWindow.location.hash.includes('settings'), { label: '跳到设置页' });
   ok('底部胶囊的"设置"能进设置页', home.contentWindow.location.hash === '#/settings', home.contentWindow.location.hash);
 
+  // ---------------- 8b. 滑动调试浮层开关（手机上排查"拖不动"用）----------------
+  // ⚠️ hash 变了不等于界面渲染完了（renderSettings 是异步的），先等一个只可能由它渲染出来的元素
+  await waitFor(() => q(home, '[data-testid="debug-toggle"]'), { label: '设置页渲染出调试开关' });
+  const dbgToggle = q(home, '[data-testid="debug-toggle"]');
+  ok('设置页有"显示滑动调试浮层"开关', !!dbgToggle, '找不到 debug-toggle');
+  eq('默认是关的', dbgToggle.checked, false);
+  click(dbgToggle);
+  eq('打开后写进 localStorage', home.contentWindow.localStorage.getItem('vocab.debug'), '1');
+  click(dbgToggle);
+  eq('再点一下关掉并清掉', home.contentWindow.localStorage.getItem('vocab.debug'), null);
+
   // ---------------- 9. 服务端有新版时，横幅要自己冒出来 ----------------
   // 把"版本探测文件"指向一个假装是 v99 的文件（真实流程是取线上的 version.json）
   localStorage.setItem('vocab.versionUrl', '/tests/fixtures/version-new.json');
