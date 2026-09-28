@@ -7,6 +7,7 @@
 import { $, el } from './app.js';
 import { confirmThen } from './confirm.js';
 import { all, byIndex, put, softDelete } from './db.js';
+import { icon } from './icons.js';
 import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
@@ -267,7 +268,7 @@ async function renderList(view, params, data) {
 
   view.replaceChildren(
     el('div', { className: 'word-head' }, [
-      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, '‹'),
+      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
       el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
     ]),
     el('div', { className: 'card word-tools' }, [search, count, chips, tools, status]),
@@ -380,7 +381,7 @@ async function renderEditor(view, params, data) {
 
   view.replaceChildren(
     el('div', { className: 'word-head' }, [
-      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回词条列表', onclick: () => { location.hash = backHash; } }, '‹'),
+      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回词条列表', onclick: () => { location.hash = backHash; } }, [icon('chevronLeft', { size: 20 })]),
       term
     ]),
     el('div', { className: 'card word-edit', dataset: { testid: 'word-edit' } }, [

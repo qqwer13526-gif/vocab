@@ -7,6 +7,7 @@
  * 还写清楚 iOS 的坑：主屏幕应用和 Safari 是两套存储，删图标会连数据一起删。
  */
 
+import { icon } from './icons.js';
 import { $, el, checkForUpdate, updateState, applyUpdate } from './app.js';
 import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo } from './backup.js';
 import { confirmThen } from './confirm.js';
@@ -190,7 +191,7 @@ export async function renderSettings() {
 
   view.replaceChildren(
     el('div', { className: 'word-head' }, [
-      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, '‹'),
+      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
       el('h2', { className: 'page-title' }, '设置')
     ]),
     updateCard,

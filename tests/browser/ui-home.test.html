@@ -98,6 +98,13 @@ try {
   ok('智能库合成一张「自动收集」卡', !!doc.querySelector('[data-testid="smart-strip"]'), '找不到 smart-strip');
   ok('智能库的行都在那张卡里', doc.querySelectorAll('[data-testid="smart-strip"] [data-testid="smart-row"]').length >= 1);
 
+  // 图标是内联 SVG，不是字体里的 ‹ › ✕（字形跨系统不齐、字号一变就乱）
+  const arrow = rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-words"]');
+  ok('箭头按钮里是 SVG 图标', !!arrow.querySelector('svg path'), arrow.innerHTML.slice(0, 60));
+  ok('箭头按钮不再用文字符号', !/[›‹✕]/.test(arrow.textContent), arrow.textContent);
+  ok('装饰性图标对读屏隐藏（aria-hidden）', arrow.querySelector('svg').getAttribute('aria-hidden') === 'true');
+  ok('图标按钮仍有可访问名字（aria-label）', !!arrow.getAttribute('aria-label'), arrow.getAttribute('aria-label'));
+
   const rows = doc.querySelectorAll('[data-testid="lib-row"]');
   eq('列出两个词库', rows.length, 2);
   eq('第一个词库是四级', txt(rowOf(frame, ids.libA).querySelector('.lib-name')), '四级 Test 1');

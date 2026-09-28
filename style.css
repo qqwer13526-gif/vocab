@@ -133,6 +133,7 @@ input, textarea, .word-mean, .prac-answer, .summary-text, .settings-list, .setti
 /* hidden 必须真的隐藏：因为后面有用 display:flex/grid 的规则，会盖掉浏览器默认的 [hidden] */
 [hidden] { display: none !important; }
 
+
 /* 键盘操作才出现的焦点圈：鼠标/触摸点不会闪出蓝框，Tab 走位一定看得见。
    （:focus-visible 由浏览器区分，别自己用 :focus 去模拟） */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -345,7 +346,7 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
   transition: transform var(--dur-big) var(--ease-out-quint);
 }
 .lib-bar > i.seg-unfamiliar { background: var(--bad); }
-.lib-more { padding: 8px 12px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; }
+.lib-more { display: grid; place-items: center; padding: 8px 12px; border: 0; background: none; color: var(--muted); line-height: 1; }
 
 .empty { display: grid; gap: 8px; text-align: center; color: var(--muted); }
 .empty-title { color: var(--fg); font-weight: 600; }
@@ -375,11 +376,14 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .prac-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .prac-quit {
+  display: grid; place-items: center;
   width: 36px; height: 36px; flex: none;
   border: 0; border-radius: 50%;
   background: var(--card); color: var(--muted);
-  font-size: 15px; line-height: 1;
+  line-height: 1;
 }
+/* 图标是描边 SVG：块级显示，免得基线留出多余的空白 */
+.prac-quit svg, .lib-more svg { display: block; }
 .prac-progress { color: var(--muted); font-size: 14px; }
 .dir-switch { margin-left: auto; display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--card); }
 .dir-switch button {
@@ -778,4 +782,22 @@ body[data-view='practice'] #tabbar { display: none; }
     --warn-ink: var(--warn);
     --bad-ink: var(--bad);
   }
+}
+
+/* 宽屏（平板横放 / 电脑）：720px 的单列在 1400 的屏幕上会拉成一条细长的中间带，
+   左右全是空白。所以放宽容器，首页改成"左边今天的量、右边词库列表"两栏。
+   只改布局，不改任何界面结构 —— 手机上仍然是单列。 */
+@media (min-width: 900px) {
+  #app { max-width: 960px; }
+  #view-home:not([hidden]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 16px;
+    align-content: start;
+    align-items: start;
+  }
+  #view-home .libs { grid-column: 2; grid-row: 1 / span 3; }
+  #view-home .home-head,
+  #view-home .home-foot,
+  #view-home .home-phonetic { grid-column: 1; }
 }

@@ -83,6 +83,28 @@ try {
   await checkView('词条', `#/word?lib=${lib}`, PHONE, '#view-word:not([hidden])');
   await checkView('设置', '#/settings', PHONE, '[data-testid="settings-version"]');
   await checkView('设置', '#/settings', NARROW, '[data-testid="settings-version"]');
+
+  // 宽屏也要能看：不能横向滚动，而且首页要真的排成两栏（左边今天的量、右边词库）
+  const DESKTOP = [1280, 900];
+  for (const [label, hash, sel] of [
+    ['首页', '#/', '[data-testid="lib-row"]'],
+    ['练习', `#/practice?lib=${lib}`, '[data-testid="practice-prompt"]'],
+    ['导入', '#/import', '[data-testid="import-text"]'],
+    ['词条', `#/word?lib=${lib}`, '#view-word:not([hidden])'],
+    ['设置', '#/settings', '[data-testid="settings-version"]']
+  ]) {
+    await checkView(label, hash, DESKTOP, sel);
+  }
+
+  const wide = await openApp({ hash: '#/', size: DESKTOP, sel: '[data-testid="lib-row"]' });
+  const wideDoc = wide.contentDocument;
+  const headBox = wideDoc.querySelector('.home-head').getBoundingClientRect();
+  const libsBox = wideDoc.querySelector('.libs').getBoundingClientRect();
+  ok('宽屏首页是两栏（词库列表在今天的量的右边）', libsBox.left >= headBox.right - 1,
+     `head.right=${Math.round(headBox.right)} libs.left=${Math.round(libsBox.left)}`);
+  ok('宽屏两栏都压在上半屏，不出现空荡荡的细长列',
+     wideDoc.querySelector('#app').getBoundingClientRect().width > 800,
+     `#app 宽 ${Math.round(wideDoc.querySelector('#app').getBoundingClientRect().width)}`);
 } catch (e) {
   ok('布局检查脚本本身不能崩', false, (e && e.stack) || String(e));
 }

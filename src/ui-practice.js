@@ -11,6 +11,7 @@
 import { $, el } from './app.js';
 import { hardDelete, put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
+import { icon } from './icons.js';
 import { buildQueue, grade, markLevel, newProg } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { loadAll } from './store.js';
@@ -85,7 +86,8 @@ export async function renderPractice(params = {}) {
   buildSession();
 
   // ---------------------------------------------------------------- DOM
-  const quit = el('button', { className: 'prac-quit', dataset: { testid: 'btn-quit' }, type: 'button', 'aria-label': '退出练习', onclick: () => { location.hash = '#/'; } }, '✕');
+  const quit = el('button', { className: 'prac-quit', dataset: { testid: 'btn-quit' }, type: 'button', 'aria-label': '退出练习', onclick: () => { location.hash = '#/'; } });
+  quit.append(icon('close', { size: 20 }));
   // 「上一题」= 把上一次作答整个撤回去再回到那一题（重新答会重新计分）
   const btnBack = el('button', {
     className: 'prac-quit',
@@ -94,7 +96,8 @@ export async function renderPractice(params = {}) {
     'aria-label': '回退到上一个词（会撤销上一次作答）',
     title: '回退到上一个词（撤销上一次作答）',
     onclick: () => goBack()
-  }, '↶');
+  });
+  btnBack.append(icon('undo', { size: 20 }));
   const progress = el('span', { className: 'prac-progress', dataset: { testid: 'progress-text' } }, '');
   const dirSwitch = el('div', { className: 'dir-switch', dataset: { testid: 'dir-switch' }, role: 'group', 'aria-label': '练习方向' },
     DIRS.map((d) =>
