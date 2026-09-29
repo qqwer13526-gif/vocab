@@ -104,11 +104,16 @@ try {
   ok('标熟记后本库生疏词变 1', t(frame, '[data-testid="builtin-count-unfamiliar"]').includes('1 个词'));
   ok('熟记词变 2', t(frame, '[data-testid="builtin-count-known"]').includes('2 个词'), t(frame, '[data-testid="builtin-count-known"]'));
 
-  // ---------------- 5. 点内置那一行 = 只看这批词（不是开练）----------------
+  // ---------------- 5. 点内置那一行 = 直接开练这一档（v24；筛选交给下面的筛选条）----------------
   click(q(frame, '[data-testid="builtin-unfamiliar"] .lib-name'));
-  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 1, { label: '列表筛到 1 个' });
-  eq('筛出来的是 apply', qa(frame, '[data-testid="word-row"]')[0].dataset.id, 'w-apply');
-  eq('URL 上也带上了 level', frame.contentWindow.location.hash.includes('level=unfamiliar'), true);
+  await waitFor(() => frame.contentWindow.location.hash.includes('level=unfamiliar'), { label: '进生疏专项练习' });
+  ok('点内置那一行 → 直接开练这一档', frame.contentWindow.location.hash.includes('level=unfamiliar'),
+     frame.contentWindow.location.hash);
+  // 筛选条仍然能把列表筛到某一档
+  const chipFrame = await openApp({ hash: '#/word?lib=lib-a', sel: '[data-testid="builtin-smart"]' });
+  click(q(chipFrame, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]'));
+  await waitFor(() => qa(chipFrame, '[data-testid="word-row"]').length === 1, { label: '筛选条筛到 1 个' });
+  eq('筛选条筛出来的是 apply', qa(chipFrame, '[data-testid="word-row"]')[0].dataset.id, 'w-apply');
 
   // ---------------- 6. 带库的计数只算这个库 ----------------
   await seedSecondLib();

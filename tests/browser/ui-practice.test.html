@@ -37,6 +37,7 @@ async function seed() {
 
 // iframe 内取元素的小助手
 const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
 const t = (frame, sel) => {
   const n = q(frame, sel);
   return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
@@ -520,6 +521,31 @@ try {
   // (d) 指定的词不在队列里（已掌握、不到期）也要能从那开始
   fromFrame = await openApp({ hash: `#/practice?lib=${libL}&from=w-book`, sel: '[data-testid="practice-prompt"]' });
   eq('从已掌握的词开始 → 也被拉进来排第一', t(fromFrame, '[data-testid="practice-prompt"]'), 'book');
+  // ---------------- 20. v24：练习页的「选词」列表 ----------------
+  await db.wipeAll();
+  const libP = await seed();
+  const pickFrame = await openApp({ hash: `#/practice?lib=${libP}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  const pickerOf = () => q(pickFrame, '[data-testid="word-picker"]');
+  ok('默认不展开选词列表', pickerOf().hidden === true);
+  click(q(pickFrame, '[data-testid="btn-picker"]'));
+  await waitFor(() => pickerOf().hidden === false, { label: '选词列表展开' });
+  const total = Number(t(pickFrame, '[data-testid="progress-text"]').match(/1\/(\d+)/)[1]);
+  eq('列表行数 = 这一轮的词数', qa(pickFrame, '[data-testid="picker-row"]').length, total);
+  eq('第一行就是当前题', qa(pickFrame, '[data-testid="picker-row"]')[0].dataset.cur, 'true');
+  ok('列表里带着词', t(pickFrame, '[data-testid="picker-row"]').includes(t(pickFrame, '[data-testid="practice-prompt"]')),
+     t(pickFrame, '[data-testid="picker-row"]'));
+
+  // 跳题：点第 3 行 → 进度变第 3/n
+  click(qa(pickFrame, '[data-testid="picker-row"]')[1]);
+  await waitFor(() => t(pickFrame, '[data-testid="progress-text"]') === `第 2/${total}`, { label: '跳到第 2 题' });
+  eq('当前行跟着换成第 2 行', qa(pickFrame, '[data-testid="picker-row"]')[1].dataset.cur, 'true');
+  ok('跳题后「上一题」是灰的（历史清掉了）', q(pickFrame, '[data-testid="btn-back"]').disabled === true);
+
+  // 答一题 → 列表里那一行标出结果
+  click(q(pickFrame, '[data-testid="btn-level-known"]'));
+  await waitFor(() => qa(pickFrame, '[data-testid="picker-row"]')[1].textContent.includes('熟记'), { label: '列表标出熟记' });
+  ok('答过的词在列表里显示结果', true);
+  eq('答完自动进下一题', qa(pickFrame, '[data-testid="picker-row"]')[2].dataset.cur, 'true');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

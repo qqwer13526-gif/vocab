@@ -220,42 +220,51 @@ async function renderList(view, params, data) {
   }
 
   function rowFor(w) {
-    const p = data.progs[w.id];
-    const lv = levelOf(w);
-    return el('button', {
+    const lv = levelOf(w) || 'none';
+    const startPractice = () => {
+      location.hash = practiceHref(`from=${encodeURIComponent(w.id)}`);
+    };
+    const openEditor = () => {
+      location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}`;
+    };
+    // v24 的交互（用户定的）：
+    //   点行的空白处（释义、音标那一块）→ 从这个词开始练
+    //   点单词本身 → 改这个词的信息
+    //   右边的「练」是给键盘/读屏和"看得见的入口"用的（不再用三角形图标）
+    return el('div', {
       className: 'card word-row',
-      type: 'button',
       dataset: { testid: 'word-row', id: w.id },
-      onclick: () => {
-        location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}`;
-      }
+      onclick: startPractice
     }, [
       el('div', { className: 'word-row-main' }, [
-        el('span', { className: 'word-term' }, w.term),
+        el('button', {
+          className: 'word-term',
+          dataset: { testid: 'word-open', id: w.id },
+          type: 'button',
+          'aria-label': `编辑「${w.term}」`,
+          onclick: (e) => {
+            e.stopPropagation();
+            openEditor();
+          }
+        }, w.term),
         w.phonetic ? el('span', { className: 'word-phonetic', dataset: { testid: 'word-phonetic' } }, w.phonetic) : null,
         el('span', { className: 'word-mean' }, w.meanings.join('；'))
       ]),
       el('div', { className: 'word-row-side' }, [
         el('button', {
-          className: 'lib-more word-start',
+          className: 'word-start',
           dataset: { testid: 'btn-start-word', id: w.id },
           type: 'button',
           'aria-label': `从「${w.term}」开始背`,
           onclick: (e) => {
             e.stopPropagation();
-            location.hash = practiceHref(`from=${encodeURIComponent(w.id)}`);
+            startPractice();
           }
-        }, [icon('play', { size: 18 })]),
-        lv
-          ? el('span', {
-              className: 'level-pill',
-              dataset: { testid: 'level-pill', level: lv }
-            }, LEVEL_LABEL[lv] || lv)
-          : null,
+        }, '练'),
         el('span', {
-          className: 'box-pill',
-          dataset: { testid: 'box-pill', box: String(p ? p.box : 0) }
-        }, p ? `盒 ${p.box}` : '新')
+          className: 'level-pill',
+          dataset: { testid: 'level-pill', level: lv }
+        }, lv === 'none' ? '未标' : LEVEL_LABEL[lv] || lv)
       ])
     ]);
   }
@@ -283,7 +292,6 @@ async function renderList(view, params, data) {
   const builtin = smart
     ? null
     : el('div', { className: 'card builtin', dataset: { testid: 'builtin-smart' } }, [
-        el('div', { className: 'strip-head' }, '内置'),
         smartEntry('unfamiliar', '生疏词', counts.unfamiliar),
         smartEntry('known', '熟记词', counts.known),
         el('button', {
@@ -293,40 +301,28 @@ async function renderList(view, params, data) {
           onclick: () => {
             location.hash = practiceHref();
           }
-        }, [icon('play', { size: 18 }), el('span', {}, `练整库（${counts.all} 词）`)])
+        }, `练整库（${counts.all} 词）`)
       ]);
 
-  /** 一行内置入口：点 ▶ 直接专项练，点行 = 把列表筛到这批词 */
+  /** 一行内置入口：点这一行 = 直接专项练这一档（想看这批词就用下面的筛选条） */
   function smartEntry(level, label, n) {
-    const row = el('div', { className: 'builtin-row', dataset: { testid: `builtin-${level}` } }, [
+    const go = () => {
+      location.hash = practiceHref(`level=${level}`);
+    };
+    return el('div', { className: 'builtin-row', dataset: { testid: `builtin-${level}` } }, [
       el('span', { className: 'lib-dot', style: { background: level === 'unfamiliar' ? 'var(--bad)' : 'var(--ok)' } }),
       el('button', {
         className: 'lib-name',
         type: 'button',
-        title: `只看${label}`,
-        onclick: () => pickLevel(level)
-      }, [label, el('span', { className: 'lib-meta builtin-count', dataset: { testid: `builtin-count-${level}` } }, `${n} 个词`)]),
-      el('button', {
-        className: 'lib-more',
         dataset: { testid: `btn-practice-${level}` },
-        type: 'button',
+        title: `专项练${label}（${n} 个）`,
         'aria-label': `专项练${label}（${n} 个）`,
         onclick: (e) => {
           e.stopPropagation();
-          location.hash = practiceHref(`level=${level}`);
+          go();
         }
-      }, [icon('play', { size: 20 })])
+      }, [label, el('span', { className: 'lib-meta builtin-count', dataset: { testid: `builtin-count-${level}` } }, `${n} 个词`)])
     ]);
-    row.addEventListener('click', () => pickLevel(level));
-    return row;
-  }
-
-  /** 把列表筛到某一档（和上面 chip 的行为一致，顺带同步 URL） */
-  function pickLevel(level) {
-    levelFilter = level;
-    for (const b of chips.children) b.setAttribute('aria-pressed', String(b.dataset.level === level));
-    syncUrl();
-    paint();
   }
 
   // builtin 可能是 null（智能库自己的页面不需要）—— 必须过滤掉再传：

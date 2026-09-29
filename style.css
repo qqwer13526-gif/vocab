@@ -311,7 +311,6 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 
 /* 智能库（生疏/熟记）合成的一张卡：整卡虚线框，行与行之间淡淡的虚线分隔 */
 .smart-strip { padding: 12px; }
-.strip-head { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 4px; }
 .smart-strip .lib-row { padding: var(--sp-2) 0; }
 .smart-strip .lib-row + .lib-row { border-top: 1px dashed var(--line); }
 .smart-row { border: 0; }
@@ -640,7 +639,6 @@ body[data-view='practice'] #tabbar { display: none; }
 .builtin-row .lib-name { display: flex; align-items: center; gap: var(--sp-2); min-height: 40px; }
 .builtin-count { margin: 0; }
 .builtin-practice { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; }
-.word-start { color: var(--accent-text); }
 
 .word-list { display: grid; gap: 8px; }
 .word-row-side { display: flex; align-items: center; gap: 8px; flex: none; }
@@ -727,7 +725,35 @@ body[data-view='practice'] #tabbar { display: none; }
   color: var(--fg);
 }
 .word-row-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.word-term { font-weight: 600; }
+/* 单词本身是按钮（点了去改词条），其余空白处点了是"从这个词开始练" */
+.word-term {
+  /* 它是"去编辑"的按钮，必须够大：无障碍审计要求点按区 ≥32×24 */
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+/* 看得见的"练"入口（不再用三角形图标）：小号描边胶囊 */
+.word-start {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--r-full);
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 13px;
+}
+.word-start:active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* 未标：灰白底 + 描边（不能再用"盒 0"那种说法） */
+.level-pill[data-level='none'] { background: var(--card); border: 1px solid var(--line); color: var(--muted); }
 .word-mean {
   color: var(--muted);
   font-size: 13px;
@@ -735,15 +761,6 @@ body[data-view='practice'] #tabbar { display: none; }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.box-pill {
-  flex: none;
-  padding: 4px 8px;
-  border-radius: var(--r-full);
-  background: var(--line);
-  color: var(--muted);
-  font-size: 12px;
-}
-.box-pill[data-box='6'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok-ink); }
 
 .word-edit { display: grid; gap: 12px; }
 .field {
@@ -908,7 +925,7 @@ body[data-view='practice'] #tabbar { display: none; }
     --bad-ink: var(--bad);
   }
   /* 把「--line 当底 + --muted 当字」的两个胶囊换成描边款：否则描边加深后它们会变成深底深字 */
-  .smart-tag, .box-pill { background: var(--bg); box-shadow: inset 0 0 0 1px var(--muted); color: var(--fg); }
+  .smart-tag { background: var(--bg); box-shadow: inset 0 0 0 1px var(--muted); color: var(--fg); }
   .primary:disabled { background: var(--bg); box-shadow: inset 0 0 0 1px var(--muted); color: var(--muted); }
   /* 半透明同色底在提高对比度下不可控 —— 换成实底 + 同色描边 */
   .feedback, .level-pill, .swipe-badge, .confirming, .confirming-warn, .import-result {
@@ -960,3 +977,37 @@ body[data-view='practice'] #tabbar { display: none; }
   #view-home .libs { grid-column: 2; grid-row: 1; }
   #view-home .pinned { grid-column: 1; grid-row: 1; }
 }
+
+/* 「选词」列表（v24）：内联折叠在卡片下方，最多 40vh，点一行跳到那一题 */
+.picker-btn { margin-left: auto; }
+.picker {
+  display: grid;
+  gap: var(--sp-0);
+  max-height: 40vh;
+  overflow: auto;
+  margin-top: var(--sp-3);
+  padding: var(--sp-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+}
+.picker-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+}
+.picker-row[data-cur='true'] { background: var(--bg); font-weight: 650; }
+.picker-no { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.picker-term { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-state { color: var(--muted); font-size: 12px; }

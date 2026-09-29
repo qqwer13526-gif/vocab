@@ -24,6 +24,9 @@ const t = (frame, sel) => {
   return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
 };
 
+
+/** 整页可见文本（用来断言不再出现盒号 / 三角形这类符号） */
+const doc2Text = (frame) => (frame.contentDocument.body.textContent || '').replace(/\s+/g, ' ');
 const WORDS = [
   ['absorb', 'v.', ['take in or soak up吸收', '使专心'], 'əbˈsɔːb'],
   ['acceptable', 'adj.', ['可接受的，合意的'], 'əkˈseptəbl'],
@@ -58,10 +61,24 @@ try {
   eq('列出这个词库里的 4 个词', rows.length, 4);
   ok('第一行是 absorb', rows[0].textContent.includes('absorb'), rows[0].textContent.replace(/\s+/g, ' '));
   ok('行里带释义摘要', rows[0].textContent.includes('吸收'), rows[0].textContent.replace(/\s+/g, ' '));
+  // v24：行里不再显示"盒 N"，只留 生疏 / 熟记 / 未标 三种档位
   const accessRow = rows.find((r) => r.dataset.id === 'w-access');
-  eq('有学习进度的词显示盒子号', accessRow.querySelector('[data-testid="box-pill"]').dataset.box, '2');
-  const absorbRow = rows.find((r) => r.dataset.id === 'w-absorb');
-  eq('没学过的词显示"新"', absorbRow.querySelector('[data-testid="box-pill"]').dataset.box, '0');
+  eq('有学习进度的词显示档位', accessRow.querySelector('[data-testid="level-pill"]').dataset.level, 'none');
+  eq('未标就写"未标"', accessRow.querySelector('[data-testid="level-pill"]').textContent.trim(), '未标');
+  ok('行里不再有"盒 N"', !/盒\s*\d/.test(accessRow.textContent), accessRow.textContent.replace(/\s+/g, ' '));
+  ok('整页都不再出现盒号', !/盒\s*\d/.test(doc2Text(frame)));
+  ok('页面里没有三角形/箭头装饰符号（▶◀▲▼）', !/[▶◀▲▼]/.test(doc2Text(frame)), doc2Text(frame).slice(0, 80));
+
+  // 交互：点单词 = 编辑；点空白 = 从这个词开始练
+  click(accessRow.querySelector('[data-testid="word-open"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('id=w-access'), { label: '进词条编辑' });
+  ok('点单词本身 → 打开这个词的编辑页', frame.contentWindow.location.hash.includes('id=w-access'), frame.contentWindow.location.hash);
+
+  frame.contentWindow.location.hash = `#/word?lib=${libA}`;
+  await waitFor(() => q(frame, '[data-testid="word-row"]'), { label: '回列表' });
+  click(q(frame, `[data-testid="word-row"][data-id="w-access"] .word-mean`));
+  await waitFor(() => frame.contentWindow.location.hash.includes('from=w-access'), { label: '从这个词开始练' });
+  ok('点空白处 → 从这个词开始练', frame.contentWindow.location.hash.includes('from=w-access'), frame.contentWindow.location.hash);
 
   // ---------------- 2. 搜索 ----------------
   type(q(frame, '[data-testid="word-search"]'), 'acc');
@@ -91,8 +108,8 @@ try {
   type(q(frame, '[data-testid="word-search"]'), '');
   await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 4, { label: '清空搜索后恢复 4 条' });
 
-  // ---------------- 3. 打开词条编辑 ----------------
-  click(qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-absorb'));
+  // ---------------- 3. 打开词条编辑（v24：点单词本身，不是点整行）----------------
+  click(qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-absorb').querySelector('[data-testid="word-open"]'));
   await waitFor(() => q(frame, '[data-testid="word-edit"]'), { label: '进入编辑' });
   ok('URL 带上词条 id', frame.contentWindow.location.hash.includes('id=w-absorb'), frame.contentWindow.location.hash);
   eq('释义框里一条一行', q(frame, '[data-testid="word-meanings"]').value, 'take in or soak up吸收\n使专心');
@@ -213,7 +230,8 @@ try {
   const rowGamma = qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-gamma');
   eq('标了熟记的词显示徽章', rowAlpha.querySelector('[data-testid="level-pill"]').dataset.level, 'known');
   eq('徽章文字是中文', rowAlpha.querySelector('[data-testid="level-pill"]').textContent.trim(), '熟记');
-  ok('没标级的词不显示徽章', !rowGamma.querySelector('[data-testid="level-pill"]'));
+  eq('没标级的词显示「未标」徽章（v24：只有这三档，不再有盒号）',
+     rowGamma.querySelector('[data-testid="level-pill"]').dataset.level, 'none');
   const rowBeta = qa(frame, '[data-testid="word-row"]').find((r) => r.dataset.id === 'w-beta');
   eq('生疏的词显示生疏徽章', rowBeta.querySelector('[data-testid="level-pill"]').dataset.level, 'unfamiliar');
 
@@ -285,12 +303,17 @@ try {
      biFrame.contentWindow.location.hash.includes(`lib=${libBig}`) && biFrame.contentWindow.location.hash.includes('level=unfamiliar'),
      biFrame.contentWindow.location.hash);
 
+  // v24：内置那一行点下去就是"直接开练这一档"（想看这批词用下面的筛选条）
   const biFrame2 = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="builtin-smart"]' });
   click(q(biFrame2, '[data-testid="builtin-unfamiliar"] .lib-name'));
-  await waitFor(() => q(biFrame2, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]').getAttribute('aria-pressed') === 'true',
-    { label: '筛选切到生疏' });
-  ok('点内置那一行 → 只是把列表筛到生疏（不是开练）', !biFrame2.contentWindow.location.hash.includes('practice'),
+  await waitFor(() => biFrame2.contentWindow.location.hash.includes('level=unfamiliar'), { label: '进生疏专项练习' });
+  ok('点内置那一行 → 直接开练这一档', biFrame2.contentWindow.location.hash.includes('level=unfamiliar'),
      biFrame2.contentWindow.location.hash);
+  // 筛选条仍然能把列表筛到某一档（这条没变）
+  const chipFrame = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="builtin-smart"]' });
+  click(q(chipFrame, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]'));
+  await waitFor(() => chipFrame.contentWindow.location.hash.includes('level=unfamiliar'), { label: '筛选条仍可用' });
+  ok('筛选条还能筛（内置行改成开练之后，筛的活交给它）', chipFrame.contentWindow.location.hash.includes('level=unfamiliar'));
 
   // 「从这个词开始背」：在"有词可看"的列表上取第一行（刚才那个筛成生疏是空的，因为大词库没标过）
   const startFrame = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="word-row"]' });

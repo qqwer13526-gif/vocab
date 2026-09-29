@@ -63,7 +63,9 @@ export async function renderPractice(params = {}) {
     stats: EMPTY_STATS(),
     ended: false,
     history: [], // 每题作答前的快照，给「上一题」用
-    snapTaken: false
+    snapTaken: false,
+    // 本轮每个词的结果（词id → 'known'|'unfamiliar'|'ok'|'bad'|'skip'），只活在内存里给「选词」列表看
+    done: {}
   };
 
   function buildSession() {
@@ -202,8 +204,18 @@ export async function renderPractice(params = {}) {
     ])
   ]);
 
-  const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, dirSwitch]);
-  view.replaceChildren(top, modeRow, cardWrap, summary);
+  // 「选词」：把这一轮的全部词列出来，点一行就跳过去（内联折叠，不用抽屉/遮罩）
+  const pickerBtn = el('button', {
+    className: 'link-btn picker-btn',
+    dataset: { testid: 'btn-picker' },
+    type: 'button',
+    'aria-expanded': 'false',
+    onclick: () => togglePicker()
+  }, '选词');
+  const picker = el('div', { className: 'picker', dataset: { testid: 'word-picker' }, hidden: true });
+
+  const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, pickerBtn, dirSwitch]);
+  view.replaceChildren(top, modeRow, cardWrap, picker, summary);
 
   // ---------------------------------------------------------------- 真机调试浮层（?debug=1）
   // 无头浏览器里合成 PointerEvent 跑得通，不代表 iOS 真实触摸跑得通（touch-action / pointercancel
@@ -268,6 +280,53 @@ export async function renderPractice(params = {}) {
     if (!s.answered && s.queue.length) renderQuestion();
   }
 
+  // ---------------------------------------------------------------- 选词列表
+
+  const DONE_LABEL = { known: '熟记', unfamiliar: '生疏', ok: '对', bad: '错', skip: '跳过' };
+
+  function togglePicker(force) {
+    const open = force != null ? force : picker.hidden;
+    picker.hidden = !open;
+    pickerBtn.setAttribute('aria-expanded', String(open));
+    pickerBtn.textContent = open ? '收起' : '选词';
+    if (open) renderPicker();
+  }
+
+  function renderPicker() {
+    if (picker.hidden) return;
+    const rows = s.queue.map((w, i) =>
+      el('button', {
+        className: 'picker-row',
+        type: 'button',
+        dataset: { testid: 'picker-row', index: String(i), cur: String(i === s.i) },
+        onclick: () => jumpTo(i)
+      }, [
+        el('span', { className: 'picker-no' }, String(i + 1)),
+        el('span', { className: 'picker-term' }, w.term),
+        el('span', { className: 'picker-state' }, i === s.i ? '当前' : DONE_LABEL[s.done[w.id]] || '未练')
+      ])
+    );
+    picker.replaceChildren(...rows);
+    // 让当前题在列表里露出来
+    picker.querySelector('[data-cur="true"]')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** 跳到第 i 题：那一题重置成"待答"（已答过的也能重答），并清掉「上一题」的历史 */
+  function jumpTo(i) {
+    if (i < 0 || i >= s.queue.length) return;
+    if (s.ended) return;
+    s.i = i;
+    s.history = [];
+    s.answered = false;
+    s.retried = false;
+    s.nearCounted = false;
+    syncBackBtn();
+    summary.hidden = true;
+    card.hidden = false;
+    renderQuestion();
+    renderPicker();
+  }
+
   function renderQuestion() {
     const w = s.queue[s.i];
     if (!w) return showNothing();
@@ -282,6 +341,7 @@ export async function renderPractice(params = {}) {
     swipeBadge.hidden = true;
     s.snapTaken = false;
     syncBackBtn();
+    renderPicker(); // 列表开着的话，把"当前"和本轮结果刷新一下
     if (s.review) {
       // 过一遍：词、音标、释义同时摊开，只需要点「熟记 / 生疏」
       prompt.textContent = w.term;
@@ -493,6 +553,8 @@ export async function renderPractice(params = {}) {
   function skipOne() {
     if (s.ended) return;
     s.stats.skipped++;
+    const w = s.queue[s.i];
+    if (w) s.done[w.id] = 'skip';
     s.answered = true;
     next();
   }
@@ -511,6 +573,7 @@ export async function renderPractice(params = {}) {
   }
 
   async function writeResult(word, correct) {
+    s.done[word.id] = correct ? 'ok' : 'bad';
     const now = Date.now();
     const prev = data.progs[word.id];
     const next = grade(prev || newProg(word.id, now), correct, { now, dir: s.curDir });
@@ -601,6 +664,10 @@ export async function renderPractice(params = {}) {
    * 点完直接进下一题。
    */
   async function markAndNext(level) {
+    {
+      const w = s.queue[s.i];
+      if (w) s.done[w.id] = level;
+    }
     const w = s.queue[s.i];
     if (!w || s.ended) return;
     beforeAnswer();
@@ -664,6 +731,7 @@ export async function renderPractice(params = {}) {
     s.ended = true;
     card.hidden = true;
     summary.hidden = false;
+    renderPicker(); // 最后一题的结果也要在「选词」列表里看得到
     const textEl = summary.querySelector('[data-testid="summary-text"]');
     if (s.review) {
       // 过一遍模式的成绩单：不考对错，只看你把多少词归到了哪边

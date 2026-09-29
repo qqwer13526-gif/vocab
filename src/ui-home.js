@@ -51,7 +51,7 @@ export async function renderHome() {
         location.hash = '#/practice';
       },
       menu: [
-        { testid: 'btn-all-menu-practice', icon: 'play', label: '混着练全部', run: () => { location.hash = '#/practice'; } }
+        { testid: 'btn-all-menu-practice', icon: 'list', label: '混着练全部', run: () => { location.hash = '#/practice'; } }
       ]
     })
   );
@@ -71,7 +71,7 @@ export async function renderHome() {
           location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`;
         },
         menu: [
-          { testid: 'btn-lib-menu-practice', icon: 'play', label: '练整库', run: () => { location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`; } },
+          { testid: 'btn-lib-menu-practice', icon: 'list', label: '练整库', run: () => { location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`; } },
           { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, lib) },
           {
             testid: 'btn-lib-menu-delete',
@@ -224,7 +224,7 @@ export async function renderHome() {
         dataset: { testid: it.testid },
         role: 'menuitem',
         type: 'button'
-      }, [icon(it.icon, { size: 18 }), el('span', {}, it.label)]);
+      }, [it.icon ? icon(it.icon, { size: 18 }) : null, el('span', {}, it.label)].filter(Boolean));
       if (it.confirm) {
         // ⚠️ 确认必须在**建元素时**装一次：装进 click 处理器里会导致"第一次点只是注册了监听、
         //    同一事件的监听列表已经快照过了"→ 要等下一次点击才武装（真踩过这个坑）
