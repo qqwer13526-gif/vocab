@@ -13,9 +13,9 @@ import { hardDelete, put } from './db.js';
 import { judgeEn2Zh, judgeZh2En } from './judge.js';
 import { decideFlip, rubberbandBeyond, runSpring, velocityFrom } from './spring.js';
 import { icon } from './icons.js';
-import { buildQueue, grade, markLevel, newProg } from './srs.js';
+import { buildQueue, grade, markLevel, newProg, queueFromOrder } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
-import { loadAll } from './store.js';
+import { libWordIds, loadAll } from './store.js';
 import { keepFocusVisible } from './viewport.js';
 
 const DIRS = [
@@ -44,8 +44,12 @@ export async function renderPractice(params = {}) {
   const mode0 = DIRS.some((d) => d.key === params.dir) ? params.dir : 'en2zh';
   let data = await loadAll();
 
-  // 「过一遍」还是「默写」：智能库（生疏词）默认过一遍 —— 不认识的词本来也打不出来
-  const review0 = params.review === '1' || params.mode === 'review' ? true : params.mode === 'quiz' ? false : !!smartId;
+  // 本库的「生疏词 / 熟记词」专项（v23）：按 prog.level 过滤，复用智能库那条 wordIds 通道
+  const level = params.level === 'unfamiliar' || params.level === 'known' ? params.level : null;
+
+  // 「过一遍」还是「默写」：智能库（生疏词）和按 level 的专项都默认过一遍 —— 这些词本来也打不出来
+  const review0 =
+    params.review === '1' || params.mode === 'review' ? true : params.mode === 'quiz' ? false : !!(smartId || level);
 
   const s = {
     mode: mode0,
@@ -63,9 +67,19 @@ export async function renderPractice(params = {}) {
   };
 
   function buildSession() {
-    // 智能库（生疏词）：把这批词直接当队列，不管到期没到期、也不限新词数量
-    const q = smartId
-      ? buildQueue({ words: data.words, progs: data.progs, links: data.links, now: Date.now(), wordIds: smartWordIds(data, smartId) })
+    // 两种"指定词集"的练法，都走 buildQueue 的 wordIds 通道（不管到期没到期、也不限新词数量）：
+    //   ① 智能库（全局生疏词 / 熟记词）  ② 某个库里的生疏词 / 熟记词
+    let wordIds = null;
+    if (smartId) wordIds = smartWordIds(data, smartId);
+    else if (level) {
+      wordIds = (libId ? libWordIds(data, libId) : data.words.map((w) => w.id))
+        .filter((id) => (data.progs[id]?.level || null) === level)
+        // 和智能库同一条规矩：最近标记的排前面
+        .sort((a, b) => (data.progs[b]?.levelAt || 0) - (data.progs[a]?.levelAt || 0));
+    }
+
+    const q = wordIds
+      ? buildQueue({ words: data.words, progs: data.progs, links: data.links, now: Date.now(), wordIds })
       : buildQueue({
           words: data.words,
           progs: data.progs,
@@ -74,7 +88,11 @@ export async function renderPractice(params = {}) {
           now: Date.now(),
           newLimit: data.newLimit
         });
-    s.queue = [...q.review, ...q.fresh].map((id) => data.wordsById.get(id)).filter(Boolean);
+
+    // 「从这个词开始背」（v23）：把队列旋转到它开头；不在队列里也强制排第一
+    let order = [...q.review, ...q.fresh];
+    if (params.from) order = queueFromOrder(order, params.from);
+    s.queue = order.map((id) => data.wordsById.get(id)).filter(Boolean);
     s.i = 0;
     s.answered = false;
     s.retried = false;

@@ -124,3 +124,16 @@ export function markLevel(prog, level, { now }) {
   p.dueAt = now + INTERVALS[p.box];
   return p;
 }
+
+/**
+ * 从某一题开始练：把队列旋转到这个词开头。
+ * - 词在队列里 → 它前面的都挪到后面去（顺序不变）
+ * - 词不在队列里（比如还没到期、或不在本次范围内）→ 强制插到第一位，让它也能练
+ * 纯函数，Node 里直接测。
+ */
+export function queueFromOrder(ids, fromId) {
+  if (!fromId) return [...ids];
+  const at = ids.indexOf(fromId);
+  if (at < 0) return [fromId, ...ids];
+  return [...ids.slice(at), ...ids.slice(0, at)];
+}

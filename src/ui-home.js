@@ -16,7 +16,6 @@ import { $, el } from './app.js';
 import { put } from './db.js';
 import { confirmThen } from './confirm.js';
 import { icon } from './icons.js';
-import { SMART_LIBS, smartCount } from './smart.js';
 import {
   DEFAULT_NEW_LIMIT,
   PALETTE,
@@ -52,50 +51,10 @@ export async function renderHome() {
         location.hash = '#/practice';
       },
       menu: [
-        { testid: 'btn-all-menu-words', icon: 'list', label: '看全部词条', run: () => { location.hash = '#/word'; } }
+        { testid: 'btn-all-menu-practice', icon: 'play', label: '混着练全部', run: () => { location.hash = '#/practice'; } }
       ]
     })
   );
-
-  // 自动收集（智能库）：练习时标「生疏」自动进来，标「熟记」自动移出。
-  // v21 起不再写说明句（"练习时点「生疏」就会自动进来"这种），只留数字 —— 和词库行统一。
-  const smartRows = [];
-  for (const smart of SMART_LIBS) {
-    const n = smartCount(data, smart.id);
-    // 生疏词永远露个脸（哪怕是 0，也是个提示）；熟记词有货才显示
-    if (n === 0 && smart.level !== 'unfamiliar') continue;
-    smartRows.push(
-      libRow({
-        testid: 'smart-row',
-        smart: smart.id,
-        name: smart.name,
-        color: smart.color,
-        badge: '自动',
-        metaTestid: 'smart-count',
-        meta: n ? `${n} 个词` : '还没有',
-        onPractice: () => {
-          location.hash = `#/practice?smart=${encodeURIComponent(smart.id)}`;
-        },
-        // 智能库只有一个次要动作（看词条），就直接给箭头，不套一层菜单
-        trailing: {
-          testid: 'btn-smart-words',
-          label: `看「${smart.name}」的词条`,
-          icon: 'chevronRight',
-          run: () => {
-            location.hash = `#/word?smart=${encodeURIComponent(smart.id)}`;
-          }
-        }
-      })
-    );
-  }
-  if (smartRows.length) {
-    pinned.append(
-      el('section', { className: 'card smart-strip', dataset: { testid: 'smart-strip' } }, [
-        el('div', { className: 'strip-head' }, '自动收集'),
-        ...smartRows
-      ])
-    );
-  }
 
   // ---------------------------------------------------------------- 我的词库
   const list = el('section', { className: 'libs' });
@@ -112,7 +71,7 @@ export async function renderHome() {
           location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`;
         },
         menu: [
-          { testid: 'btn-lib-menu-words', icon: 'list', label: '看词条', run: () => { location.hash = `#/word?lib=${encodeURIComponent(lib.id)}`; } },
+          { testid: 'btn-lib-menu-practice', icon: 'play', label: '练整库', run: () => { location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`; } },
           { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, lib) },
           {
             testid: 'btn-lib-menu-delete',
@@ -203,21 +162,33 @@ export async function renderHome() {
         type: 'button',
         'aria-label': `「${name}」的更多操作`,
         'aria-expanded': 'false',
-        onclick: () => toggleMenu(action, menu)
+        onclick: (e) => {
+          e.stopPropagation(); // 别顺带把整行的"进词库"也触发了
+          toggleMenu(action, menu);
+        }
       }, [icon('more', { size: 20 })]);
     }
 
+    // 整行可点 = 进词库页（v23）：拇指不用精准点中名字。⋯ 会 stopPropagation，点它不会顺带进库。
+    const open = () => {
+      if (testid === 'all-lib-row') location.hash = '#/word';
+      else if (lib) location.hash = `#/word?lib=${encodeURIComponent(lib)}`;
+    };
     return el('div', {
       className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : '') + (smart ? ' smart-row' : ''),
-      dataset: lib ? { testid, lib } : smart ? { testid, smart } : { testid }
+      dataset: lib ? { testid, lib } : smart ? { testid, smart } : { testid },
+      onclick: open
     }, [
       el('span', { className: 'lib-dot', style: { background: color } }),
       el('div', { className: 'lib-body' }, [
         el('button', {
           className: 'lib-name',
           type: 'button',
-          title: `练「${name}」`,
-          onclick: onPractice
+          title: testid === 'all-lib-row' ? '看全部词条' : `打开「${name}」`,
+          onclick: (e) => {
+            e.stopPropagation();
+            open();
+          }
         }, badge ? [name, el('span', { className: 'smart-tag' }, badge)] : name),
         el('div', { className: 'lib-meta', dataset: metaTestid ? { testid: metaTestid } : {} }, metaText),
         stats

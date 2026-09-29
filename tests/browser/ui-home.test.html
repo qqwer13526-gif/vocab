@@ -99,8 +99,9 @@ try {
   ok('钉了一行「总词库」', !!allRow && txt(allRow.querySelector('.lib-name')).includes('总词库'), allRow ? txt(allRow.querySelector('.lib-name')) : '没有这一行');
   ok('总词库统计的是全部词（6 + 1 = 7）', txt(allRow.querySelector('.lib-meta')).includes('共 7 词'), txt(allRow.querySelector('.lib-meta')));
 
-  ok('智能库合成一张「自动收集」卡', !!doc.querySelector('[data-testid="smart-strip"]'), '找不到 smart-strip');
-  ok('智能库的行都在那张卡里', doc.querySelectorAll('[data-testid="smart-strip"] [data-testid="smart-row"]').length >= 1);
+  // v23：生疏词/熟记词从首页搬进词库页（总词库 = 全局），首页不再有「自动收集」卡
+  ok('首页不再有「自动收集」卡', !doc.querySelector('[data-testid="smart-strip"]'), '还找得到 smart-strip');
+  ok('首页也没有 smart-row', doc.querySelectorAll('[data-testid="smart-row"]').length === 0);
 
   // ---------------- 2b. v21：去掉说明句 + 所有行等高 + 圆角加大 ----------------
   const homeText = doc.querySelector('#view-home').textContent;
@@ -113,13 +114,8 @@ try {
     .map((n) => n.getBoundingClientRect().height);
   ok('总词库与各词库行等高', Math.max(...libRowHs) - Math.min(...libRowHs) <= 1,
      libRowHs.map((h) => h.toFixed(1)).join(' / '));
-  const smartHs = [...doc.querySelectorAll('[data-testid="smart-row"]')].map((n) => n.getBoundingClientRect().height);
-  ok('自动收集卡里的两行彼此等高（且比词库行矮）', smartHs.length >= 1 && Math.max(...smartHs) - Math.min(...smartHs) <= 1 && smartHs[0] < libRowHs[0],
-     `smart=${smartHs.map((h) => h.toFixed(1)).join('/')} lib=${libRowHs[0].toFixed(1)}`);
   const radius = parseFloat(frame.contentWindow.getComputedStyle(rowOf(frame, ids.libA)).borderTopLeftRadius);
   ok('卡片圆角 ≥16px（v21 从 12 加大）', radius >= 16, `${radius}px`);
-  ok('智能库行的计数还在（只是不再写说明）', /\d+ 个词|还没有/.test(txt(doc.querySelector('[data-testid="smart-count"]'))),
-     txt(doc.querySelector('[data-testid="smart-count"]')));
   ok('固定入口排在词库列表前面', doc.querySelector('.pinned').compareDocumentPosition(doc.querySelector('.libs')) & Node.DOCUMENT_POSITION_FOLLOWING);
 
   // 图标是内联 SVG，不是字体里的 ‹ › ✕（字形跨系统不齐、字号一变就乱）
@@ -151,32 +147,41 @@ try {
      seg ? seg.style.transform : '没有生疏段落');
   ok('没有生疏词的库不长出这一段', !rowOf(frame, ids.libB).querySelector('[data-testid="lib-progress-unfamiliar"]'));
 
-  // ---------------- 3. 点击行为 ----------------
-  // 综合练习（不分库）现在挂在"总词库"这一行上：首页不再有"开始练习"大按钮
-  click(allRow.querySelector('.lib-name'));
-  await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '跳到练习页' });
-  ok('点总词库 → 进综合练习（不带 lib 参数）', frame.contentWindow.location.hash === '#/practice', frame.contentWindow.location.hash);
+  // ---------------- 3. 点击行为（v23：整行可点 = 进词库页）----------------
+  // 点整行的"统计文字"那一块（不是点名字），也应该能进 —— 拇指不用精准命中
+  click(allRow.querySelector('.lib-meta'));
+  await waitFor(() => frame.contentWindow.location.hash === '#/word', { label: '进总词库页' });
+  ok('点总词库行的统计区 → 进总词库页', frame.contentWindow.location.hash === '#/word', frame.contentWindow.location.hash);
 
   frame.contentWindow.location.hash = '#/';
   await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
   doc = frame.contentDocument;
-  click(rowOf(frame, ids.libB).querySelector('.lib-name'));
-  await waitFor(() => frame.contentWindow.location.hash.includes(ids.libB), { label: '带库 id 进练习' });
-  ok('点库名 → 只练这个库', frame.contentWindow.location.hash === `#/practice?lib=${ids.libB}`, frame.contentWindow.location.hash);
+  click(rowOf(frame, ids.libB).querySelector('.lib-meta'));
+  await waitFor(() => frame.contentWindow.location.hash.includes(ids.libB), { label: '带库 id 进库页' });
+  ok('点词库行的统计区 → 进这个词库页', frame.contentWindow.location.hash === `#/word?lib=${ids.libB}`, frame.contentWindow.location.hash);
 
-  // 看词条：进了 ⋯ 菜单里（行本身只留"练"）
+  // 点 ⋯ 不能顺带进库页（冒泡必须被挡住）
   frame.contentWindow.location.hash = '#/';
   await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
   doc = frame.contentDocument;
   click(rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-more"]'));
+  await waitFor(() => doc.querySelector('[data-testid="lib-menu"]'), { label: '菜单展开' });
+  ok('点 ⋯ 只开菜单、不会顺带进库页', frame.contentWindow.location.hash === '#/' || frame.contentWindow.location.hash === '',
+     frame.contentWindow.location.hash);
+  // 关掉菜单再进下一段（hash 没变的话不会重渲染，菜单会一直挂着）
+  click(doc.querySelector('[data-testid="btn-lib-menu-cancel"]'));
+
+  // 菜单里的第一个动作是"练整库"
+  doc = frame.contentDocument;
+  click(rowOf(frame, ids.libA).querySelector('[data-testid="btn-lib-more"]'));
   const menu = await waitFor(() => doc.querySelector('[data-testid="lib-menu"]'), { label: '⋯ 菜单展开' });
-  ok('菜单里有"看词条 / 重命名 / 删除词库"',
-     !!menu.querySelector('[data-testid="btn-lib-menu-words"]') &&
+  ok('菜单里有"练整库 / 重命名 / 删除词库"',
+     !!menu.querySelector('[data-testid="btn-lib-menu-practice"]') &&
      !!menu.querySelector('[data-testid="btn-lib-menu-rename"]') &&
      !!menu.querySelector('[data-testid="btn-lib-menu-delete"]'));
-  click(menu.querySelector('[data-testid="btn-lib-menu-words"]'));
-  await waitFor(() => frame.contentWindow.location.hash.includes('word'), { label: '进词条页' });
-  ok('点菜单里的"看词条" → 进这个词库的词条', frame.contentWindow.location.hash === `#/word?lib=${ids.libA}`, frame.contentWindow.location.hash);
+  click(menu.querySelector('[data-testid="btn-lib-menu-practice"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('practice'), { label: '进练习页' });
+  ok('点菜单里的"练整库" → 直接开练这个库', frame.contentWindow.location.hash === `#/practice?lib=${ids.libA}`, frame.contentWindow.location.hash);
 
   // ---------------- 4. 新建词库（列表末尾那一行）----------------
   frame = await openApp({ sel: '[data-testid="lib-row"]' });

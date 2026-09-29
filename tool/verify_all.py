@@ -37,7 +37,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑪ 直接读 Excel（.xlsx）", "xlsx", [PY, "tool/browser_test.py", "tests/browser/xlsx.test.html"], "ui"),
     ("⑫ 补音标（下载→匹配→写库）", "phonetic", [PY, "tool/browser_test.py", "tests/browser/phonetic.test.html"], "ui"),
     ("⑬ 设置页：版本/检查更新/数据状态/备份恢复", "settings", [PY, "tool/browser_test.py", "tests/browser/settings.test.html"], "ui"),
-    ("⑭ 智能库：生疏词自动成库 + 专项练习", "smart", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
+    ("⑭ 生疏/熟记专项：内置于词库（总词库=全局）+ 专项练习", "smart", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
     ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", "mobile", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
 ]
 

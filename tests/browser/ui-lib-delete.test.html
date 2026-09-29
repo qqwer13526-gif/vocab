@@ -53,7 +53,7 @@ try {
   click(row.querySelector('[data-testid="btn-lib-more"]'));
   await waitFor(() => q(frame, '[data-testid="lib-menu"]'), { label: '菜单打开' });
   const menu = q(frame, '[data-testid="lib-menu"]');
-  ok('菜单里有"看词条"', !!menu.querySelector('[data-testid="btn-lib-menu-words"]'));
+  ok('菜单里有"练整库"', !!menu.querySelector('[data-testid="btn-lib-menu-practice"]'));
   ok('菜单里有"重命名"', !!menu.querySelector('[data-testid="btn-lib-menu-rename"]'));
   ok('菜单里有"删除词库"', !!menu.querySelector('[data-testid="btn-lib-menu-delete"]'));
   eq('展开后 aria-expanded 变 true', row.querySelector('[data-testid="btn-lib-more"]').getAttribute('aria-expanded'), 'true');

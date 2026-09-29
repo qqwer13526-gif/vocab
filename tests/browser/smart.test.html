@@ -2,17 +2,18 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>智能库（生疏词）· 界面测试</title>
+<title>生疏/熟记专项（v23 内置于词库）· 界面测试</title>
 </head>
 <body>
 <pre id="result">{"stage":"running"}</pre>
 <script src="trap.js"></script>
 <script type="module">
-/* 测"生疏的词自动组成一个库"：
- *   - 首页自动列出「生疏词」，数量实时算
- *   - 点名字 → 专项练习，只练这些词（不管到期没到期）
- *   - 练习里标「熟记」→ 自动移出这个库
- *   - 词条页能看这批词
+/* v23 起，生疏词/熟记词不再挂在首页，而是**内置于每个词库页**（总词库 = 全局）。
+   测：
+ *   - 词库页顶部有两块内置入口，数量实时算
+ *   - 点 ▶ 直接进专项练习，只练这一档的词（不管到期没到期）
+ *   - 练习里标「熟记」→ 数量跟着变
+ *   - 首页不再有「自动收集」卡
  * 跑法：python tool/browser_test.py tests/browser/smart.test.html
  */
 import { click, eq, holdLoad, ok, openApp, pressEnter, report, type, waitFor } from './harness.js';
@@ -50,6 +51,16 @@ async function seed() {
   return lib;
 }
 
+/** 一个只属于第二个词库的词，用来验证"带 lib 的计数只算这个库" */
+async function seedSecondLib() {
+  const lib2 = 'lib-b';
+  await db.put('libs', { id: lib2, name: '考研', color: '#ff9f0a', order: 1, updatedAt: NOW });
+  await db.put('words', { id: 'w-only2', term: 'only2', termNorm: 'only2', phonetic: '', pos: '', meanings: ['只属于第二个库'], example: '', note: '', createdAt: NOW, updatedAt: NOW });
+  await db.put('links', { id: 'w-only2|' + lib2, wordId: 'w-only2', libId: lib2, addedAt: NOW, updatedAt: NOW });
+  await db.put('prog', { wordId: 'w-only2', box: 1, dueAt: NOW + 60000, streak: 0, lapses: 0, lastDir: 'en2zh', level: 'unfamiliar', levelAt: NOW + 50, updatedAt: NOW });
+  return lib2;
+}
+
 async function emptyCase() {
   await db.wipeAll();
   const lib = 'lib-a';
@@ -62,64 +73,61 @@ async function emptyCase() {
 try {
   db = await import('../../src/db.js');
 
-  // ---------------- 1. 一个都没标时：露个脸 + 说清楚怎么用 ----------------
+  // ---------------- 1. 首页不再有「自动收集」卡 ----------------
   await emptyCase();
-  let frame = await openApp({ hash: '#/', sel: '[data-testid="smart-row"]' });
-  ok('没标过的时候也显示"生疏词"这一行', t(frame, '[data-testid="smart-row"] .lib-name').includes('生疏词'), t(frame, '[data-testid="smart-row"] .lib-name'));
-  ok('0 个时给出引导', t(frame, '[data-testid="smart-count"]').includes('还没有'), t(frame, '[data-testid="smart-count"]'));
-  ok('熟记词这一行在 0 个时不占地方', !qa(frame, '[data-testid="smart-row"]').some((r) => r.dataset.smart === 'smart:known'));
+  const homeFrame = await openApp({ hash: '#/', sel: '[data-testid="all-lib-row"]' });
+  ok('首页不再显示「自动收集」卡', !q(homeFrame, '[data-testid="smart-strip"]'), '还找得到 smart-strip');
+  ok('首页也不再有任何 smart-row', qa(homeFrame, '[data-testid="smart-row"]').length === 0);
 
-  // 空的时候点进去要给人话，而不是"今天没有要练的"
-  const emptyFrame = await openApp({ hash: '#/practice?smart=smart%3Aunfamiliar', sel: '[data-testid="nothing-due"]' });
-  ok('空的生疏库点进去有专门提示', t(emptyFrame, '[data-testid="nothing-due"]').includes('生疏'), t(emptyFrame, '[data-testid="nothing-due"]'));
-
-  // ---------------- 2. 标了生疏后：自动出现并计数 ----------------
+  // ---------------- 2. 词库页顶部内置两块入口，数量实时算 ----------------
   await seed();
-  frame = await openApp({ hash: '#/', sel: '[data-testid="smart-row"]' });
-  const smartRow = qa(frame, '[data-testid="smart-row"]').find((r) => r.dataset.smart === 'smart:unfamiliar');
-  ok('生疏词显示 2 个', t(frame, '[data-testid="smart-count"]').includes('2 个词'), t(frame, '[data-testid="smart-count"]'));
-  ok('提示写明了自动收集的规则', t(frame, '[data-testid="smart-row"]').includes('自动'), t(frame, '[data-testid="smart-row"]'));
-  ok('熟记词有 1 个时也列出来', qa(frame, '[data-testid="smart-row"]').some((r) => r.dataset.smart === 'smart:known'));
+  let frame = await openApp({ hash: '#/word?lib=lib-a', sel: '[data-testid="builtin-smart"]' });
+  ok('词库页有内置块', !!q(frame, '[data-testid="builtin-smart"]'));
+  ok('生疏词 2 个', t(frame, '[data-testid="builtin-count-unfamiliar"]').includes('2 个词'), t(frame, '[data-testid="builtin-count-unfamiliar"]'));
+  ok('熟记词 1 个', t(frame, '[data-testid="builtin-count-known"]').includes('1 个词'), t(frame, '[data-testid="builtin-count-known"]'));
 
-  // ---------------- 3. 点名字 → 专项练习，只练这批词 ----------------
-  click(smartRow.querySelector('.lib-name'));
-  await waitFor(() => frame.contentWindow.location.hash.includes('smart'), { label: '进入专项练习' });
+  // ---------------- 3. 点 ▶ 进专项练习，只练这一档 ----------------
+  click(q(frame, '[data-testid="btn-practice-unfamiliar"]'));
+  await waitFor(() => frame.contentWindow.location.hash.includes('level=unfamiliar'), { label: '进专项练习' });
   await waitFor(() => q(frame, '[data-testid="practice-prompt"]'), { label: '出现题目' });
-  eq('专项练习只练这 2 个词', t(frame, '[data-testid="progress-text"]'), '第 1/2');
-  eq('最近标的排前面', t(frame, '[data-testid="practice-prompt"]'), 'research', '应先把最近标生疏的练掉');
-  ok('没到期的词也照样练（research 的 dueAt 还没到）', true);
+  eq('专项练习只练这 2 个生疏词', t(frame, '[data-testid="progress-text"]'), '第 1/2');
+  eq('最近标的排前面', t(frame, '[data-testid="practice-prompt"]'), 'research');
+  ok('没到期的词也照样练', true);
+  ok('默认是过一遍模式（生疏词不用默写）',
+     q(frame, '[data-testid="practice-answer"]').hidden === false, '应该是过一遍');
 
-  // ---------------- 4. 练习中标「熟记」→ 自动移出生疏库 ----------------
+  // ---------------- 4. 练习中标「熟记」→ 内置计数跟着变 ----------------
   click(q(frame, '[data-testid="btn-level-known"]'));
   await waitFor(async () => (await db.get('prog', 'w-research')).level === 'known', { label: '标成熟记' });
-  eq('标熟记后离开生疏库', (await db.get('prog', 'w-research')).level, 'known');
-  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'apply', { label: '进下一个' });
+  frame.contentWindow.location.hash = '#/word?lib=lib-a';
+  await waitFor(() => t(frame, '[data-testid="builtin-count-unfamiliar"]').includes('1 个词'), { label: '计数刷新成 1' });
+  ok('标熟记后本库生疏词变 1', t(frame, '[data-testid="builtin-count-unfamiliar"]').includes('1 个词'));
+  ok('熟记词变 2', t(frame, '[data-testid="builtin-count-known"]').includes('2 个词'), t(frame, '[data-testid="builtin-count-known"]'));
 
-  // 回首页看数量变成 1（首页是异步重渲染的，要等它真的刷新，不能读旧 DOM）
-  frame.contentWindow.location.hash = '#/';
-  await waitFor(() => t(frame, '[data-testid="smart-count"]').includes('1 个词'), { label: '首页数量刷新成 1' });
-  ok('首页数量跟着变 1', t(frame, '[data-testid="smart-count"]').includes('1 个词'), t(frame, '[data-testid="smart-count"]'));
+  // ---------------- 5. 点内置那一行 = 只看这批词（不是开练）----------------
+  click(q(frame, '[data-testid="builtin-unfamiliar"] .lib-name'));
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length === 1, { label: '列表筛到 1 个' });
+  eq('筛出来的是 apply', qa(frame, '[data-testid="word-row"]')[0].dataset.id, 'w-apply');
+  eq('URL 上也带上了 level', frame.contentWindow.location.hash.includes('level=unfamiliar'), true);
 
-  // ---------------- 5. 词条页能看这批词 ----------------
-  const wordFrame = await openApp({ hash: '#/word?smart=smart%3Aunfamiliar', sel: '[data-testid="word-row"]' });
-  eq('标题是智能库名字', t(wordFrame, '.page-title'), '生疏词');
-  const rows = qa(wordFrame, '[data-testid="word-row"]');
-  eq('只列出还在生疏库里的词', rows.length, 1);
-  eq('列出的正是 apply', rows[0].dataset.id, 'w-apply');
-  eq('筛选条自动切到"生疏"', q(wordFrame, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]').getAttribute('aria-pressed'), 'true');
+  // ---------------- 6. 带库的计数只算这个库 ----------------
+  await seedSecondLib();
+  const lib2Frame = await openApp({ hash: '#/word?lib=lib-b', sel: '[data-testid="builtin-smart"]' });
+  ok('第二个库的生疏词是它自己的 1 个', t(lib2Frame, '[data-testid="builtin-count-unfamiliar"]').includes('1 个词'),
+     t(lib2Frame, '[data-testid="builtin-count-unfamiliar"]'));
 
-  // ---------------- 6. 从词条页改回生疏，首页数量涨回去 ----------------
-  await db.put('prog', { ...(await db.get('prog', 'w-research')), level: 'unfamiliar', levelAt: NOW + 40, updatedAt: NOW + 40 });
-  const home2 = await openApp({ hash: '#/', sel: '[data-testid="smart-row"]' });
-  ok('改回生疏后首页又变 2', t(home2, '[data-testid="smart-count"]').includes('2 个词'), t(home2, '[data-testid="smart-count"]'));
+  const allFrame = await openApp({ hash: '#/word', sel: '[data-testid="builtin-smart"]' });
+  ok('总词库的生疏词是全局的 2 个（apply + only2）', t(allFrame, '[data-testid="builtin-count-unfamiliar"]').includes('2 个词'),
+     t(allFrame, '[data-testid="builtin-count-unfamiliar"]'));
+  ok('总词库页标题是「全部词条」', t(allFrame, '.page-title').includes('全部词条'), t(allFrame, '.page-title'));
 
-  // ---------------- 7. 智能库的箭头 → 词条页 ----------------
-  const arrow = qa(home2, '[data-testid="smart-row"]').find((r) => r.dataset.smart === 'smart:unfamiliar').querySelector('[data-testid="btn-smart-words"]');
-  click(arrow);
-  await waitFor(() => home2.contentWindow.location.hash.includes('word'), { label: '进词条页' });
-  ok('箭头能进"生疏词"的词条页', home2.contentWindow.location.hash.includes('smart'), home2.contentWindow.location.hash);
+  // ---------------- 7. 智能库自己的页面不重复给内置块 ----------------
+  const smartFrame = await openApp({ hash: '#/word?smart=smart%3Aunfamiliar', sel: '[data-testid="word-row"]' });
+  eq('智能库页标题是智能库名字', t(smartFrame, '.page-title'), '生疏词');
+  ok('智能库页不再重复显示内置块', !q(smartFrame, '[data-testid="builtin-smart"]'));
+  eq('筛选条自动切到"生疏"', q(smartFrame, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]').getAttribute('aria-pressed'), 'true');
 } catch (e) {
-  ok('智能库测试脚本本身不能崩', false, (e && e.stack) || String(e));
+  ok('生疏/熟记专项测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
 
 report();

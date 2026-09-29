@@ -491,6 +491,35 @@ try {
   const quizFrame = await openApp({ hash: `#/practice?lib=${libS}&mode=quiz&debug=1`, sel: '[data-testid="debug-hud"]' });
   ok('默写模式下浮层明确说"滑不动"',
      t(quizFrame, '[data-testid="debug-hud"]').includes('默写'), t(quizFrame, '[data-testid="debug-hud"]'));
+
+  // ---------------- 19. v23：按 level 专项练 + 从任意词开始背 ----------------
+  await db.wipeAll();
+  const libL = await seed();
+  // absorb 设成"已到期"，这样普通队列里就有它 —— 用来验证"从 run 开始时它排在后面"
+  await db.put('prog', { wordId: 'w-absorb', box: 1, dueAt: NOW - 1000, streak: 0, lapses: 0, lastDir: 'en2zh', level: 'unfamiliar', levelAt: NOW + 10, updatedAt: NOW });
+  await db.put('prog', { wordId: 'w-run', box: 1, dueAt: NOW + 60000, streak: 0, lapses: 0, lastDir: 'en2zh', level: 'unfamiliar', levelAt: NOW + 20, updatedAt: NOW });
+  await db.put('prog', { wordId: 'w-book', box: 6, dueAt: NOW + 60 * 86400000, streak: 3, lapses: 0, lastDir: 'en2zh', level: 'known', levelAt: NOW + 30, updatedAt: NOW });
+
+  // (a) 只练本库生疏词，且最近标的排前面
+  let lvFrame = await openApp({ hash: `#/practice?lib=${libL}&level=unfamiliar`, sel: '[data-testid="practice-prompt"]' });
+  eq('生疏词专项只出这 2 个', t(lvFrame, '[data-testid="progress-text"]'), '第 1/2');
+  eq('最近标的排前面', t(lvFrame, '[data-testid="practice-prompt"]'), 'run', t(lvFrame, '[data-testid="practice-prompt"]'));
+  ok('默认过一遍模式（生疏词不用默写）', q(lvFrame, '[data-testid="practice-answer"]').hidden === false);
+
+  // (b) 熟记词专项：只出熟记的那一个
+  lvFrame = await openApp({ hash: `#/practice?lib=${libL}&level=known`, sel: '[data-testid="practice-prompt"]' });
+  eq('熟记词专项只出 1 个', t(lvFrame, '[data-testid="progress-text"]'), '第 1/1');
+  eq('出的正是熟记的那个', t(lvFrame, '[data-testid="practice-prompt"]'), 'book');
+
+  // (c) 从任意词开始背：第一题就是那个词，后面的词还接着排
+  let fromFrame = await openApp({ hash: `#/practice?lib=${libL}&from=w-run`, sel: '[data-testid="practice-prompt"]' });
+  eq('从 w-run 开始 → 第一题就是 run', t(fromFrame, '[data-testid="practice-prompt"]'), 'run');
+  ok('它后面还接着别的词', Number(t(fromFrame, '[data-testid="progress-text"]').match(/1\/(\d+)/)[1]) >= 2,
+     t(fromFrame, '[data-testid="progress-text"]'));
+
+  // (d) 指定的词不在队列里（已掌握、不到期）也要能从那开始
+  fromFrame = await openApp({ hash: `#/practice?lib=${libL}&from=w-book`, sel: '[data-testid="practice-prompt"]' });
+  eq('从已掌握的词开始 → 也被拉进来排第一', t(fromFrame, '[data-testid="practice-prompt"]'), 'book');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

@@ -43,6 +43,8 @@ async function renderList(view, params, data) {
     'aria-label': '搜索词条'
   });
   const list = el('div', { className: 'word-list' });
+  const practiceHref = (extra = '') =>
+    `#/practice?${[libId ? `lib=${encodeURIComponent(libId)}` : '', extra].filter(Boolean).join('&')}`;
   const count = el('div', { className: 'word-count' });
   const status = el('div', { className: 'word-status', dataset: { testid: 'word-status' } }, '');
 
@@ -234,6 +236,16 @@ async function renderList(view, params, data) {
         el('span', { className: 'word-mean' }, w.meanings.join('；'))
       ]),
       el('div', { className: 'word-row-side' }, [
+        el('button', {
+          className: 'lib-more word-start',
+          dataset: { testid: 'btn-start-word', id: w.id },
+          type: 'button',
+          'aria-label': `从「${w.term}」开始背`,
+          onclick: (e) => {
+            e.stopPropagation();
+            location.hash = practiceHref(`from=${encodeURIComponent(w.id)}`);
+          }
+        }, [icon('play', { size: 18 })]),
         lv
           ? el('span', {
               className: 'level-pill',
@@ -266,14 +278,68 @@ async function renderList(view, params, data) {
     search.select();
   });
 
-  view.replaceChildren(
+  // 内置的「生疏词 / 熟记词」+「练整库」（v23）：本库的按本库算，总词库的按全局算。
+  // 智能库自己的页面本来就是这个范围，不再重复给。
+  const builtin = smart
+    ? null
+    : el('div', { className: 'card builtin', dataset: { testid: 'builtin-smart' } }, [
+        el('div', { className: 'strip-head' }, '内置'),
+        smartEntry('unfamiliar', '生疏词', counts.unfamiliar),
+        smartEntry('known', '熟记词', counts.known),
+        el('button', {
+          className: 'ghost builtin-practice',
+          dataset: { testid: 'btn-practice-lib' },
+          type: 'button',
+          onclick: () => {
+            location.hash = practiceHref();
+          }
+        }, [icon('play', { size: 18 }), el('span', {}, `练整库（${counts.all} 词）`)])
+      ]);
+
+  /** 一行内置入口：点 ▶ 直接专项练，点行 = 把列表筛到这批词 */
+  function smartEntry(level, label, n) {
+    const row = el('div', { className: 'builtin-row', dataset: { testid: `builtin-${level}` } }, [
+      el('span', { className: 'lib-dot', style: { background: level === 'unfamiliar' ? 'var(--bad)' : 'var(--ok)' } }),
+      el('button', {
+        className: 'lib-name',
+        type: 'button',
+        title: `只看${label}`,
+        onclick: () => pickLevel(level)
+      }, [label, el('span', { className: 'lib-meta builtin-count', dataset: { testid: `builtin-count-${level}` } }, `${n} 个词`)]),
+      el('button', {
+        className: 'lib-more',
+        dataset: { testid: `btn-practice-${level}` },
+        type: 'button',
+        'aria-label': `专项练${label}（${n} 个）`,
+        onclick: (e) => {
+          e.stopPropagation();
+          location.hash = practiceHref(`level=${level}`);
+        }
+      }, [icon('play', { size: 20 })])
+    ]);
+    row.addEventListener('click', () => pickLevel(level));
+    return row;
+  }
+
+  /** 把列表筛到某一档（和上面 chip 的行为一致，顺带同步 URL） */
+  function pickLevel(level) {
+    levelFilter = level;
+    for (const b of chips.children) b.setAttribute('aria-pressed', String(b.dataset.level === level));
+    syncUrl();
+    paint();
+  }
+
+  // builtin 可能是 null（智能库自己的页面不需要）—— 必须过滤掉再传：
+  // replaceChildren(null) 会在页面上真的渲染出字符串 "null"（踩过的老坑）
+  view.replaceChildren(...[
     el('div', { className: 'word-head' }, [
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
       el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
     ]),
+    builtin,
     el('div', { className: 'card word-tools' }, [search, count, chips, tools, status]),
     list
-  );
+  ].filter(Boolean));
   paint();
 }
 

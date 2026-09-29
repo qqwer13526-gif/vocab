@@ -271,6 +271,39 @@ try {
   await waitFor(() => qa(frame, '[data-testid="word-row"]').length > 0 && qa(frame, '[data-testid="word-row"]').length < 60, { label: '搜索结果' });
   const hits = qa(frame, '[data-testid="word-row"]').length;
   ok('搜索是在全部 134 个里搜（不只是已渲染的那些）', hits >= 10 && hits < 60, String(hits));
+
+  // ---------------- 19. v23：内置「生疏 / 熟记」+「从这个词开始背」+「练整库」----------------
+  const biFrame = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="builtin-smart"]' });
+  ok('词库页有内置块（生疏词 / 熟记词）', !!q(biFrame, '[data-testid="builtin-unfamiliar"]') && !!q(biFrame, '[data-testid="builtin-known"]'));
+  ok('内置块给出了数量', /\d+ 个词/.test(t(biFrame, '[data-testid="builtin-count-unfamiliar"]')),
+     t(biFrame, '[data-testid="builtin-count-unfamiliar"]'));
+  ok('内置块有「练整库」按钮', !!q(biFrame, '[data-testid="btn-practice-lib"]'));
+
+  click(q(biFrame, '[data-testid="btn-practice-unfamiliar"]'));
+  await waitFor(() => biFrame.contentWindow.location.hash.includes('level=unfamiliar'), { label: '进生疏词专项练习' });
+  ok('点内置块的 ▶ → 带 lib + level 进专项练习',
+     biFrame.contentWindow.location.hash.includes(`lib=${libBig}`) && biFrame.contentWindow.location.hash.includes('level=unfamiliar'),
+     biFrame.contentWindow.location.hash);
+
+  const biFrame2 = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="builtin-smart"]' });
+  click(q(biFrame2, '[data-testid="builtin-unfamiliar"] .lib-name'));
+  await waitFor(() => q(biFrame2, '[data-testid="level-filter"] .chip[data-level="unfamiliar"]').getAttribute('aria-pressed') === 'true',
+    { label: '筛选切到生疏' });
+  ok('点内置那一行 → 只是把列表筛到生疏（不是开练）', !biFrame2.contentWindow.location.hash.includes('practice'),
+     biFrame2.contentWindow.location.hash);
+
+  // 「从这个词开始背」：在"有词可看"的列表上取第一行（刚才那个筛成生疏是空的，因为大词库没标过）
+  const startFrame = await openApp({ hash: `#/word?lib=${libBig}`, sel: '[data-testid="word-row"]' });
+  const startBtn = q(startFrame, '[data-testid="btn-start-word"]');
+  ok('词条行上有「从这个词开始背」', !!startBtn, '找不到 btn-start-word');
+  const startId = startBtn.dataset.id;
+  click(startBtn);
+  await waitFor(() => startFrame.contentWindow.location.hash.includes('from='), { label: '带 from 进练习' });
+  ok('点它 → 带 from 进练习', startFrame.contentWindow.location.hash.includes(`from=${encodeURIComponent(startId)}`),
+     startFrame.contentWindow.location.hash);
+
+  const smartWordFrame = await openApp({ hash: '#/word?smart=smart%3Aunfamiliar', sel: '#view-word:not([hidden])' });
+  ok('智能库自己的页面不重复显示内置块', !q(smartWordFrame, '[data-testid="builtin-smart"]'));
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

@@ -112,6 +112,21 @@
  *   - 长按选中按钮文字：user-select（只对控件，正文必须还能选）
  *   - 点按延迟：touch-action: manipulation
  */
+/* iOS 26 的状态栏是一条半透明玻璃，会把它后面的东西糊一层。
+   背后铺一块与页面同色的实底 —— 糊纯色等于没糊，那条"虚"就看不见了。
+   （无头浏览器里 env() = 0，所以只在真机上生效） */
+body::before {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--bg);
+  z-index: 10;
+  pointer-events: none;
+}
+
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
@@ -172,7 +187,7 @@ body {
   max-width: 720px;
   margin: 0 auto;
   /* 底部留白要把"键盘高度"算进去（--kb-inset 由 src/viewport.js 维护） */
-  padding: calc(var(--safe-t) + 12px) 16px calc(92px + var(--safe-b) + var(--kb-inset, 0px));
+  padding: calc(var(--safe-t) + 20px) 16px calc(92px + var(--safe-b) + var(--kb-inset, 0px));
 }
 
 .view[hidden] { display: none; }
@@ -430,7 +445,13 @@ button.color[aria-pressed='true'] { border-color: var(--fg); }
 
 body[data-view='practice'] #tabbar { display: none; }
 
-.prac-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.prac-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  background: var(--bg); /* 实底：不让它看起来像浮在系统那层玻璃上 */
+}
 .prac-quit {
   display: grid; place-items: center;
   width: 36px; height: 36px; flex: none;
@@ -604,6 +625,22 @@ body[data-view='practice'] #tabbar { display: none; }
   font-size: 16px;
 }
 .word-count { color: var(--muted); font-size: 13px; }
+
+/* 词库页顶部的「内置：生疏词 / 熟记词」+「练整库」（v23） */
+.builtin { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.builtin-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 48px;
+  cursor: pointer;
+}
+.builtin-row + .builtin-row { border-top: 1px dashed var(--line); }
+.builtin-row .lib-name { display: flex; align-items: center; gap: var(--sp-2); min-height: 40px; }
+.builtin-count { margin: 0; }
+.builtin-practice { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; }
+.word-start { color: var(--accent-text); }
 
 .word-list { display: grid; gap: 8px; }
 .word-row-side { display: flex; align-items: center; gap: 8px; flex: none; }

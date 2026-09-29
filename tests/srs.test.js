@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DAY, INTERVALS, LEVELS, MAX_BOX, NEXT_DUE_LABEL, buildQueue, grade, isNew, markLevel, newProg } from '../src/srs.js';
+import { DAY, INTERVALS, LEVELS, MAX_BOX, NEXT_DUE_LABEL, buildQueue, grade, isNew, markLevel, newProg, queueFromOrder } from '../src/srs.js';
 
 const MIN = 60 * 1000;
 const T0 = 1_700_000_000_000;
@@ -300,4 +300,30 @@ test('给 wordIds 时也不管新词上限（专项学习要全给你）', () =>
 test('wordIds 为空数组就是空队列，而不是"全部词"', () => {
   const q = buildQueue({ words, progs, links, libIds: null, now: 200, wordIds: [] });
   assert.deepEqual(q, { review: [], fresh: [] });
+});
+
+
+// ---------------------------------------------------------------- 「从这个词开始背」（v23）
+
+test('queueFromOrder：从队列中间开始 → 前面的挪到后面，顺序不乱', () => {
+  assert.deepEqual(queueFromOrder(['a', 'b', 'c', 'd'], 'c'), ['c', 'd', 'a', 'b']);
+});
+
+test('queueFromOrder：本来就是第一个 → 原样', () => {
+  assert.deepEqual(queueFromOrder(['a', 'b', 'c'], 'a'), ['a', 'b', 'c']);
+});
+
+test('queueFromOrder：不在队列里 → 强制排第一（没到期也能从它开始练）', () => {
+  assert.deepEqual(queueFromOrder(['a', 'b'], 'z'), ['z', 'a', 'b']);
+});
+
+test('queueFromOrder：没给 from → 原样返回（并且是新数组，不改原队列）', () => {
+  const src = ['a', 'b'];
+  const out = queueFromOrder(src, null);
+  assert.deepEqual(out, ['a', 'b']);
+  assert.notEqual(out, src);
+});
+
+test('queueFromOrder：空队列 + 指定词 → 就练它一个', () => {
+  assert.deepEqual(queueFromOrder([], 'z'), ['z']);
 });
