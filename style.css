@@ -465,15 +465,37 @@ body[data-view='practice'] #tabbar { display: none; }
 /* 图标是描边 SVG：块级显示，免得基线留出多余的空白 */
 .prac-quit svg, .lib-more svg { display: block; }
 .prac-progress { color: var(--muted); font-size: 14px; white-space: nowrap; }
-.picker-btn { flex: none; white-space: nowrap; }
-.dir-switch { margin-left: auto; display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--card); }
-.dir-switch button {
+/* 顶栏右侧的「选词」：做成一个小选项框（原来是蓝色文字链接） */
+.chip-btn {
+  flex: none; white-space: nowrap; margin-left: auto;
+  padding: 6px 12px; min-height: 32px;
+  border: 1px solid var(--line); border-radius: var(--r-full);
+  background: var(--card); color: var(--accent-text);
+  font: inherit; font-size: 13px; font-weight: 600;
+}
+.chip-btn[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+/* 选项框：方向切换（英→中/中→英/混合）与练习模式（过一遍/默写）共用一套外观 */
+.seg-box { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--card); }
+.seg-box button {
   border: 0; border-radius: var(--r-sm); padding: 8px 12px;
   min-height: 36px;
   background: none; color: var(--muted);
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: 13px; white-space: nowrap;
 }
-.dir-switch button[aria-pressed='true'] { background: var(--bg); color: var(--fg); font-weight: 600; }
+.seg-box button[aria-pressed='true'] { background: var(--bg); color: var(--fg); font-weight: 600; }
+/* 两个选项框一行：模式在左、方向在右（过一遍模式没有方向，右边就空着；太窄就换行） */
+.prac-switches {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
 
 .prac-card { display: grid; gap: 12px; padding: 16px 16px; }
 .prac-prompt { font-size: clamp(26px, 7.5vw, 42px); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
@@ -532,9 +554,16 @@ body[data-view='practice'] #tabbar { display: none; }
 .answer-term { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .answer-word { font-family: var(--font-headword); font-size: clamp(20px, 5.5vw, 26px); font-weight: 600; }
 .answer-phonetic { color: var(--muted); font-size: 13px; font-family: var(--ipa-font); }
-.answer-means { display: grid; gap: 4px; }
-.answer-row { display: flex; gap: 8px; }
-.answer-row::before { content: '·'; color: var(--muted); }
+/* 每条释义：中文一行（主）、英文原释义一行（次，弱化） */
+.answer-means { display: grid; gap: 10px; }
+.answer-row { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; }
+.answer-row::before { content: '·'; color: var(--muted); grid-row: 1 / -1; }
+.mean-zh { line-height: 1.45; }
+.mean-en { grid-column: 2; color: var(--muted); font-size: 13px; line-height: 1.4; }
+/* 中→英的题目就是这堆释义：整体字号压下来，中文仍是主角 */
+.prac-prompt .answer-row::before { font-size: 16px; }
+.prac-prompt .mean-zh { font-size: clamp(22px, 6vw, 30px); font-weight: 650; }
+.prac-prompt .mean-en { font-size: clamp(13px, 3.4vw, 15px); }
 .answer-colloc {
   display: grid;
   gap: 4px;
@@ -595,7 +624,6 @@ body[data-view='practice'] #tabbar { display: none; }
 .nav-knob[data-dir='next'] .nav-knob-label { color: var(--accent-text); }
 .nav-knob[data-dir='prev'] .nav-knob-label { color: var(--bad-ink); }
 .prac-slider.dragging .nav-knob { box-shadow: 0 2px 6px rgb(0 0 0 / 0.16), 0 8px 20px rgb(0 0 0 / 0.12); }
-.mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .link-btn {
   padding: 8px 4px;
   min-height: 32px;
@@ -920,14 +948,14 @@ body[data-view='practice'] #tabbar { display: none; }
 }
 
 /* 按钮按下：高频微反馈 → 极短（110ms）、幅度极小（0.97），用带一点点回弹的曲线 */
-.primary, .ghost, .chip, .lib-more, .prac-quit, .link-btn, .lib-name {
+.primary, .ghost, .chip, .chip-btn, .lib-more, .prac-quit, .link-btn, .lib-name {
   transition:
     transform var(--dur-tap) var(--ease-spring-soft),
     background-color var(--fade-ui) ease,
     color var(--fade-ui) ease,
     border-color var(--fade-ui) ease;
 }
-.primary:active, .ghost:active, .chip:active, .lib-more:active, .prac-quit:active, .link-btn:active { transform: scale(0.97); }
+.primary:active, .ghost:active, .chip:active, .chip-btn:active, .lib-more:active, .prac-quit:active, .link-btn:active { transform: scale(0.97); }
 .lib-name:active { transform: scale(0.99); }
 
 /* 过一遍模式的手势：卡片跟手拖 → 松手回弹或飞出去 */
@@ -952,7 +980,6 @@ body[data-view='practice'] #tabbar { display: none; }
   color: var(--ok-ink);
 }
 .swipe-badge[data-dir='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-ink); }
-.swipe-tip { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2px; }
 
 /* 真机调试浮层（只在 ?debug=1 时出现）：把滑动相关的状态摆在屏幕上。
    无头测试跑得通 ≠ 真机跑得通，touch-action / pointercancel 这类问题只有手机上才暴露。 */

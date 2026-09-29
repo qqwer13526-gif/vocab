@@ -4,7 +4,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { extractPos, judgeEn2Zh, judgeZh2En, lev, normAnswer, normTerm, splitMeanings } from '../src/judge.js';
+import { extractPos, glossParts, judgeEn2Zh, judgeZh2En, lev, normAnswer, normTerm, splitMeanings } from '../src/judge.js';
+
+// ---------------------------------------------------------------- 释义分栏（中文 / 英文）
+
+test('glossParts：把"英汉混排"的一条释义拆成中文与英文两部分', () => {
+  assert.deepEqual(glossParts('take in or soak up吸收'), { zh: '吸收', en: 'take in or soak up' });
+  assert.deepEqual(glossParts('poetry诗节'), { zh: '诗节', en: 'poetry' });
+  assert.deepEqual(glossParts('acceptance接受'), { zh: '接受', en: 'acceptance' });
+});
+
+test('glossParts：只有一边的时候另一边是空串（界面就不渲染那一行）', () => {
+  assert.deepEqual(glossParts('韵文'), { zh: '韵文', en: '' });
+  assert.deepEqual(glossParts('group of lines forming part of a poem'), { zh: '', en: 'group of lines forming part of a poem' });
+  assert.deepEqual(glossParts('使专心'), { zh: '使专心', en: '' });
+  assert.deepEqual(glossParts(''), { zh: '', en: '' });
+  assert.deepEqual(glossParts(null), { zh: '', en: '' });
+});
+
+test('glossParts：括号说明跟着挨着的那一段，两端的括号/标点削掉', () => {
+  assert.deepEqual(glossParts('存取（信息）'), { zh: '存取（信息）', en: '' });
+  assert.deepEqual(glossParts('test（测试）'), { zh: '测试', en: 'test' });
+  assert.deepEqual(glossParts('run; 跑'), { zh: '跑', en: 'run' });
+});
+
+test('glossParts：切法与判题一致 —— 显示出来的中文就是判题接受的中文', () => {
+  for (const s of ['take in or soak up吸收', 'poetry诗节', 'run; 跑', '使专心']) {
+    const { zh } = glossParts(s);
+    assert.equal(judgeEn2Zh(zh, [s]).ok, true, `${s} → 显示"${zh}"，用户照着打也应该算对`);
+  }
+});
 
 // ---------------------------------------------------------------- 归一化
 

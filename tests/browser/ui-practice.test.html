@@ -112,6 +112,8 @@ try {
   const lib2 = await seed();
   frame = await openApp({ hash: `#/practice?lib=${lib2}&dir=zh2en`, sel: '[data-testid="practice-prompt"]' });
   eq('中→英：提示是中文释义', t(frame, '[data-testid="practice-prompt"]').includes('吸收'), true);
+  eq('题目里的中文也是一行一条', t(frame, '[data-testid="practice-prompt"] [data-testid="mean-zh"]'), '吸收');
+  eq('题目里的英文原释义另起一行', t(frame, '[data-testid="practice-prompt"] [data-testid="mean-en"]'), 'take in or soak up');
   const inp2 = q(frame, '[data-testid="practice-input"]');
   type(inp2, 'absord');
   pressEnter(inp2);
@@ -139,6 +141,11 @@ try {
     && t(frame, '[data-testid="answer-means"]').includes('使专心'), t(frame, '[data-testid="answer-means"]'));
   ok('搭配按分隔符拆成两条', qa(frame, '[data-testid="practice-colloc"] .answer-row').length === 2, t(frame, '[data-testid="practice-colloc"]'));
   ok('搭配内容对得上', t(frame, '[data-testid="practice-colloc"]').includes('be absorbed in 全神贯注于'), t(frame, '[data-testid="practice-colloc"]'));
+
+  // ---------------- 6c. 中文释义与英文原释义分栏 ----------------
+  eq('中文单独一行', t(frame, '[data-testid="answer-means"] [data-testid="mean-zh"]'), '吸收');
+  eq('英文原释义另一行（原来和中文粘在一行里）', t(frame, '[data-testid="answer-means"] [data-testid="mean-en"]'), 'take in or soak up');
+  eq('只有中文的那条就不画英文行', qa(frame, '[data-testid="answer-means"] .answer-row')[1].querySelectorAll('[data-testid="mean-en"]').length, 0);
 
   // ---------------- 7. 英译中的"算我对" ----------------
   await db.wipeAll();
@@ -239,8 +246,11 @@ try {
 
   click(q(frame, '[data-testid="btn-again"]'));
   await waitFor(() => q(frame, '[data-testid="practice-prompt"]'), { label: '再来一轮' });
-  click(q(frame, '[data-testid="btn-toggle-mode"]'));
+  // 模式是右上角那个选项框（过一遍 / 默写），不再是文字链接
+  eq('模式选项框：过一遍被选中', q(frame, '[data-testid="btn-mode-review"]').getAttribute('aria-pressed'), 'true');
+  click(q(frame, '[data-testid="btn-mode-quiz"]'));
   await waitFor(() => q(frame, '[data-testid="practice-input"]').hidden === false, { label: '切回默写' });
+  eq('模式选项框：点在默写那格上就按下去', q(frame, '[data-testid="btn-mode-quiz"]').getAttribute('aria-pressed'), 'true');
   ok('切回默写：输入框回来了', q(frame, '[data-testid="practice-input"]').hidden === false);
   ok('切回默写：答案收起来了', q(frame, '[data-testid="practice-answer"]').hidden === true);
   ok('URL 记下了当前模式', frame.contentWindow.location.hash.includes('mode=quiz'), frame.contentWindow.location.hash);
@@ -253,7 +263,7 @@ try {
   const pe = (type, x, y = 300) =>
     cardEl().dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
 
-  ok('过一遍模式显示"左滑右滑"的提示', q(frame, '[data-testid="swipe-tip"]').hidden === false);
+  ok('过一遍模式显示"左滑右滑"的提示', q(frame, '[data-testid="swipe-tip"]') === null);
   eq('第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
 
   // 拖一点点 → 跟手，但松手要弹回去、不算数
@@ -285,7 +295,7 @@ try {
   // 默写模式不该有滑动（高频打字场景不要加手势）
   frame.contentWindow.location.hash = `#/practice?lib=${lib6}&mode=quiz`;
   await waitFor(() => q(frame, '[data-testid="practice-input"]') && !q(frame, '[data-testid="practice-input"]').hidden, { label: '切到默写' });
-  ok('默写模式不显示滑动提示', q(frame, '[data-testid="swipe-tip"]').hidden === true);
+  ok('默写模式不显示滑动提示', q(frame, '[data-testid="swipe-tip"]') === null);
   ok('默写模式的卡片不接管横向手势', q(frame, '.prac-card').classList.contains('swipeable') === false);
 
   // ---------------- 12b. 滑片：拖左 = 上一个词，拖右 = 下一个词 ----------------
@@ -623,11 +633,15 @@ try {
   // (d) 指定的词不在队列里（已掌握、不到期）也要能从那开始
   fromFrame = await openApp({ hash: `#/practice?lib=${libL}&from=w-book`, sel: '[data-testid="practice-prompt"]' });
   eq('从已掌握的词开始 → 也被拉进来排第一', t(fromFrame, '[data-testid="practice-prompt"]'), 'book');
-  // ---------------- 20. v24：练习页的「选词」列表 ----------------
+  // ---------------- 20. v24：练习页的「选词」列表；v26：它和模式切换都是"选项框" ----------------
   await db.wipeAll();
   const libP = await seed();
   const pickFrame = await openApp({ hash: `#/practice?lib=${libP}&mode=review`, sel: '[data-testid="practice-prompt"]' });
   const pickerOf = () => q(pickFrame, '[data-testid="word-picker"]');
+  ok('「选词」做成了选项框（chip）', q(pickFrame, '[data-testid="btn-picker"]').classList.contains('chip-btn'));
+  ok('「过一遍 / 默写」是选项框（两格、当前那格按下）',
+    qa(pickFrame, '[data-testid="mode-switch"] button').length === 2
+    && q(pickFrame, '[data-testid="btn-mode-review"]').getAttribute('aria-pressed') === 'true');
   ok('默认不展开选词列表', pickerOf().hidden === true);
   click(q(pickFrame, '[data-testid="btn-picker"]'));
   await waitFor(() => pickerOf().hidden === false, { label: '选词列表展开' });

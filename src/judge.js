@@ -82,6 +82,46 @@ const CJK_CH = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
 const ALNUM_CH = /[0-9a-z]/i;
 const BRACKET_RE = /[（(【[][^）)】\]]*[）)】\]]/g;
 
+/** 削掉一段两端的空白与分隔标点 */
+const EDGE_SEP = /^[\s;；,，、·:：./|]+|[\s;；,，、·:：./|]+$/g;
+const OPEN_BR = '（([【｛{';
+const CLOSE_BR = '）)]】｝}';
+const countIn = (s, set) => [...s].filter((ch) => set.includes(ch)).length;
+
+/** 削掉两端的"落单括号"：切分可能把「测试）」的括号留在边缘，而「存取（信息）」的成对括号要留着 */
+function cleanEdges(part) {
+  let s = part.replace(EDGE_SEP, '');
+  for (let i = 0; i < 4; i++) {
+    const before = s;
+    const last = s[s.length - 1];
+    const first = s[0];
+    if (last && OPEN_BR.includes(last)) s = s.slice(0, -1); // 末尾落单的开括号
+    if (first && CLOSE_BR.includes(first)) s = s.slice(1); // 开头落单的闭括号
+    if (countIn(s, CLOSE_BR) > countIn(s, OPEN_BR) && CLOSE_BR.includes(s[s.length - 1])) s = s.slice(0, -1);
+    if (countIn(s, OPEN_BR) > countIn(s, CLOSE_BR) && OPEN_BR.includes(s[0])) s = s.slice(1);
+    s = s.replace(EDGE_SEP, '');
+    if (s === before) break;
+  }
+  return s;
+}
+
+/**
+ * 把一条"英汉混排"的释义拆成中文部分和英文部分（界面要把两者分行显示）。
+ *
+ * 刻意复用判题用的 `scriptParts`：这样"界面上显示的中文"和"判题接受的中文答案"永远是同一刀切出来的。
+ *     "take in or soak up吸收" → { zh: '吸收', en: 'take in or soak up' }
+ *     "poetry诗节"            → { zh: '诗节', en: 'poetry' }
+ *     "韵文"                  → { zh: '韵文', en: '' }
+ *     "group of lines…"       → { zh: '',    en: 'group of lines…' }
+ */
+export function glossParts(text) {
+  const parts = scriptParts(text).map(cleanEdges).filter(Boolean);
+  return {
+    zh: parts.filter((p) => CJK_CH.test(p)).join('；'),
+    en: parts.filter((p) => !CJK_CH.test(p)).join(' ')
+  };
+}
+
 /**
  * 把"英汉混排"的一段在字母↔汉字交界处切开（真实词表里的释义就是这个形态）：
  *     "take in or soak up吸收" → ['take in or soak up', '吸收']

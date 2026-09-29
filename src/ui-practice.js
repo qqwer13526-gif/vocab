@@ -10,7 +10,7 @@
 
 import { $, el } from './app.js';
 import { hardDelete, put } from './db.js';
-import { judgeEn2Zh, judgeZh2En } from './judge.js';
+import { glossParts, judgeEn2Zh, judgeZh2En } from './judge.js';
 import { decideFlip, rubberbandBeyond, runSpring, velocityFrom } from './spring.js';
 import { icon } from './icons.js';
 import { buildQueue, grade, markLevel, newProg, queueFromOrder } from './srs.js';
@@ -120,7 +120,7 @@ export async function renderPractice(params = {}) {
   });
   btnBack.append(icon('undo', { size: 20 }));
   const progress = el('span', { className: 'prac-progress', dataset: { testid: 'progress-text' } }, '');
-  const dirSwitch = el('div', { className: 'dir-switch', dataset: { testid: 'dir-switch' }, role: 'group', 'aria-label': '练习方向' },
+  const dirSwitch = el('div', { className: 'seg-box dir-switch', dataset: { testid: 'dir-switch' }, role: 'group', 'aria-label': '练习方向' },
     DIRS.map((d) =>
       el('button', {
         type: 'button',
@@ -130,6 +130,21 @@ export async function renderPractice(params = {}) {
       }, d.label)
     )
   );
+  // 「过一遍 / 默写」也做成一个选项框（和方向切换同一套外观），不再是那行蓝色文字链接
+  const modeSwitch = el('div', { className: 'seg-box mode-switch', dataset: { testid: 'mode-switch' }, role: 'group', 'aria-label': '练习模式' }, [
+    el('button', {
+      type: 'button',
+      dataset: { testid: 'btn-mode-review' },
+      'aria-pressed': String(s.review),
+      onclick: () => setReview(true)
+    }, '过一遍'),
+    el('button', {
+      type: 'button',
+      dataset: { testid: 'btn-mode-quiz' },
+      'aria-pressed': String(!s.review),
+      onclick: () => setReview(false)
+    }, '默写')
+  ]);
 
   const prompt = el('div', { className: 'prac-prompt', dataset: { testid: 'practice-prompt' } }, '');
   const hint = el('div', { className: 'prac-hint', dataset: { testid: 'practice-hint' } }, '');
@@ -179,15 +194,9 @@ export async function renderPractice(params = {}) {
     el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown])
   ]);
 
-  // 模式切换：默写（考自己） ⇄ 过一遍（只看不考，专门用来刷生疏词）
-  const modeBtn = el('button', {
-    className: 'link-btn',
-    dataset: { testid: 'btn-toggle-mode' },
-    type: 'button',
-    onclick: () => setReview(!s.review)
-  }, '');
-  const swipeTip = el('div', { className: 'swipe-tip', dataset: { testid: 'swipe-tip' }, hidden: true }, '← 左滑算生疏 · 右滑算熟记 →');
-  const modeRow = el('div', { className: 'mode-row' }, [swipeTip, modeBtn]);
+  // 模式切换做成了上面的 modeSwitch 选项框；原来那行"← 左滑算生疏 · 右滑算熟记 →"的提示按用户要求删掉了
+  // （卡片手势还在：拖动时浮出红/绿角标，滑片也把"翻词"这条路讲清楚了）。
+  const switchRow = el('div', { className: 'prac-switches' }, [modeSwitch, dirSwitch]);
 
   const card = el('div', { className: 'card prac-card' }, [
     prompt,
@@ -237,9 +246,10 @@ export async function renderPractice(params = {}) {
     ])
   ]);
 
-  // 「选词」：把这一轮的全部词列出来，点一行就跳过去（内联折叠，不用抽屉/遮罩）
+  // 「选词」：把这一轮的全部词列出来，点一行就跳过去（内联折叠，不用抽屉/遮罩）。
+  // 做成一个"选项框"样子的 chip（原来是蓝色文字链接），放在顶栏最右边。
   const pickerBtn = el('button', {
-    className: 'link-btn picker-btn',
+    className: 'chip-btn picker-btn',
     dataset: { testid: 'btn-picker' },
     type: 'button',
     'aria-expanded': 'false',
@@ -247,8 +257,8 @@ export async function renderPractice(params = {}) {
   }, '选词');
   const picker = el('div', { className: 'picker', dataset: { testid: 'word-picker' }, hidden: true });
 
-  const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, pickerBtn, dirSwitch]);
-  view.replaceChildren(top, modeRow, cardWrap, navSlider, picker, summary);
+  const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, pickerBtn]);
+  view.replaceChildren(top, switchRow, cardWrap, navSlider, picker, summary);
 
   // ---------------------------------------------------------------- 真机调试浮层（?debug=1）
   // 无头浏览器里合成 PointerEvent 跑得通，不代表 iOS 真实触摸跑得通（touch-action / pointercancel
@@ -274,9 +284,24 @@ export async function renderPractice(params = {}) {
   /** 常用搭配：一个字符串字段，按 换行 / ; / ； 拆成多条（导入的「常用搭配」列与词条编辑页填的都是它） */
   const collocList = (w) => String(w.example || '').split(/[\n;；]+/).map((x) => x.trim()).filter(Boolean);
 
+  /**
+   * 一条释义渲染成"中文一行 + 英文原释义一行"（用 judge.js 的 glossParts 拆，和判题同一刀）。
+   * 只有一边就只画那一行（比如英文原释义单独一条，或纯中文的"使专心"）。
+   */
+  function meanRows(list) {
+    return (list || [])
+      .map((raw) => glossParts(raw))
+      .filter((g) => g.zh || g.en)
+      .map((g) =>
+        el('div', { className: 'answer-row' }, [
+          g.zh ? el('div', { className: 'mean-zh', dataset: { testid: 'mean-zh' } }, g.zh) : null,
+          g.en ? el('div', { className: 'mean-en', dataset: { testid: 'mean-en' } }, g.en) : null
+        ].filter(Boolean))
+      );
+  }
+
   /** 填揭晓块：全部释义 + 全部搭配（一行一条）；中→英方向补一行词头+音标 */
   function renderReveal(w) {
-    const rows = (list) => list.map((line) => el('div', { className: 'answer-row' }, line));
     const zh2en = s.curDir === 'zh2en';
     answerTerm.hidden = !zh2en;
     answerTerm.replaceChildren(
@@ -285,9 +310,9 @@ export async function renderPractice(params = {}) {
         zh2en && w.phonetic ? el('span', { className: 'answer-phonetic' }, w.phonetic) : null
       ].filter(Boolean)
     );
-    answerMeans.replaceChildren(...rows((w.meanings || []).filter(Boolean)));
+    answerMeans.replaceChildren(...meanRows(w.meanings));
     const collocs = collocList(w);
-    answerColloc.replaceChildren(...rows(collocs));
+    answerColloc.replaceChildren(...collocs.map((line) => el('div', { className: 'answer-row' }, line)));
     answerColloc.hidden = collocs.length === 0;
   }
 
@@ -306,10 +331,11 @@ export async function renderPractice(params = {}) {
     submit.hidden = s.review;
     dirSwitch.hidden = s.review; // 过一遍时词和释义同时看得见，方向没意义
     answerLine.hidden = !s.review;
-    swipeTip.hidden = !s.review;
     card.classList.toggle('swipeable', s.review);
     if (!s.review) swipeBadge.hidden = true;
-    modeBtn.textContent = s.review ? '→ 换成默写（考自己）' : '→ 过一遍（只看不考，适合刷生疏词）';
+    for (const b of modeSwitch.children) {
+      b.setAttribute('aria-pressed', String((b.dataset.testid === 'btn-mode-review') === s.review));
+    }
     syncSlider();
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
@@ -400,13 +426,15 @@ export async function renderPractice(params = {}) {
     syncBackBtn();
     renderPicker(); // 列表开着的话，把"当前"和本轮结果刷新一下
     if (s.review) {
-      // 过一遍：词、音标、释义、搭配同时摊开，只需要点「熟记 / 生疏」
+      // 过一遍：词、音标、释义（中英分栏）、搭配同时摊开，只需要点「熟记 / 生疏」
       prompt.textContent = w.term;
       hint.textContent = [w.phonetic, w.pos].filter(Boolean).join(' · ');
       renderReveal(w);
       answerLine.hidden = false;
     } else {
-      prompt.textContent = s.curDir === 'en2zh' ? w.term : w.meanings.join('；');
+      // 中→英的题目也按"中文一行 + 英文原释义一行"排（原来是一整行混排的字符串）
+      if (s.curDir === 'en2zh') prompt.textContent = w.term;
+      else prompt.replaceChildren(...meanRows(w.meanings));
       hint.textContent = [s.curDir === 'en2zh' ? w.phonetic : '', w.pos].filter(Boolean).join(' · ');
       // 默写：答案先收起来（搭配里通常就含答案，比如 permanent resident），答完由 revealAnswer() 摊开
       answerLine.hidden = true;
@@ -779,7 +807,7 @@ export async function renderPractice(params = {}) {
     summary.hidden = true;
     const smart = smartDef(smartId);
     const isSmart = !!smart;
-    view.replaceChildren(top, modeRow, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
+    view.replaceChildren(top, switchRow, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
       el('div', { className: 'empty-title' }, isSmart ? `「${smart.name}」里还没有词` : '今天没有要练的'),
       el('div', { className: 'empty-sub' },
         isSmart ? '练习时点一下「生疏」，这个词就会自动进到这个库，下次就能专项练它。' : '复习都做完了，也没有新词。明早再来，或者去导入更多词表。'),
