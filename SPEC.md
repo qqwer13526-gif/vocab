@@ -367,6 +367,10 @@
 12. 界面里不出现"盒 N"（只留 生疏/熟记/未标）；不出现三角图标（▶）；
    练习页的「选词」能展开、行数=本轮词数、点一行能跳题、答过的词带结果
 
+13. **发布页**：仓库可见性 = public、Website = Pages 地址、Releases 有一条非草稿的版本，
+    附件是只含应用本体的 `vocab-<版本>.zip`；且**不登录**也能打开发布页并把 zip 下下来
+    （发版流程走 `tool/release.py`，见 README「发一个发布页」）
+
 ### 验收记录
 
 | 日期 | 结论 | 证据 |
@@ -383,6 +387,8 @@
 | 2026-09-26 | 结构改版（v23）：生疏/熟记内置到每个词库页（总词库=全局，首页不再有「自动收集」卡）；词库页可「从这个词开始背」；词库行整行可点；iOS 26 状态栏玻璃用"铺同色实底"规避 | `verify_all` 19 步全绿；`ui-word` 63、`smart` 19、`ui-home` 46、`ui-practice` 118 项；线上 v23 |
 | 2026-09-26 | 真机修复（v22）：`touch-action: pan-y` → `none`（iOS 把带纵向的拖拽判给滚动、甩 pointercancel，导致真机完全拖不动）；激活阈值 10→6px；新增真机调试浮层（设置里的开关或 `?debug=1`） | `ui-practice` 110 项（新增 touch-action 与浮层断言）、`settings` 37 项；`verify_all` 19 步全绿；线上 v22 |
 | 2026-09-26 | UI 批次六（v21）：胶囊按视频**逐帧实测值** 1:1 复刻（宽 70% / 高 60 / 下沿贴底 / 图标 24）+ 页面底与卡片对调（灰底白卡，胶囊才"比页面亮"）；首页行统一（删掉全部说明句、词库行等高、圆角 12→16）；过一遍滑动改成**真拖拽**（惯性投射 + 速度接管 + 可打断 + 橡皮筋，弹簧用解析解） | `verify_all.py` → 19 步全绿（含新增 `tests/spring.test.js` 13 项与 `ui-practice` 的 6 条拖拽断言）；线上 v21 |
+
+| 2026-09-26 | 发布页（v24）：建 GitHub Release `v24` + 附件 `vocab-v24.zip`（184 KB，只含应用本体）；仓库 Website 指向 Pages；新增发版脚本 `tool/release.py`；`dist/` 不进仓库 | 匿名（无 token）打开 https://github.com/qqwer13526-gif/vocab/releases/tag/v24 → 200；匿名下载附件 → 200 / 189165 字节 / `PK` 头；API：1 条 release、draft=false、private=false；Pages 线上 `version.json` = v24 |
 
 > 第 1 版的验收到此结束。以后每改一版，先跑 `python tool\verify_all.py` 再 `git push`（Pages 会自动重建）。
 
