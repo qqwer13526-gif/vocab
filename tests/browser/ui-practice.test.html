@@ -651,6 +651,15 @@ try {
     q(pickFrame, '#view-practice').classList.contains('picker-open') === true
     && pickFrame.contentWindow.getComputedStyle(q(pickFrame, '.prac-top')).position === 'sticky',
     pickFrame.contentWindow.getComputedStyle(q(pickFrame, '.prac-top')).position);
+  ok('展开期间整个列表钉在屏幕上（fixed，宽度跟着卡片走）',
+    pickFrame.contentWindow.getComputedStyle(pickerOf()).position === 'fixed'
+    && Math.abs(Math.round(pickerOf().getBoundingClientRect().width) - Math.round(q(pickFrame, '.prac-card').getBoundingClientRect().width)) <= 1,
+    `${pickerOf().getBoundingClientRect().width} vs ${q(pickFrame, '.prac-card').getBoundingClientRect().width}`);
+  ok('展开期间页面锁住不滚（列表自己在里面滚，两层滚动条不叠）', pickFrame.contentDocument.body.style.overflow === 'hidden');
+  ok('顶栏高度与卡片的左右位置都量出来交给 CSS（窄屏换行、桌面居中都不会贴歪）',
+    /^\d+px$/.test(q(pickFrame, '#view-practice').style.getPropertyValue('--prac-top-h'))
+    && /^\d+px$/.test(q(pickFrame, '#view-practice').style.getPropertyValue('--prac-left')),
+    q(pickFrame, '#view-practice').getAttribute('style'));
   const total = Number(t(pickFrame, '[data-testid="progress-text"]').match(/1\/(\d+)/)[1]);
   eq('列表行数 = 这一轮的词数', qa(pickFrame, '[data-testid="picker-row"]').length, total);
   eq('第一行就是当前题', qa(pickFrame, '[data-testid="picker-row"]')[0].dataset.cur, 'true');
@@ -661,7 +670,10 @@ try {
   click(q(pickFrame, '[data-testid="btn-picker"]'));
   await waitFor(() => pickerOf().hidden === true, { label: '点收起 → 列表折叠' });
   eq('收起后按钮字样回到"选词"', t(pickFrame, '[data-testid="btn-picker"]'), '选词');
-  ok('收起后不再吸顶', q(pickFrame, '#view-practice').classList.contains('picker-open') === false);
+  ok('收起后不再吸顶、也不再钉着、页面解锁',
+    q(pickFrame, '#view-practice').classList.contains('picker-open') === false
+    && pickFrame.contentWindow.getComputedStyle(pickerOf()).position !== 'fixed'
+    && pickFrame.contentDocument.body.style.overflow === '');
   click(q(pickFrame, '[data-testid="btn-picker"]'));
   await waitFor(() => pickerOf().hidden === false, { label: '再展开' });
 

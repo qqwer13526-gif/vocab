@@ -372,17 +372,37 @@ export async function renderPractice(params = {}) {
 
   /**
    * 开合选词列表。
-   * 列表展开时给视图挂上 `picker-open`：顶栏因此在展开期间**吸顶** —— 列表自己会滚
-   * （`.picker` 有 max-height + overflow），手指落在列表上时滚的是列表而不是页面，
-   * 不吸顶的话右上角的「收起」会被滚出屏幕，看起来就像"收不回去了"。
+   *
+   * 展开时的表现是「选词模式」：**整个列表钉在顶栏下面**（fixed，位置/宽度按卡片实测）、
+   * 页面锁住不滚、列表自己在里面滚。为什么这么做：
+   *   - 列表自己有 max-height + overflow：手指落在列表上滚的是列表，页面不动
+   *   - 页面还能滚的话，右上角的「收起」会被滚出屏幕 —— 真机上就是"收不回去了"
+   *   - 整个列表钉住之后，28 个词从第 1 个到最后 1 个都在屏幕上翻，挑词不用来回滚页面
+   * 位置用 CSS 变量传：顶栏会换行（窄屏/宽屏不一样），卡片在桌面是居中的，写死会歪。
    */
   function togglePicker(force) {
     const open = force != null ? force : picker.hidden;
     picker.hidden = !open;
     view.classList.toggle('picker-open', open);
+    lockPageScroll(open);
+    if (open) measurePickerBox();
     pickerBtn.setAttribute('aria-expanded', String(open));
     pickerBtn.textContent = open ? '收起' : '选词';
     if (open) renderPicker();
+  }
+
+  /** 列表展开期间不让页面跟着滚（列表内部照滚）：两层滚动条叠在一起最难用 */
+  function lockPageScroll(on) {
+    view.ownerDocument.body.style.overflow = on ? 'hidden' : '';
+  }
+
+  /** 量顶栏高度 + 卡片的位置与宽度，交给 CSS 变量（顶栏换行、桌面居中都不会算歪） */
+  function measurePickerBox() {
+    const host = card.hidden ? view : card;
+    const box = host.getBoundingClientRect();
+    view.style.setProperty('--prac-top-h', `${top.offsetHeight}px`);
+    view.style.setProperty('--prac-left', `${Math.round(box.left)}px`);
+    view.style.setProperty('--prac-w', `${Math.round(box.width)}px`);
   }
 
   function renderPicker() {
@@ -418,7 +438,10 @@ export async function renderPractice(params = {}) {
     card.hidden = false;
     renderQuestion();
     renderPicker();
-    togglePicker(false); // 挑完就走：跳过去之后列表自己收起（不然它会一直占着屏幕）
+    togglePicker(false); // 挑完就走：跳过去之后列表自己收起
+    // 收起后把选中的那一题带到眼前（面板是钉在屏幕上的，页面可能还停在别处）
+    const win = view.ownerDocument.defaultView;
+    win?.scrollTo?.({ top: 0, behavior: reduced() ? 'auto' : 'smooth' });
   }
 
   function renderQuestion() {
@@ -1060,5 +1083,14 @@ export async function renderPractice(params = {}) {
     dbg.node = el('div', { className: 'debug-hud', dataset: { testid: 'debug-hud' } });
     view.append(dbg.node);
     paintDebug();
+  }
+
+  // 列表展开期间盯着顶栏与卡片的尺寸：转屏 / 键盘收起 / 窗口缩放之后面板还得贴在该在的地方
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(() => {
+      if (!picker.hidden) measurePickerBox();
+    });
+    ro.observe(top);
+    ro.observe(card);
   }
 }

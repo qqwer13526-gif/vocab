@@ -467,6 +467,20 @@ body[data-view='practice'] #tabbar { display: none; }
   margin-bottom: 4px;
   box-shadow: 0 10px 14px -12px rgb(0 0 0 / 0.55);
 }
+/* 「选词模式」：整个列表钉在顶栏下面（位置/宽度按卡片实测，见 measurePickerBox），
+   页面锁住不滚、列表自己在里面滚 —— 列表整块永远看得见，28 个词随便翻，收起也一直在屏幕上。 */
+.picker-open .picker {
+  position: fixed;
+  left: var(--prac-left, 16px);
+  width: var(--prac-w, calc(100vw - 32px));
+  top: calc(var(--safe-t) + var(--prac-top-h, 44px));
+  max-height: calc(100vh - var(--safe-t) - var(--prac-top-h, 44px) - 16px);
+  max-height: calc(100dvh - var(--safe-t) - var(--prac-top-h, 44px) - 16px); /* iOS 的地址栏会伸缩，dvh 才准 */
+  margin-top: 8px;
+  z-index: 6;
+  overscroll-behavior: contain; /* 列表滚到底不把页面/下拉刷新带出来 */
+  box-shadow: var(--shadow-2);
+}
 .prac-quit {
   display: grid; place-items: center;
   width: 36px; height: 36px; flex: none;
