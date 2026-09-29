@@ -108,6 +108,23 @@
         }
       } catch (e) { /* 忽略 */ }
     }
+    // 想看"某个控件点开之后"的样子（选词列表、抽屉、菜单）时：tap=选择器（多个用 , 分，依次点）
+    if (q.get('tap')) {
+      try {
+        const d = frame.contentDocument;
+        for (const sel of q.get('tap').split(',').map((x) => x.trim()).filter(Boolean)) {
+          d.querySelector(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      } catch (e) { /* 忽略 */ }
+    }
+    // 页面滚到某个位置再截（看吸顶、看长列表开头/结尾）
+    if (q.get('scroll')) {
+      try {
+        frame.contentWindow.scrollTo(0, Number(q.get('scroll')) || 0);
+        await new Promise((r) => setTimeout(r, 250));
+      } catch (e) { /* 忽略 */ }
+    }
     if (theme) {
       try {
         const d = frame.contentDocument;

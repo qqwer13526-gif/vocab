@@ -300,14 +300,17 @@ export async function renderPractice(params = {}) {
       );
   }
 
-  /** 填揭晓块：全部释义 + 全部搭配（一行一条）；中→英方向补一行词头+音标 */
+  /** 填揭晓块：全部释义 + 全部搭配（一行一条）；只有"题目没给词头"时才补一行词头+音标 */
   function renderReveal(w) {
-    const zh2en = s.curDir === 'zh2en';
-    answerTerm.hidden = !zh2en;
+    // ⚠️ 补词头的条件是"题目里没出现过词头"，所以必须带上 !s.review：
+    // 过一遍模式下题目（prompt）就是词、音标在 hint 行里，再补一行就是同一个词和同一个音标出现两次。
+    // 另外 s.curDir 是每个词按 id 哈希算出来的（过一遍也会算出一个方向），不能只看它。
+    const showTermRow = !s.review && s.curDir === 'zh2en';
+    answerTerm.hidden = !showTermRow;
     answerTerm.replaceChildren(
       ...[
-        zh2en ? el('span', { className: 'answer-word', dataset: { testid: 'answer-word' } }, w.term) : null,
-        zh2en && w.phonetic ? el('span', { className: 'answer-phonetic' }, w.phonetic) : null
+        showTermRow ? el('span', { className: 'answer-word', dataset: { testid: 'answer-word' } }, w.term) : null,
+        showTermRow && w.phonetic ? el('span', { className: 'answer-phonetic' }, w.phonetic) : null
       ].filter(Boolean)
     );
     answerMeans.replaceChildren(...meanRows(w.meanings));
@@ -367,9 +370,16 @@ export async function renderPractice(params = {}) {
 
   const DONE_LABEL = { known: '熟记', unfamiliar: '生疏', ok: '对', bad: '错', skip: '跳过' };
 
+  /**
+   * 开合选词列表。
+   * 列表展开时给视图挂上 `picker-open`：顶栏因此在展开期间**吸顶** —— 列表自己会滚
+   * （`.picker` 有 max-height + overflow），手指落在列表上时滚的是列表而不是页面，
+   * 不吸顶的话右上角的「收起」会被滚出屏幕，看起来就像"收不回去了"。
+   */
   function togglePicker(force) {
     const open = force != null ? force : picker.hidden;
     picker.hidden = !open;
+    view.classList.toggle('picker-open', open);
     pickerBtn.setAttribute('aria-expanded', String(open));
     pickerBtn.textContent = open ? '收起' : '选词';
     if (open) renderPicker();
@@ -408,6 +418,7 @@ export async function renderPractice(params = {}) {
     card.hidden = false;
     renderQuestion();
     renderPicker();
+    togglePicker(false); // 挑完就走：跳过去之后列表自己收起（不然它会一直占着屏幕）
   }
 
   function renderQuestion() {

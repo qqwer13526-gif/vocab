@@ -228,6 +228,8 @@ try {
   ok('过一遍：卡片里不再有「下一个」按钮', q(frame, '[data-testid="btn-skip"]') === null);
   ok('过一遍：卡片里那行"60 天后再见"的说明也删了', q(frame, '.level-hint') === null);
   ok('过一遍：卡片下方有滑片', q(frame, '[data-testid="nav-slider"]').hidden === false);
+  ok('过一遍：揭晓块里不再重复词头与音标（题目上已经有）',
+    q(frame, '[data-testid="answer-term"]').hidden === true && qa(frame, '[data-testid="answer-word"]').length === 0);
 
   click(q(frame, '[data-testid="btn-level-known"]'));
   await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '过一遍时标熟记写库' });
@@ -645,23 +647,41 @@ try {
   ok('默认不展开选词列表', pickerOf().hidden === true);
   click(q(pickFrame, '[data-testid="btn-picker"]'));
   await waitFor(() => pickerOf().hidden === false, { label: '选词列表展开' });
+  ok('展开期间顶栏吸顶（手指落在列表上滚列表时，「收起」不会被滚出屏幕）',
+    q(pickFrame, '#view-practice').classList.contains('picker-open') === true
+    && pickFrame.contentWindow.getComputedStyle(q(pickFrame, '.prac-top')).position === 'sticky',
+    pickFrame.contentWindow.getComputedStyle(q(pickFrame, '.prac-top')).position);
   const total = Number(t(pickFrame, '[data-testid="progress-text"]').match(/1\/(\d+)/)[1]);
   eq('列表行数 = 这一轮的词数', qa(pickFrame, '[data-testid="picker-row"]').length, total);
   eq('第一行就是当前题', qa(pickFrame, '[data-testid="picker-row"]')[0].dataset.cur, 'true');
   ok('列表里带着词', t(pickFrame, '[data-testid="picker-row"]').includes(t(pickFrame, '[data-testid="practice-prompt"]')),
      t(pickFrame, '[data-testid="picker-row"]'));
 
-  // 跳题：点第 3 行 → 进度变第 3/n
+  // 打开后点「收起」要真的收起（这条路径以前没测过，真机上"收不回去"就是这里漏的）
+  click(q(pickFrame, '[data-testid="btn-picker"]'));
+  await waitFor(() => pickerOf().hidden === true, { label: '点收起 → 列表折叠' });
+  eq('收起后按钮字样回到"选词"', t(pickFrame, '[data-testid="btn-picker"]'), '选词');
+  ok('收起后不再吸顶', q(pickFrame, '#view-practice').classList.contains('picker-open') === false);
+  click(q(pickFrame, '[data-testid="btn-picker"]'));
+  await waitFor(() => pickerOf().hidden === false, { label: '再展开' });
+
+  // 跳题：点第 2 行 → 进度变第 2/n，并且列表自动收起
   click(qa(pickFrame, '[data-testid="picker-row"]')[1]);
   await waitFor(() => t(pickFrame, '[data-testid="progress-text"]') === `第 2/${total}`, { label: '跳到第 2 题' });
+  ok('跳过去之后列表自己收起（挑完就走）', pickerOf().hidden === true);
+  eq('收起后按钮的 aria-expanded 跟着变', q(pickFrame, '[data-testid="btn-picker"]').getAttribute('aria-expanded'), 'false');
+  eq('收起后按钮字样也回到"选词"', t(pickFrame, '[data-testid="btn-picker"]'), '选词');
   eq('当前行跟着换成第 2 行', qa(pickFrame, '[data-testid="picker-row"]')[1].dataset.cur, 'true');
   ok('跳题后「上一题」是灰的（历史清掉了）', q(pickFrame, '[data-testid="btn-back"]').disabled === true);
 
-  // 答一题 → 列表里那一行标出结果
+  // 答一题 → 重新展开列表就能看到那一行的结果（收起时不去白刷 DOM，展开那一刻刷新）
   click(q(pickFrame, '[data-testid="btn-level-known"]'));
-  await waitFor(() => qa(pickFrame, '[data-testid="picker-row"]')[1].textContent.includes('熟记'), { label: '列表标出熟记' });
-  ok('答过的词在列表里显示结果', true);
-  eq('答完自动进下一题', qa(pickFrame, '[data-testid="picker-row"]')[2].dataset.cur, 'true');
+  await waitFor(() => t(pickFrame, '[data-testid="progress-text"]') === `第 3/${total}`, { label: '标完自动进下一题' });
+  click(q(pickFrame, '[data-testid="btn-picker"]'));
+  await waitFor(() => pickerOf().hidden === false, { label: '再展开看结果' });
+  eq('答过的词在列表里显示结果', qa(pickFrame, '[data-testid="picker-row"]')[1].textContent.includes('熟记'), true,
+     qa(pickFrame, '[data-testid="picker-row"]')[1].textContent);
+  eq('当前行跟着到第 3 行', qa(pickFrame, '[data-testid="picker-row"]')[2].dataset.cur, 'true');
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

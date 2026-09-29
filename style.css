@@ -455,6 +455,18 @@ body[data-view='practice'] #tabbar { display: none; }
   margin-bottom: 12px;
   background: var(--bg); /* 实底：不让它看起来像浮在系统那层玻璃上 */
 }
+/* 选词列表展开期间顶栏吸顶：列表自己会滚（.picker 有 max-height），手指落在列表上时滚的是列表、
+   页面不动，不吸顶的话右上角的「收起」会被滚出屏幕（真机上就是"收不回去了"）。
+   top 用 --safe-t：吸在刘海/状态栏下面，不跟那层实色条打架。 */
+.picker-open .prac-top {
+  position: sticky;
+  top: var(--safe-t);
+  z-index: 7;
+  padding: 8px 0;
+  margin-top: -8px;
+  margin-bottom: 4px;
+  box-shadow: 0 10px 14px -12px rgb(0 0 0 / 0.55);
+}
 .prac-quit {
   display: grid; place-items: center;
   width: 36px; height: 36px; flex: none;
