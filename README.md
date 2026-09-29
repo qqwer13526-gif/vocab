@@ -403,6 +403,17 @@ python tool\verify_all.py --quick  # 只跑纯逻辑单元测试（几秒）
 `version.json` 的 `version`（`tool/verify_sw.py` 会检查三者一致，改漏了会红）。
 版本号一变，service worker 激活时清掉旧缓存；用户那边的应用下次打开就会看到顶部那条「立即更新」。
 
+### 发一个"发布页"（GitHub Releases，给别人下载用）
+
+```powershell
+$env:GH_TOKEN = "ghp_xxx"     # GitHub → Settings → Developer settings → Personal access tokens（勾 public_repo）
+python tool\release.py v25 "这一版改了什么"
+```
+
+它会：打一个只含**应用本体**的 `dist/vocab-v25.zip`（零依赖、无构建，解压就能自托管）→ 把仓库 Website 指到 Pages →
+建 v25 的 Release（带上面那段"怎么装"的说明）→ 把 zip 当附件传上去。
+别人在 Releases 页就能下载，或者直接打开 Pages 网址用。
+
 推完之后等几分钟（Pages 重建约 5–10 分钟），再确认线上就是本地那份：
 
 ```powershell
