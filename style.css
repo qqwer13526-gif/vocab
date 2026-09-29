@@ -448,6 +448,10 @@ body[data-view='practice'] #tabbar { display: none; }
   display: flex;
   align-items: center;
   gap: 12px;
+  row-gap: 8px;
+  /* 390px 宽 + 默写模式（还要放三格方向切换）一行塞不下：让方向切换整块掉到第二行右对齐，
+     而不是把"第 1/10""选词"挤成两行（那样最难看） */
+  flex-wrap: wrap;
   margin-bottom: 12px;
   background: var(--bg); /* 实底：不让它看起来像浮在系统那层玻璃上 */
 }
@@ -460,7 +464,8 @@ body[data-view='practice'] #tabbar { display: none; }
 }
 /* 图标是描边 SVG：块级显示，免得基线留出多余的空白 */
 .prac-quit svg, .lib-more svg { display: block; }
-.prac-progress { color: var(--muted); font-size: 14px; }
+.prac-progress { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.picker-btn { flex: none; white-space: nowrap; }
 .dir-switch { margin-left: auto; display: flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--card); }
 .dir-switch button {
   border: 0; border-radius: var(--r-sm); padding: 8px 12px;
@@ -508,23 +513,88 @@ body[data-view='practice'] #tabbar { display: none; }
 .session-summary { display: grid; gap: 16px; padding: 24px 16px; }
 .summary-text { font-size: 17px; line-height: 1.6; }
 
-/* 抽查时的手动定级：熟记 / 生疏 */
+/* 抽查时的手动定级：熟记 / 生疏（卡片里只留这两颗，等宽药丸 → 关于中轴对称） */
 .level-block { display: grid; gap: 8px; }
 .level-row { display: flex; gap: 12px; }
 .level-row > button { flex: 1; }
 .lvl-known { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
 .lvl-unfamiliar { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-.level-hint { color: var(--muted); font-size: 12px; text-align: center; }
 
-/* 「过一遍」模式：答案直接摊开，只点熟记/生疏 */
+/* 揭晓块：全部释义 + 全部搭配，一行一条（过一遍一进来就摊开；默写答完才摊开） */
 .prac-answer {
   padding: 12px 12px;
   border-radius: var(--r-sm);
-  background: var(--card);
+  background: var(--bg);
   font-size: clamp(16px, 4.5vw, 20px);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.answer-term { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.answer-word { font-family: var(--font-headword); font-size: clamp(20px, 5.5vw, 26px); font-weight: 600; }
+.answer-phonetic { color: var(--muted); font-size: 13px; font-family: var(--ipa-font); }
+.answer-means { display: grid; gap: 4px; }
+.answer-row { display: flex; gap: 8px; }
+.answer-row::before { content: '·'; color: var(--muted); }
+.answer-colloc {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 14px;
+  color: var(--muted);
+}
+.answer-colloc .answer-row::before { content: '▸'; color: var(--accent-text); }
+
+/* 滑片：拖中间那颗药丸，左 = 上一个词，右 = 下一个词 */
+.prac-slider {
+  position: relative;
+  height: 44px;
+  margin-top: 12px;
+  border-radius: var(--r-full);
+  /* 轨道要比页面底色"凹"一档，白药丸才浮得起来（light 主题下页面是浅灰、卡片是白） */
+  background: color-mix(in srgb, var(--line) 80%, var(--card));
+  touch-action: none; /* 拖动跟手：不让浏览器把横向手势当滚动/回退抢走 */
+  user-select: none;
+}
+.prac-slider[hidden] { display: none; }
+.nav-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  z-index: 1;
+}
+.nav-prev { left: 0; justify-content: flex-start; }
+.nav-next { right: 0; justify-content: flex-end; }
+.nav-side:disabled { opacity: 0.35; }
+.nav-knob {
+  position: absolute;
+  left: 50%;
+  top: 3px;
+  bottom: 3px;
+  width: min(44%, 200px); /* 宽屏（桌面 960）下别拉成一根长条 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--card);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 4px 12px rgb(0 0 0 / 0.08);
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none; /* 手势统一挂在外层轨道上，药丸只是把手 */
+}
+.nav-knob-label { font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.nav-knob[data-dir='next'], .nav-knob[data-dir='prev'] { color: var(--accent-text); }
+.nav-knob[data-dir='next'] .nav-knob-label { color: var(--accent-text); }
+.nav-knob[data-dir='prev'] .nav-knob-label { color: var(--bad-ink); }
+.prac-slider.dragging .nav-knob { box-shadow: 0 2px 6px rgb(0 0 0 / 0.16), 0 8px 20px rgb(0 0 0 / 0.12); }
 .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .link-btn {
   padding: 8px 4px;
@@ -535,7 +605,6 @@ body[data-view='practice'] #tabbar { display: none; }
   font: inherit;
   font-size: 13px;
 }
-.level-row > button:nth-child(3) { flex: 0 0 auto; font-size: 13px; }
 
 /* ---------------------------------------------------------------- 导入 */
 

@@ -26,11 +26,48 @@
 
   const release = () => { document.getElementById('hold').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='; };
 
-  // 系统深浅色在无头浏览器里不可靠，截图时显式钉住
-  const TOKENS = {
-    light: ':root{--bg:#ffffff;--fg:#111111;--muted:#6b7280;--line:#e5e7eb;--card:#f7f7f8;--accent:#3b5bff}',
-    dark: ':root{--bg:#0f1012;--fg:#f2f3f5;--muted:#9aa0a6;--line:#26282c;--card:#17191c;--accent:#5b7bff}'
-  };
+  // 系统深浅色在无头浏览器里不可靠，截图时要能钉住。
+  // 早先这里是写死一套 token 覆盖应用（那时候调色板小），后来应用改成 @media (prefers-color-scheme: dark)，
+  // 写死的副本就跟真实主题对不上了 —— 截出来的图颜色是假的。现在改成：
+  //   light → 什么都不做（应用默认就是浅色）
+  //   dark  → 把应用样式表里 `prefers-color-scheme: dark` 那段**拆开**塞进 iframe（不是另抄一份，永不漂移）
+  // 需要看"提高对比度"时同理（theme=contrast / contrast-dark）。
+  function unwrapMedia(doc, needles) {
+    const css = [];
+    for (const sheet of doc.styleSheets) {
+      let rules;
+      try { rules = sheet.cssRules; } catch (e) { continue; }
+      for (const rule of rules) {
+        if (rule.type !== CSSRule.MEDIA_RULE) continue;
+        const cond = rule.conditionText || rule.media.mediaText || '';
+        if (!needles.every((n) => cond.includes(n))) continue;
+        for (const inner of rule.cssRules) css.push(inner.cssText);
+      }
+    }
+    if (!css.length) return false;
+    const s = doc.createElement('style');
+    s.dataset.shotTheme = '1';
+    s.textContent = css.join('\n');
+    doc.head.append(s);
+    return true;
+  }
+
+  /** 反过来：把 `prefers-color-scheme: dark` 那段关掉（无头浏览器默认就偏好深色，不关掉截不出浅色） */
+  function muteMedia(doc, needle) {
+    let n = 0;
+    for (const sheet of doc.styleSheets) {
+      let rules;
+      try { rules = sheet.cssRules; } catch (e) { continue; }
+      for (const rule of rules) {
+        if (rule.type !== CSSRule.MEDIA_RULE) continue;
+        const cond = rule.conditionText || rule.media.mediaText || '';
+        if (!cond.includes(needle)) continue;
+        rule.media.mediaText = 'not all';
+        n++;
+      }
+    }
+    return n > 0;
+  }
 
   frame.addEventListener('load', async () => {
     const t0 = Date.now();
@@ -58,12 +95,26 @@
         }
       } catch (e) { /* 忽略 */ }
     }
-    if (theme && TOKENS[theme]) {
+    // 需要看"答完之后的界面"（揭晓块、反馈、按钮态）时：answer=xxx 会替你在输入框里打字并回车
+    if (q.get('answer') != null) {
       try {
         const d = frame.contentDocument;
-        const s = d.createElement('style');
-        s.textContent = TOKENS[theme];
-        d.head.append(s);
+        const box = d.querySelector('[data-testid="practice-input"]');
+        if (box && !box.hidden) {
+          box.value = q.get('answer');
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      } catch (e) { /* 忽略 */ }
+    }
+    if (theme) {
+      try {
+        const d = frame.contentDocument;
+        const contrast = theme.startsWith('contrast');
+        const dark = theme.endsWith('dark') || theme === 'dark';
+        if (dark) unwrapMedia(d, [...(contrast ? ['prefers-contrast: more'] : []), 'prefers-color-scheme: dark']);
+        else muteMedia(d, 'prefers-color-scheme: dark');
       } catch (e) { /* 忽略 */ }
     }
     await new Promise((r) => setTimeout(r, 350)); // 让过渡动画落定

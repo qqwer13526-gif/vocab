@@ -146,12 +146,21 @@ export async function renderPractice(params = {}) {
     placeholder: '写出答案'
   });
   const submit = el('button', { className: 'primary', dataset: { testid: 'btn-submit' }, type: 'button', onclick: () => onEnter() }, '检查');
-  // 「过一遍」模式：答案直接摊开给你看，不用打字
-  const answerLine = el('div', { className: 'prac-answer', dataset: { testid: 'practice-answer' }, hidden: true }, '');
+  // 揭晓块：**全部**释义 + **全部**搭配，一行一条。
+  //   过一遍模式 → 一进来就摊开（这个模式本来就是"只看不考"）
+  //   默写模式   → 答案一给出才摊开（答对 / 答错 / 算我对 / 英译中的"差不多对"）
+  // 中→英方向额外补一行「词头 + 音标」：那个方向的题目只给中文释义，答完必须让人看到英文词。
+  const answerTerm = el('div', { className: 'answer-term', dataset: { testid: 'answer-term' }, hidden: true });
+  const answerMeans = el('div', { className: 'answer-means', dataset: { testid: 'answer-means' } });
+  const answerColloc = el('div', { className: 'answer-colloc', dataset: { testid: 'practice-colloc' }, hidden: true });
+  const answerLine = el('div', { className: 'prac-answer', dataset: { testid: 'practice-answer' }, hidden: true }, [
+    answerTerm,
+    answerMeans,
+    answerColloc
+  ]);
   const feedback = el('div', { className: 'feedback', dataset: { testid: 'feedback' }, hidden: true, role: 'status', 'aria-live': 'polite' }, '');
   const btnForce = el('button', { className: 'ghost', dataset: { testid: 'btn-force-ok' }, type: 'button', hidden: true, onclick: () => forceOk() }, '算我对');
   const btnNext = el('button', { className: 'primary', dataset: { testid: 'btn-next' }, type: 'button', hidden: true, onclick: () => next() }, '下一题');
-  const btnSkip = el('button', { className: 'ghost', dataset: { testid: 'btn-skip' }, type: 'button', hidden: true, onclick: () => skipOne() }, '下一个（不标）');
 
   // 抽查时的自我判断：熟记 / 生疏（点了就自动进下一题）
   const btnUnfamiliar = el('button', {
@@ -166,10 +175,8 @@ export async function renderPractice(params = {}) {
     type: 'button',
     onclick: () => markAndNext('known')
   }, '熟记');
-  const levelHint = el('div', { className: 'level-hint' }, '');
   const levelRow = el('div', { className: 'level-block' }, [
-    el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown, btnSkip]),
-    levelHint
+    el('div', { className: 'level-row' }, [btnUnfamiliar, btnKnown])
   ]);
 
   // 模式切换：默写（考自己） ⇄ 过一遍（只看不考，专门用来刷生疏词）
@@ -185,16 +192,42 @@ export async function renderPractice(params = {}) {
   const card = el('div', { className: 'card prac-card' }, [
     prompt,
     hint,
-    answerLine,
     input,
     submit,
     feedback,
+    answerLine,
     el('div', { className: 'fb-actions' }, [btnForce, btnNext]),
     levelRow
   ]);
   // 滑动时浮出来的提示（绿=熟记 / 红=生疏）
   const swipeBadge = el('div', { className: 'swipe-badge', dataset: { testid: 'swipe-badge' }, hidden: true }, '');
   const cardWrap = el('div', { className: 'prac-wrap' }, [card, swipeBadge]);
+
+  // 卡片下面的「滑片」：拖中间那颗药丸，往左 = 上一个词，往右 = 下一个词。
+  // 为什么要它：卡片上的左右滑动是"定级"（左滑算生疏 / 右滑算熟记），翻词得有独立的控件；
+  // 也正好把大卡片里那个「下一个（不标）」按钮收掉，卡片只留 生疏 | 熟记 两颗等宽药丸。
+  // 两种"左右"刻意做成不同材质，免得混：卡片没有轨道（拖动时浮出红/绿角标），滑片有轨道 + 药丸里直接写着去哪。
+  // 空间语义上下一致：左边永远是"左"（生疏 / 上一个），右边永远是"右"（熟记 / 下一个）。
+  const navPrev = el('button', {
+    className: 'nav-side nav-prev',
+    dataset: { testid: 'btn-prev-word' },
+    type: 'button',
+    'aria-label': '上一个词',
+    onclick: () => goPrevWord()
+  });
+  navPrev.append(icon('chevronLeft', { size: 18 }));
+  const navNext = el('button', {
+    className: 'nav-side nav-next',
+    dataset: { testid: 'btn-next-word' },
+    type: 'button',
+    'aria-label': '下一个词',
+    onclick: () => skipOne()
+  });
+  navNext.append(icon('chevronRight', { size: 18 }));
+  const navLabel = el('span', { className: 'nav-knob-label' }, '翻词');
+  const navKnob = el('div', { className: 'nav-knob', dataset: { testid: 'nav-knob' }, 'aria-hidden': 'true' }, [navLabel]);
+  // 轨道里放两个"真按钮"（可点、可 Tab），药丸只是拖拽的把手 —— 不造一个假的 slider 让读屏误报
+  const navSlider = el('div', { className: 'prac-slider', dataset: { testid: 'nav-slider' } }, [navPrev, navNext, navKnob]);
 
   const summary = el('div', { className: 'card session-summary', dataset: { testid: 'session-summary' }, hidden: true }, [
     el('div', { className: 'summary-text', dataset: { testid: 'summary-text' } }, ''),
@@ -215,7 +248,7 @@ export async function renderPractice(params = {}) {
   const picker = el('div', { className: 'picker', dataset: { testid: 'word-picker' }, hidden: true });
 
   const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, pickerBtn, dirSwitch]);
-  view.replaceChildren(top, modeRow, cardWrap, picker, summary);
+  view.replaceChildren(top, modeRow, cardWrap, navSlider, picker, summary);
 
   // ---------------------------------------------------------------- 真机调试浮层（?debug=1）
   // 无头浏览器里合成 PointerEvent 跑得通，不代表 iOS 真实触摸跑得通（touch-action / pointercancel
@@ -237,7 +270,34 @@ export async function renderPractice(params = {}) {
   }
 
   // ---------------------------------------------------------------- 逻辑
-  const answerText = (w, dir) => (dir === 'en2zh' ? w.meanings.join('；') : w.term);
+
+  /** 常用搭配：一个字符串字段，按 换行 / ; / ； 拆成多条（导入的「常用搭配」列与词条编辑页填的都是它） */
+  const collocList = (w) => String(w.example || '').split(/[\n;；]+/).map((x) => x.trim()).filter(Boolean);
+
+  /** 填揭晓块：全部释义 + 全部搭配（一行一条）；中→英方向补一行词头+音标 */
+  function renderReveal(w) {
+    const rows = (list) => list.map((line) => el('div', { className: 'answer-row' }, line));
+    const zh2en = s.curDir === 'zh2en';
+    answerTerm.hidden = !zh2en;
+    answerTerm.replaceChildren(
+      ...[
+        zh2en ? el('span', { className: 'answer-word', dataset: { testid: 'answer-word' } }, w.term) : null,
+        zh2en && w.phonetic ? el('span', { className: 'answer-phonetic' }, w.phonetic) : null
+      ].filter(Boolean)
+    );
+    answerMeans.replaceChildren(...rows((w.meanings || []).filter(Boolean)));
+    const collocs = collocList(w);
+    answerColloc.replaceChildren(...rows(collocs));
+    answerColloc.hidden = collocs.length === 0;
+  }
+
+  /** 摊开答案。只在"答案已经给出"的时刻调用（见 finish / forceOk / 英译中的"差不多对"） */
+  function revealAnswer(w = s.queue[s.i]) {
+    if (!w) return;
+    renderReveal(w);
+    answerLine.hidden = false;
+    popIn(answerLine, 4);
+  }
 
   /** 切「默写 / 过一遍」。只改地址栏，不触发 hashchange（否则这一轮就白练了） */
   function setReview(on, { render = true } = {}) {
@@ -246,14 +306,11 @@ export async function renderPractice(params = {}) {
     submit.hidden = s.review;
     dirSwitch.hidden = s.review; // 过一遍时词和释义同时看得见，方向没意义
     answerLine.hidden = !s.review;
-    btnSkip.hidden = !s.review;
     swipeTip.hidden = !s.review;
     card.classList.toggle('swipeable', s.review);
     if (!s.review) swipeBadge.hidden = true;
     modeBtn.textContent = s.review ? '→ 换成默写（考自己）' : '→ 过一遍（只看不考，适合刷生疏词）';
-    levelHint.textContent = s.review
-      ? '看清了就点：熟记 → 60 天后再见；生疏 → 10 分钟后再见'
-      : '自己定：熟记 → 60 天后再见；生疏 → 10 分钟后再见';
+    syncSlider();
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
     if (smartId) qs.set('smart', smartId);
@@ -343,14 +400,20 @@ export async function renderPractice(params = {}) {
     syncBackBtn();
     renderPicker(); // 列表开着的话，把"当前"和本轮结果刷新一下
     if (s.review) {
-      // 过一遍：词、音标、释义同时摊开，只需要点「熟记 / 生疏」
+      // 过一遍：词、音标、释义、搭配同时摊开，只需要点「熟记 / 生疏」
       prompt.textContent = w.term;
       hint.textContent = [w.phonetic, w.pos].filter(Boolean).join(' · ');
-      answerLine.textContent = (w.meanings || []).join('；');
+      renderReveal(w);
+      answerLine.hidden = false;
     } else {
       prompt.textContent = s.curDir === 'en2zh' ? w.term : w.meanings.join('；');
       hint.textContent = [s.curDir === 'en2zh' ? w.phonetic : '', w.pos].filter(Boolean).join(' · ');
-      answerLine.textContent = '';
+      // 默写：答案先收起来（搭配里通常就含答案，比如 permanent resident），答完由 revealAnswer() 摊开
+      answerLine.hidden = true;
+      answerTerm.hidden = true;
+      answerMeans.replaceChildren();
+      answerColloc.replaceChildren();
+      answerColloc.hidden = true;
     }
     // 提示里是英文词的时候用词头字体（字典式衬线）；中文释义保持系统无衬线
     prompt.classList.toggle('is-word', s.review || s.curDir === 'en2zh');
@@ -366,6 +429,7 @@ export async function renderPractice(params = {}) {
     progress.textContent = `第 ${s.i + 1}/${s.queue.length}`;
     card.hidden = false;
     summary.hidden = true;
+    syncSlider();
     // 内容换了一张"卡"：轻微上浮淡入，给一点"下一张从下面来"的空间感。
     // 只动 prompt / answerLine（不动输入框，免得打字时画面在抖）。
     popIn(prompt, 6);
@@ -549,12 +613,163 @@ export async function renderPractice(params = {}) {
   card.addEventListener('pointerup', onUp);
   card.addEventListener('pointercancel', onUp);
 
-  /** 过一遍模式里的"不标，直接下一个" */
+  // ---------------------------------------------------------------- 滑片（翻词）
+  // 跟卡片同一套数学：1:1 跟手 → 松手按投射落点决定"翻"还是"回中" → 速度交给弹簧。
+  // 区别只有一个：卡片的落点是"翻掉这一张"（定级），滑片的落点是"往左/往右翻一个词"。
+  let ndrag = null;
+  let nspring = null;
+  let navX = 0;
+  let nbusy = false; // 正在飞/正在翻的时候不再受理新的拖拽
+  let typing = false; // 默写模式下键盘弹起来了（滑片先躲开，免得被键盘盖住）
+
+  const navW = () => navSlider.getBoundingClientRect().width || 320;
+  const knobW = () => navKnob.getBoundingClientRect().width || 120;
+  /** 药丸从中间到一端的最大行程 */
+  const navLimit = () => Math.max(28, (navW() - knobW()) / 2);
+
+  /** 画药丸位置 + 药丸上的字（拖到哪边就写哪边要去哪；在中间就是"翻词"） */
+  function paintNav(x) {
+    navX = x;
+    navKnob.style.transform = `translateX(calc(-50% + ${x}px))`;
+    const dir = Math.abs(x) < 4 ? '' : x > 0 ? 'next' : 'prev';
+    navKnob.dataset.dir = dir;
+    navLabel.textContent = dir === 'next' ? '下一个 →' : dir === 'prev' ? '← 上一个' : '翻词';
+  }
+
+  /** 滑片的显示与可用状态：看小结/空集 → 收起；默写模式键盘弹起 → 先躲开；第一题 → 左边点不动 */
+  function syncSlider() {
+    // 键盘"弹起来了"的判据用两条：焦点事件（正在打字）+ 当前焦点在不在输入框（渲染那一刻就判得出，
+    // 不依赖 focus 事件有没有派发 —— 无头环境里窗口没激活时事件可能不来）
+    const typingNow = typing || view.ownerDocument.activeElement === input;
+    navSlider.hidden = s.ended || card.hidden || (!s.review && typingNow);
+    navPrev.disabled = s.i === 0 || s.ended;
+    navNext.disabled = s.ended;
+  }
+
+  function stopNavSpring() {
+    nspring?.stop();
+    nspring = null;
+  }
+
+  /** 药丸走一段弹簧；松手速度接管，飞行中能抓住（抓住就是从当前位置续拖） */
+  function springNav(to, velocity = 0, spring = SPRING_BACK) {
+    stopNavSpring();
+    if (reduced()) {
+      paintNav(to);
+      return Promise.resolve();
+    }
+    return new Promise((done) => {
+      nspring = runSpring({
+        from: navX,
+        velocity,
+        to,
+        ...spring,
+        onFrame: (x) => paintNav(x),
+        onDone: () => {
+          nspring = null;
+          paintNav(to);
+          done();
+        }
+      });
+    });
+  }
+
+  /**
+   * 往左 = 回上一个词。
+   * 上一题"答过"（栈顶快照正好是它）→ 走数据级撤销（prog 还原/删除 + 统计还原），回去重答；
+   * 上一题只是被跳过（没有快照）→ 纯回退一格，顺手把那次的"跳过"计数收回来，免得重复计。
+   */
+  function goPrevWord() {
+    if (s.ended || s.i === 0) return;
+    const target = s.i - 1;
+    const w = s.queue[target];
+    const snap = s.history[s.history.length - 1];
+    if (snap && snap.i === target && snap.wordId === w?.id) {
+      goBack(); // 已有的「上一题」撤销路径：改数据 + 重渲染
+      return;
+    }
+    if (w && s.done[w.id] === 'skip') {
+      s.stats.skipped--;
+      delete s.done[w.id];
+    }
+    s.i = target;
+    renderQuestion();
+  }
+
+  function onNavDown(e) {
+    if (navSlider.hidden || nbusy || s.ended) return;
+    if (e.button != null && e.button !== 0) return;
+    stopNavSpring(); // 飞行中抓住：从屏幕上的当前位置接着跟手
+    const now = performance.now();
+    ndrag = { id: e.pointerId, x0: e.clientX, baseX: navX, active: false, hist: [{ t: now, x: e.clientX }] };
+  }
+
+  function onNavMove(e) {
+    if (!ndrag || e.pointerId !== ndrag.id) return;
+    const dxRaw = e.clientX - ndrag.x0;
+    if (!ndrag.active) {
+      if (Math.abs(dxRaw) < 6) return; // 6px 迟滞：轻点要留给轨道里的两个真按钮
+      ndrag.active = true;
+      try {
+        navSlider.setPointerCapture(e.pointerId);
+      } catch {
+        /* 某些环境不支持，忽略 */
+      }
+      navSlider.classList.add('dragging');
+    }
+    const now = performance.now();
+    ndrag.hist.push({ t: now, x: e.clientX });
+    if (ndrag.hist.length > 6) ndrag.hist.shift();
+    // 拖到头可以再拖一点（橡皮筋），但越拖越硬
+    paintNav(rubberbandBeyond(ndrag.baseX + dxRaw, navLimit(), navW()));
+  }
+
+  async function onNavUp(e) {
+    if (!ndrag || (e && e.pointerId != null && e.pointerId !== ndrag.id)) return;
+    const d = ndrag;
+    ndrag = null;
+    if (!d.active) return; // 只是轻点，交给轨道里的按钮
+    navSlider.classList.remove('dragging');
+    const v = velocityFrom(d.hist, performance.now());
+    const limit = navLimit();
+    // 投射落点够远（半程 60%）或本来就拖得够远（全程 80%）→ 判"翻"
+    if (!decideFlip(navX, v, limit, { ratio: 0.6, hardRatio: 0.8 })) {
+      await springNav(0, v);
+      return;
+    }
+    const dir = navX > 0 ? 'next' : 'prev';
+    // 药丸先飞向那一端（纯视觉确认），但**不拦着**翻词：动作立刻执行，药丸飞到头再回中。
+    // 这样"拖一下"和"词变了"之间没有 0.4 秒的等待。
+    nbusy = true;
+    springNav(Math.sign(navX) * limit, v, SPRING_FLY).then(() => springNav(0, 0));
+    if (dir === 'next') skipOne();
+    else goPrevWord();
+    nbusy = false;
+  }
+
+  navSlider.addEventListener('pointerdown', onNavDown);
+  navSlider.addEventListener('pointermove', onNavMove);
+  navSlider.addEventListener('pointerup', onNavUp);
+  navSlider.addEventListener('pointercancel', onNavUp);
+  // 默写模式下输入框一聚焦（键盘要弹出来了）就把滑片收起来：键盘会盖住它，打字时也不需要翻页。
+  // 答完题焦点会移到「下一题」，滑片自己就回来了。
+  input.addEventListener('focus', () => {
+    typing = true;
+    syncSlider();
+  });
+  input.addEventListener('blur', () => {
+    typing = false;
+    syncSlider();
+  });
+
+  /** 「下一个词」：没答过就算"跳过"（记未标、计入跳过），答过的只是往前走，不重复计数 */
   function skipOne() {
     if (s.ended) return;
-    s.stats.skipped++;
-    const w = s.queue[s.i];
-    if (w) s.done[w.id] = 'skip';
+    if (!s.answered) {
+      s.stats.skipped++;
+      const w = s.queue[s.i];
+      if (w) s.done[w.id] = 'skip';
+    }
     s.answered = true;
     next();
   }
@@ -643,8 +858,10 @@ export async function renderPractice(params = {}) {
         showFeedback('true', '对了 ✓');
       }
     } else {
-      showFeedback('false', `正确答案：${answerText(w, s.curDir)}　·　已加入生疏词库`);
+      // 正确答案不再挤在反馈里说一遍：下面那块揭晓会把**全部**释义和搭配摊开
+      showFeedback('false', '不对 ✗　·　已加入生疏词库');
     }
+    if (!s.review) revealAnswer(w); // 默写：答案已经给出了，摊开给我看
     btnForce.hidden = true;
     btnNext.hidden = false;
     btnNext.textContent = s.i + 1 < s.queue.length ? '下一题' : '看小结';
@@ -709,7 +926,9 @@ export async function renderPractice(params = {}) {
         return;
       }
       if (s.curDir === 'en2zh') {
-        showFeedback('near', `差不多对：${answerText(w, s.curDir)}　—　算你答对了吗？`);
+        // 答案已经报出来了（下面是揭晓块），这里只问一句"算不算对"
+        showFeedback('near', '差不多对　—　算你答对了吗？');
+        revealAnswer(w);
         btnForce.hidden = false;
         return;
       }
@@ -731,6 +950,7 @@ export async function renderPractice(params = {}) {
     s.ended = true;
     card.hidden = true;
     summary.hidden = false;
+    syncSlider(); // 看小结时滑片收起（没有"下一个词"可翻了）
     renderPicker(); // 最后一题的结果也要在「选词」列表里看得到
     const textEl = summary.querySelector('[data-testid="summary-text"]');
     if (s.review) {
@@ -772,12 +992,19 @@ export async function renderPractice(params = {}) {
       location.hash = '#/';
       return;
     }
-    if (e.key !== '1' && e.key !== '2') return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
-    // 正在输入框里打字就不抢键（默写模式下"1"是答案的一部分）
+    // 正在输入框里打字就不抢键（默写模式下"1"和左右方向键都是答案的一部分）
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (s.ended || card.hidden || summary.hidden === false) return;
+    // ← / → = 滑片的键盘等价键（大卡片上那个「下一个」按钮删掉之后，跳过不能只剩"拖动"一条路）
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (e.key === 'ArrowLeft') goPrevWord();
+      else skipOne();
+      return;
+    }
+    if (e.key !== '1' && e.key !== '2') return;
     e.preventDefault();
     markAndNext(e.key === '1' ? 'unfamiliar' : 'known');
   });

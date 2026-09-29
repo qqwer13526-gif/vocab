@@ -22,6 +22,8 @@ const W = [
   { id: 'w-run', term: 'run', pos: 'v.', meanings: ['跑', '经营'] },
   { id: 'w-book', term: 'book', pos: 'n.', meanings: ['书'] }
 ];
+// 常用搭配（example 字段）：第二条是故意留的"多条 + 中文"，用来验证按分隔符拆行
+const EXAMPLE = { 'w-absorb': 'be absorbed in 全神贯注于；absorb the impact 缓冲冲击' };
 
 async function seed() {
   await db.wipeAll();
@@ -29,7 +31,7 @@ async function seed() {
   await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
   let i = 0;
   for (const w of W) {
-    await db.put('words', { ...w, termNorm: w.term, phonetic: w.id === 'w-absorb' ? 'əbˈsɔːb' : '', example: '', note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('words', { ...w, termNorm: w.term, phonetic: w.id === 'w-absorb' ? 'əbˈsɔːb' : '', example: EXAMPLE[w.id] || '', note: '', createdAt: NOW + i++, updatedAt: NOW });
     await db.put('links', { id: `${w.id}|${lib}`, wordId: w.id, libId: lib, addedAt: NOW, updatedAt: NOW });
   }
   return lib;
@@ -57,6 +59,8 @@ try {
   ok('有输入框且开了自动聚焦', !!input);
   eq('输入框关掉了自动补全和拼写检查', [input.getAttribute('autocomplete'), input.getAttribute('spellcheck')], ['off', 'false']);
   eq('输入框带 enterkeyhint', input.getAttribute('enterkeyhint'), 'done');
+  ok('默写：答案先收起来（搭配里就含答案）', q(frame, '[data-testid="practice-answer"]').hidden === true);
+  ok('默写：输入框聚焦时滑片先躲开（键盘会盖住它）', q(frame, '[data-testid="nav-slider"]').hidden === true);
 
   // ---------------- 2. 答对 ----------------
   type(input, '吸收');
@@ -65,6 +69,7 @@ try {
   eq('答对：反馈标成 true', q(frame, '[data-testid="feedback"]').dataset.ok, 'true');
   ok('答对后出现下一题按钮', !q(frame, '[data-testid="btn-next"]').hidden);
   ok('答对不显示正确答案', !t(frame, '[data-testid="feedback"]').includes('正确答案'), t(frame, '[data-testid="feedback"]'));
+  ok('答完（焦点移到下一题）滑片回来', q(frame, '[data-testid="nav-slider"]').hidden === false);
   await waitFor(async () => (await prog('w-absorb'))?.box === 2, { label: '写库：盒子升到 2' });
   const p1 = await prog('w-absorb');
   eq('答对后盒子是 2、连对 1、方向记成 en2zh', [p1.box, p1.streak, p1.lastDir], [2, 1, 'en2zh']);
@@ -78,7 +83,8 @@ try {
   type(q(frame, '[data-testid="practice-input"]'), '走路');
   pressEnter(q(frame, '[data-testid="practice-input"]'));
   await waitFor(() => q(frame, '[data-testid="feedback"]')?.dataset.ok === 'false', { label: '判错' });
-  ok('答错要给出正确答案', t(frame, '[data-testid="feedback"]').includes('跑'), t(frame, '[data-testid="feedback"]'));
+  ok('答错要给出正确答案（在下面的揭晓块里，不是挤在反馈行）', q(frame, '[data-testid="practice-answer"]').hidden === false
+    && t(frame, '[data-testid="answer-means"]').includes('跑'), t(frame, '[data-testid="answer-means"]'));
   const p2 = await prog('w-run');
   eq('答错：回盒子 1、lapses 1、streak 0', [p2.box, p2.lapses, p2.streak], [1, 1, 0]);
   ok('答错后 10 分钟就该再见', p2.dueAt - NOW <= 11 * 60 * 1000 && p2.dueAt - NOW >= 9 * 60 * 1000, String(p2.dueAt - NOW));
@@ -114,6 +120,7 @@ try {
   ok('差点不等于判错', t(frame, '[data-testid="feedback"]').includes('正确答案') === false, t(frame, '[data-testid="feedback"]'));
   ok('差点会清空输入框让人重打', q(frame, '[data-testid="practice-input"]').value === '');
   ok('差点时没有"下一题"按钮', q(frame, '[data-testid="btn-next"]').hidden);
+  ok('没定论时先不揭晓（免得等于送答案）', q(frame, '[data-testid="practice-answer"]').hidden === true);
   eq('差点不写库', await prog('w-absorb'), undefined);
   eq('进度还停在第 1 题', t(frame, '[data-testid="progress-text"]'), '第 1/3');
 
@@ -124,6 +131,14 @@ try {
   await waitFor(async () => (await prog('w-absorb'))?.box === 2, { label: '重打后写库' });
   eq('重打对了才算这一题过', (await prog('w-absorb')).box, 2);
   eq('差点次数被记下来了', (await prog('w-absorb')).lastDir, 'zh2en');
+
+  // ---------------- 6b. 默写答完：摊开全部释义 + 全部搭配 ----------------
+  ok('答完自动摊开', q(frame, '[data-testid="practice-answer"]').hidden === false);
+  eq('中→英方向补一行词头（原来只给中文，看不到那个英文词）', t(frame, '[data-testid="answer-word"]'), 'absorb');
+  ok('释义一行一条（全部）', qa(frame, '[data-testid="answer-means"] .answer-row').length === 2
+    && t(frame, '[data-testid="answer-means"]').includes('使专心'), t(frame, '[data-testid="answer-means"]'));
+  ok('搭配按分隔符拆成两条', qa(frame, '[data-testid="practice-colloc"] .answer-row').length === 2, t(frame, '[data-testid="practice-colloc"]'));
+  ok('搭配内容对得上', t(frame, '[data-testid="practice-colloc"]').includes('be absorbed in 全神贯注于'), t(frame, '[data-testid="practice-colloc"]'));
 
   // ---------------- 7. 英译中的"算我对" ----------------
   await db.wipeAll();
@@ -140,7 +155,8 @@ try {
   pressEnter(inp3);
   await waitFor(() => q(frame, '[data-testid="feedback"]')?.dataset.ok === 'near', { label: '差点 → 由用户定夺' });
   ok('差点时给"算我对"按钮', !q(frame, '[data-testid="btn-force-ok"]').hidden);
-  ok('差点时还提示正确答案做参考', t(frame, '[data-testid="feedback"]').includes('跑'), t(frame, '[data-testid="feedback"]'));
+  ok('差点时也摊开答案做参考（不再挤在反馈那行里）', q(frame, '[data-testid="practice-answer"]').hidden === false
+    && t(frame, '[data-testid="answer-means"]').includes('跑'), t(frame, '[data-testid="answer-means"]'));
   click(q(frame, '[data-testid="btn-force-ok"]'));
   await waitFor(async () => (await prog('w-run'))?.box === 2, { label: '"算我对"按答对处理' });
   eq('"算我对"按答对写库', (await prog('w-run')).box, 2);
@@ -201,14 +217,17 @@ try {
   eq('第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
   ok('答案里能看到释义', t(frame, '[data-testid="practice-answer"]').includes('吸收'), t(frame, '[data-testid="practice-answer"]'));
   ok('过一遍：方向切换收起来（两边都看得见，方向没意义）', q(frame, '[data-testid="dir-switch"]').hidden === true);
-  ok('过一遍：有"下一个（不标）"', q(frame, '[data-testid="btn-skip"]').hidden === false);
+  eq('过一遍：卡片里只剩 生疏 / 熟记 两颗药丸', qa(frame, '.level-row button').length, 2);
+  ok('过一遍：卡片里不再有「下一个」按钮', q(frame, '[data-testid="btn-skip"]') === null);
+  ok('过一遍：卡片里那行"60 天后再见"的说明也删了', q(frame, '.level-hint') === null);
+  ok('过一遍：卡片下方有滑片', q(frame, '[data-testid="nav-slider"]').hidden === false);
 
   click(q(frame, '[data-testid="btn-level-known"]'));
   await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '过一遍时标熟记写库' });
   eq('标熟记后盒子进 6', (await prog('w-absorb')).box, 6);
   await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '自动进下一个词' });
 
-  click(q(frame, '[data-testid="btn-skip"]'));
+  click(q(frame, '[data-testid="btn-next-word"]'));
   await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'book', { label: '跳到第三个词' });
   eq('"不标"就是不写库', await prog('w-book'), undefined);
 
@@ -269,6 +288,84 @@ try {
   ok('默写模式不显示滑动提示', q(frame, '[data-testid="swipe-tip"]').hidden === true);
   ok('默写模式的卡片不接管横向手势', q(frame, '.prac-card').classList.contains('swipeable') === false);
 
+  // ---------------- 12b. 滑片：拖左 = 上一个词，拖右 = 下一个词 ----------------
+  await db.wipeAll();
+  const libSlide = await seed();
+  frame = await openApp({ hash: `#/practice?lib=${libSlide}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  const sliderEl = () => q(frame, '[data-testid="nav-slider"]');
+  const knobEl = () => q(frame, '[data-testid="nav-knob"]');
+  // 手势挂在轨道上（药丸只是把手），所以往轨道上派事件
+  const se = (type, x, y = 420) =>
+    sliderEl().dispatchEvent(new PointerEvent(type, { pointerId: 11, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
+  const knobX = () => {
+    const m = /(-?\d+(?:\.\d+)?)px/.exec(knobEl().style.transform);
+    return m ? Number(m[1]) : 0;
+  };
+
+  eq('滑片：第一题是 absorb', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+  ok('第一题：滑片左边点不动', q(frame, '[data-testid="btn-prev-word"]').disabled === true);
+  ok('滑片右边可以点', q(frame, '[data-testid="btn-next-word"]').disabled === false);
+  eq('药丸停在中间，写着"翻词"', t(frame, '[data-testid="nav-knob"]'), '翻词');
+
+  // 拖一点点 → 跟手、字变成"下一个"，松手弹回中间且不算数
+  se('pointerdown', 200);
+  se('pointermove', 236);
+  ok('拖动时药丸 1:1 跟手', Math.abs(knobX() - 36) < 1.5, knobEl().style.transform);
+  eq('往右拖时药丸写着"下一个 →"', t(frame, '[data-testid="nav-knob"]'), '下一个 →');
+  se('pointerup', 236);
+  await wait(420);
+  ok('没拖够 → 药丸回到中间', Math.abs(knobX()) < 1, knobEl().style.transform);
+  eq('回弹不算数（还在第一题）', t(frame, '[data-testid="practice-prompt"]'), 'absorb');
+  eq('回弹不写库', await prog('w-absorb'), undefined);
+
+  // 拖够 → 下一个词（跳过：记未标、不写 prog）
+  se('pointerdown', 200);
+  se('pointermove', 330);
+  eq('往左拖回来字跟着变', t(frame, '[data-testid="nav-knob"]'), '下一个 →');
+  se('pointerup', 330);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '右拖滑片 → 下一个词' });
+  eq('"下一个"不写库', await prog('w-run'), undefined);
+  await waitFor(() => t(frame, '[data-testid="nav-knob"]') === '翻词', { label: '药丸飞到头再回中' });
+
+  // 左拖 → 上一个词：刚才只是跳过 → 纯回退（不撤销数据），把跳过计数收回来
+  ok('第二题：滑片左边可以点了', q(frame, '[data-testid="btn-prev-word"]').disabled === false);
+  se('pointerdown', 330);
+  se('pointermove', 180);
+  eq('往左拖时药丸写着"← 上一个"', t(frame, '[data-testid="nav-knob"]'), '← 上一个');
+  se('pointerup', 180);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'absorb', { label: '左拖滑片 → 上一个词' });
+  await waitFor(() => t(frame, '[data-testid="nav-knob"]') === '翻词', { label: '药丸回中' });
+
+  // 往回一个"答过的"词 → 走数据级撤销（跟顶部那个 ↺ 同一条路）
+  click(q(frame, '[data-testid="btn-level-known"]'));
+  await waitFor(async () => (await prog('w-absorb'))?.level === 'known', { label: '标熟记写库' });
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '自动进下一个词' });
+  se('pointerdown', 330);
+  se('pointermove', 180);
+  se('pointerup', 180);
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'absorb', { label: '回到答过的那个词' });
+  await waitFor(async () => (await prog('w-absorb')) === undefined, { label: '那次标记被撤销' });
+  eq('往回一个答过的词 = 数据级撤销（还原成"从没答过"）', await prog('w-absorb'), undefined);
+
+  // 轻点滑片右半边（真按钮）也能翻
+  click(q(frame, '[data-testid="btn-next-word"]'));
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '点滑片右半边 → 下一个词' });
+
+  // 键盘 ← / → ＝ 滑片的两端（删掉「下一个」按钮之后，跳过不能只剩"拖动"一条路）
+  pressKey(cardEl(), 'ArrowLeft');
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'absorb', { label: '键盘 ← 回上一个词' });
+  pressKey(cardEl(), 'ArrowRight');
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '键盘 → 到下一个词' });
+  eq('键盘 → 走的是"跳过"（不写库、算未标）', await prog('w-run'), undefined);
+
+  // 最后一题：往右 = 进小结；小结里滑片收起
+  click(q(frame, '[data-testid="btn-next-word"]'));
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'book', { label: '到最后一题' });
+  eq('到最后一道题', t(frame, '[data-testid="progress-text"]'), '第 3/3');
+  pressKey(cardEl(), 'ArrowRight');
+  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '到小结' });
+  ok('看小结时滑片收起（没有"下一个词"可翻了）', sliderEl().hidden === true);
+
   // ---------------- 13. 答错自动进生疏库 ----------------
   await db.wipeAll();
   const lib7 = await seed();
@@ -283,6 +380,11 @@ try {
   pressEnter(q(frame, '[data-testid="practice-input"]'));
   await waitFor(() => q(frame, '[data-testid="feedback"]')?.dataset.ok === 'false', { label: '判错' });
   ok('答错的反馈里说明它进了生疏库', t(frame, '[data-testid="feedback"]').includes('生疏词库'), t(frame, '[data-testid="feedback"]'));
+  ok('答错的反馈里不再重复"正确答案"（交给揭晓块说）', t(frame, '[data-testid="feedback"]').includes('正确答案') === false, t(frame, '[data-testid="feedback"]'));
+  ok('答错后摊开全部释义', q(frame, '[data-testid="practice-answer"]').hidden === false
+    && qa(frame, '[data-testid="answer-means"] .answer-row').length === 2, t(frame, '[data-testid="answer-means"]'));
+  ok('答错后也摊开常用搭配', t(frame, '[data-testid="practice-colloc"]').includes('absorb the impact'), t(frame, '[data-testid="practice-colloc"]'));
+  ok('英→中方向不用再补词头（题目上就有）', q(frame, '[data-testid="answer-term"]').hidden === true);
   const wrongProg = await prog('w-absorb');
   eq('答错 → 自动标生疏', [wrongProg.level, wrongProg.levelFrom], ['unfamiliar', 'wrong']);
   eq('答错 → 回盒子 1', wrongProg.box, 1);
