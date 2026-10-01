@@ -65,18 +65,17 @@ export function grade(prog, correct, { now, dir = null }) {
 }
 
 /**
- * 组今天的练习队列：先复习到期的，再上新词。
+ * 组练习队列：先复习到期的，再其余新词 —— **整个词库都进队**（没有"一轮 N 个"的上限）。
  * @param words   全部词（含软删除的，函数内部会过滤）
  * @param progs   wordId → prog 的字典
  * @param links   词与库的归属关系
  * @param libIds  只练这些库；null/空数组 = 所有库
  * @param now     当前时间
- * @param newLimit 这次最多上多少个新词（默认 10）
  * @param wordIds 指定一批词（智能库的专项学习）：只练这些，顺序照给的来，
- *                且不考虑到期时间与新词上限
+ *                且不考虑到期时间
  * @returns { review: wordId[], fresh: wordId[] }
  */
-export function buildQueue({ words, progs, links, libIds = null, now, newLimit = 10, wordIds = null }) {
+export function buildQueue({ words, progs, links, libIds = null, now, wordIds = null }) {
   // 指定了一批词（生疏词这类智能库的"专项学习"）：只练这些，不管到期没到期、也不受新词上限限制
   if (Array.isArray(wordIds)) {
     const known = new Set((words || []).filter((w) => w && !w.deleted).map((w) => w.id));
@@ -100,8 +99,9 @@ export function buildQueue({ words, progs, links, libIds = null, now, newLimit =
   fresh.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 
   return {
+    // ⚠️ 不再有"一轮 N 个新词"：开始背 = **整个词库**（先到期的复习词，再其余新词）
     review: review.map((r) => r.id),
-    fresh: fresh.slice(0, Math.max(0, newLimit)).map((w) => w.id)
+    fresh: fresh.map((w) => w.id)
   };
 }
 

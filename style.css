@@ -12,6 +12,10 @@
 
 :root {
   --font-headword: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  /* 长释义折叠的高度上限：释义区超过它就默认收起（见 ui-practice.js 的 applyFold）。
+     定这个值是为了让"卡片 + 顶部工具条 + 滑片 + 页面留白"一屏放得下 —— 页面不滚动，
+     底部的翻词胶囊就不会停在 iOS 的 Home Indicator 手势区。 */
+  --fold-max: 168px;
   /* 页面底是灰的、卡片是白的（iOS 惯例）。以前是反的（白底灰卡），
      导致半透明的悬浮胶囊和页面底一个颜色、只能靠阴影辨认 —— 换过来它才"比页面亮"。 */
   --bg: #f2f2f7;
@@ -582,6 +586,21 @@ body[data-view='practice'] #tabbar { display: none; }
 .answer-phonetic { color: var(--muted); font-size: 13px; font-family: var(--ipa-font); }
 /* 每条释义：中文一行（主）、英文原释义一行（次，弱化） */
 .answer-means { display: grid; gap: 10px; }
+/* 长注释折叠：收起时的高度上限（applyFold 会读 --fold-max 去量）。
+   折的是**释义 + 搭配整体** —— 卡片越短 → 页面越短 → 底部「翻词」胶囊越不会停在
+   iOS 的 Home Indicator 手势区（那是系统抢手势的地方）。 */
+.answer-body {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.answer-body.folded {
+  max-height: var(--fold-max, 168px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, rgb(0 0 0 / 0.12) 100%);
+  mask-image: linear-gradient(180deg, #000 55%, rgb(0 0 0 / 0.12) 100%);
+}
+.fold-btn { justify-self: start; font-size: 13px; font-weight: 600; }
 .answer-row { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; }
 .answer-row::before { content: '·'; color: var(--muted); grid-row: 1 / -1; }
 .mean-zh { line-height: 1.45; }

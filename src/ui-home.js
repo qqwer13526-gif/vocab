@@ -17,7 +17,6 @@ import { put } from './db.js';
 import { confirmThen } from './confirm.js';
 import { icon } from './icons.js';
 import {
-  DEFAULT_NEW_LIMIT,
   PALETTE,
   allWordIds,
   deleteLibCascade,

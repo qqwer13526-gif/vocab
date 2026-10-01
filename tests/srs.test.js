@@ -261,9 +261,11 @@ test('复习按到期时间先后排，新词按导入先后排', () => {
   assert.deepEqual(q.fresh, ['c', 'e', 'f', 'g']);
 });
 
-test('每天的新词数量受上限限制', () => {
-  assert.deepEqual(buildQueue({ words, progs, links, libIds: null, now: 200, newLimit: 1 }).fresh, ['c']);
-  assert.deepEqual(buildQueue({ words, progs, links, libIds: null, now: 200, newLimit: 0 }).fresh, []);
+test('整个词库都进队（没有"一轮 N 个"的上限了）', () => {
+  const q = buildQueue({ words, progs, links, libIds: null, now: 200 });
+  assert.deepEqual(q.fresh, ['c', 'e', 'f', 'g'], '所有没学过的词一次全给，不再截断');
+  // 就算谁还传 newLimit，也不再理会（老调用点不会因此少词）
+  assert.deepEqual(buildQueue({ words, progs, links, libIds: null, now: 200, newLimit: 1 }).fresh, ['c', 'e', 'f', 'g']);
 });
 
 test('队列里不重复', () => {

@@ -16,6 +16,7 @@ import { icon } from './icons.js';
 import { buildQueue, grade, markLevel, newProg, queueFromOrder } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { libWordIds, loadAll } from './store.js';
+import { showToast } from './toast.js';
 import { keepFocusVisible } from './viewport.js';
 
 const DIRS = [
@@ -87,8 +88,7 @@ export async function renderPractice(params = {}) {
           progs: data.progs,
           links: data.links,
           libIds: libId ? [libId] : null,
-          now: Date.now(),
-          newLimit: data.newLimit
+          now: Date.now()
         });
 
     // 「从这个词开始背」（v23）：把队列旋转到它开头；不在队列里也强制排第一
@@ -168,10 +168,26 @@ export async function renderPractice(params = {}) {
   const answerTerm = el('div', { className: 'answer-term', dataset: { testid: 'answer-term' }, hidden: true });
   const answerMeans = el('div', { className: 'answer-means', dataset: { testid: 'answer-means' } });
   const answerColloc = el('div', { className: 'answer-colloc', dataset: { testid: 'practice-colloc' }, hidden: true });
-  const answerLine = el('div', { className: 'prac-answer', dataset: { testid: 'practice-answer' }, hidden: true }, [
-    answerTerm,
+  // 长注释的「展开 / 收起」（见 applyFold）：**释义 + 搭配整体**收起来。
+  // 为什么要整体收：`amid` 只有 2 个义项，是**两条长例句**把卡片撑高的 —— 只收释义治不了它。
+  const answerBody = el('div', { className: 'answer-body', dataset: { testid: 'answer-body' } }, [
     answerMeans,
     answerColloc
+  ]);
+  const btnFold = el('button', {
+    className: 'link-btn fold-btn',
+    dataset: { testid: 'btn-fold-means' },
+    type: 'button',
+    hidden: true,
+    'aria-expanded': 'true',
+    onclick: () => setFolded(!folded)
+  }, '展开全部注释');
+  let folded = false; // 这一张卡现在是不是收起的
+  let foldOpen = false; // 本轮内记住用户的选择：展开过一次，后面默认展开
+  const answerLine = el('div', { className: 'prac-answer', dataset: { testid: 'practice-answer' }, hidden: true }, [
+    answerTerm,
+    answerBody,
+    btnFold
   ]);
   const feedback = el('div', { className: 'feedback', dataset: { testid: 'feedback' }, hidden: true, role: 'status', 'aria-live': 'polite' }, '');
   const btnForce = el('button', { className: 'ghost', dataset: { testid: 'btn-force-ok' }, type: 'button', hidden: true, onclick: () => forceOk() }, '算我对');
@@ -238,14 +254,6 @@ export async function renderPractice(params = {}) {
   // 轨道里放两个"真按钮"（可点、可 Tab），药丸只是拖拽的把手 —— 不造一个假的 slider 让读屏误报
   const navSlider = el('div', { className: 'prac-slider', dataset: { testid: 'nav-slider' } }, [navPrev, navNext, navKnob]);
 
-  const summary = el('div', { className: 'card session-summary', dataset: { testid: 'session-summary' }, hidden: true }, [
-    el('div', { className: 'summary-text', dataset: { testid: 'summary-text' } }, ''),
-    el('div', { className: 'row-2' }, [
-      el('button', { className: 'ghost', dataset: { testid: 'btn-home' }, type: 'button', onclick: () => { location.hash = '#/'; } }, '回首页'),
-      el('button', { className: 'primary', dataset: { testid: 'btn-again' }, type: 'button', onclick: () => again() }, '再来一轮')
-    ])
-  ]);
-
   // 「选词」：把这一轮的全部词列出来，点一行就跳过去（内联折叠，不用抽屉/遮罩）。
   // 做成一个"选项框"样子的 chip（原来是蓝色文字链接），放在顶栏最右边。
   const pickerBtn = el('button', {
@@ -258,7 +266,7 @@ export async function renderPractice(params = {}) {
   const picker = el('div', { className: 'picker', dataset: { testid: 'word-picker' }, hidden: true });
 
   const top = el('div', { className: 'prac-top' }, [quit, btnBack, progress, pickerBtn]);
-  view.replaceChildren(top, switchRow, cardWrap, navSlider, picker, summary);
+  view.replaceChildren(top, switchRow, cardWrap, navSlider, picker);
 
   // ---------------------------------------------------------------- 真机调试浮层（?debug=1）
   // 无头浏览器里合成 PointerEvent 跑得通，不代表 iOS 真实触摸跑得通（touch-action / pointercancel
@@ -324,7 +332,40 @@ export async function renderPractice(params = {}) {
     if (!w) return;
     renderReveal(w);
     answerLine.hidden = false;
+    applyFold(); // 必须等它可见了再量高度，否则 scrollHeight 恒为 0
     popIn(answerLine, 4);
+  }
+
+  /**
+   * 长释义折叠：释义区超过 `--fold-max` 就默认收起（底部渐隐 + 「展开全部释义」）。
+   *
+   * 为什么要它：卡片越高 → 页面越长 → 底部的「翻词」胶囊就越可能停在屏幕最下面；
+   * 在 iPhone 上那一片是 Home Indicator 的手势区，横拖会被系统抢走。
+   * 把长释义收起来，短卡片一屏放得下，胶囊自然就不会贴着屏幕底。
+   * 折叠状态在**本轮内记住**：你展开过一次，后面遇到长释义就默认展开。
+   */
+  function applyFold() {
+    answerBody.classList.remove('folded'); // 先按展开量一次
+    btnFold.hidden = true;
+    const full = answerBody.scrollHeight;
+    const max = Number(getComputedStyle(view).getPropertyValue('--fold-max')) || 168;
+    if (full <= max + 8) {
+      folded = false;
+      btnFold.setAttribute('aria-expanded', 'true');
+      return;
+    }
+    btnFold.hidden = false;
+    setFolded(!foldOpen);
+  }
+
+  /** 收起 / 展开（按钮文案和 aria 一起更新 —— 点按钮走的也是这里，所以别把文案写在别处） */
+  function setFolded(on) {
+    folded = on;
+    foldOpen = !on;
+    answerBody.classList.toggle('folded', on);
+    btnFold.setAttribute('aria-expanded', String(!on));
+    const n = (s.queue[s.i]?.meanings || []).filter(Boolean).length;
+    btnFold.textContent = on ? `展开全部注释（${n} 条释义）` : '收起注释';
   }
 
   /** 切「默写 / 过一遍」。只改地址栏，不触发 hashchange（否则这一轮就白练了） */
@@ -434,7 +475,6 @@ export async function renderPractice(params = {}) {
     s.retried = false;
     s.nearCounted = false;
     syncBackBtn();
-    summary.hidden = true;
     card.hidden = false;
     renderQuestion();
     renderPicker();
@@ -465,6 +505,7 @@ export async function renderPractice(params = {}) {
       hint.textContent = [w.phonetic, w.pos].filter(Boolean).join(' · ');
       renderReveal(w);
       answerLine.hidden = false;
+      applyFold();
     } else {
       // 中→英的题目也按"中文一行 + 英文原释义一行"排（原来是一整行混排的字符串）
       if (s.curDir === 'en2zh') prompt.textContent = w.term;
@@ -487,10 +528,9 @@ export async function renderPractice(params = {}) {
     feedback.textContent = '';
     btnNext.hidden = true;
     btnForce.hidden = true;
-    btnNext.textContent = s.i + 1 < s.queue.length ? '下一题' : '看小结';
+    btnNext.textContent = s.i + 1 < s.queue.length ? '下一题' : '背完了';
     progress.textContent = `第 ${s.i + 1}/${s.queue.length}`;
     card.hidden = false;
-    summary.hidden = true;
     syncSlider();
     // 内容换了一张"卡"：轻微上浮淡入，给一点"下一张从下面来"的空间感。
     // 只动 prompt / answerLine（不动输入框，免得打字时画面在抖）。
@@ -838,7 +878,6 @@ export async function renderPractice(params = {}) {
 
   function showNothing() {
     card.hidden = true;
-    summary.hidden = true;
     const smart = smartDef(smartId);
     const isSmart = !!smart;
     view.replaceChildren(top, switchRow, el('div', { className: 'card empty', dataset: { testid: 'nothing-due' } }, [
@@ -926,7 +965,7 @@ export async function renderPractice(params = {}) {
     if (!s.review) revealAnswer(w); // 默写：答案已经给出了，摊开给我看
     btnForce.hidden = true;
     btnNext.hidden = false;
-    btnNext.textContent = s.i + 1 < s.queue.length ? '下一题' : '看小结';
+    btnNext.textContent = s.i + 1 < s.queue.length ? '下一题' : '背完了';
     btnNext.focus();
   }
 
@@ -1004,39 +1043,39 @@ export async function renderPractice(params = {}) {
       s.i++;
       renderQuestion();
     } else {
-      showSummary();
+      finishSession();
     }
   }
 
-  function showSummary() {
+  /**
+   * 整个词库过完了 —— **不再有"成绩单 + 再来一轮"那一轮一套**：
+   * 报一句成绩（轻提示），然后回词库页（有具体库就回那个库，否则回首页词库列表）。
+   */
+  function finishSession() {
     s.ended = true;
     card.hidden = true;
-    summary.hidden = false;
-    syncSlider(); // 看小结时滑片收起（没有"下一个词"可翻了）
-    renderPicker(); // 最后一题的结果也要在「选词」列表里看得到
-    const textEl = summary.querySelector('[data-testid="summary-text"]');
+    syncSlider();
     if (s.review) {
-      // 过一遍模式的成绩单：不考对错，只看你把多少词归到了哪边
+      // 过一遍的口径：不考对错，只看把多少词归到了哪边
       const total = s.stats.known + s.stats.unfamiliar + s.stats.skipped;
-      textEl.textContent =
-        `过了一遍 ${total} 个词 · 熟记 ${s.stats.known} · 生疏 ${s.stats.unfamiliar}` +
-        (s.stats.skipped ? ` · 跳过 ${s.stats.skipped}` : '') +
-        (s.stats.unfamiliar ? '（生疏的还在这个库里，下次再来一遍）' : '');
-      return;
+      showToast(
+        [`过了一遍 ${total} 个词`, `熟记 ${s.stats.known}`, `生疏 ${s.stats.unfamiliar}`,
+         s.stats.skipped ? `跳过 ${s.stats.skipped}` : ''].filter(Boolean).join(' · '),
+        { kind: 'ok', timeout: 4200 }
+      );
+    } else {
+      // "练完 N 题"把"自己标级"的也算进去，否则标完的题会显得凭空少掉
+      const total = s.stats.ok + s.stats.bad + s.stats.marked;
+      showToast(
+        [`练完 ${total} 题`, `对 ${s.stats.ok}`, `错 ${s.stats.bad}`,
+         s.stats.marked ? `手动标了 ${s.stats.marked}（熟记 ${s.stats.known} / 生疏 ${s.stats.unfamiliar}）` : ''
+        ].filter(Boolean).join(' · '),
+        { kind: 'ok', timeout: 4200 }
+      );
     }
-    // "练了 N 题"把"自己标级"的也算进去，否则标完的题会显得凭空少掉
-    const total = s.stats.ok + s.stats.bad + s.stats.marked;
-    textEl.textContent =
-      `练了 ${total} 题 · 对 ${s.stats.ok} · 错 ${s.stats.bad} · 差点 ${s.stats.near}` +
-      (s.stats.nearPass ? `（其中 ${s.stats.nearPass} 个算你对）` : '') +
-      (s.stats.marked ? ` · 手动标了 ${s.stats.marked} 个（熟记 ${s.stats.known} / 生疏 ${s.stats.unfamiliar}）` : '');
-  }
-
-  async function again() {
-    data = await loadAll();
-    buildSession();
-    if (!s.queue.length) return showNothing();
-    renderQuestion();
+    const qs = new URLSearchParams();
+    if (libId) qs.set('lib', libId);
+    location.hash = `#/word${qs.toString() ? `?${qs}` : ''}`;
   }
 
   // 键盘：回车判定/下一题，Esc 退出，1/2 快速定级（只在没在打字时生效）
@@ -1058,7 +1097,7 @@ export async function renderPractice(params = {}) {
     const t = e.target;
     // 正在输入框里打字就不抢键（默写模式下"1"和左右方向键都是答案的一部分）
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-    if (s.ended || card.hidden || summary.hidden === false) return;
+    if (s.ended || card.hidden) return;
     // ← / → = 滑片的键盘等价键（大卡片上那个「下一个」按钮删掉之后，跳过不能只剩"拖动"一条路）
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();

@@ -7,18 +7,15 @@
 import { all, get, put, softDelete } from './db.js';
 import { MAX_BOX } from './srs.js';
 
-export const DEFAULT_NEW_LIMIT = 10;
-
 export const PALETTE = ['#3b5bff', '#ff9f0a', '#34c759', '#ff375f', '#af52de', '#5ac8fa'];
 
 /** 一次把要用的都读出来（软删除的已经滤掉） */
 export async function loadAll() {
-  const [words, libs, links, progs, settings] = await Promise.all([
+  const [words, libs, links, progs] = await Promise.all([
     all('words'),
     all('libs'),
     all('links'),
-    all('prog'),
-    get('meta', 'settings')
+    all('prog')
   ]);
   const liveWords = words.filter((w) => !w.deleted);
   return {
@@ -26,8 +23,7 @@ export async function loadAll() {
     wordsById: new Map(liveWords.map((w) => [w.id, w])),
     libs: libs.filter((l) => !l.deleted).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name)),
     links: links.filter((l) => !l.deleted),
-    progs: Object.fromEntries(progs.map((p) => [p.wordId, p])),
-    newLimit: settings?.value?.dailyNewLimit ?? DEFAULT_NEW_LIMIT
+    progs: Object.fromEntries(progs.map((p) => [p.wordId, p]))
   };
 }
 

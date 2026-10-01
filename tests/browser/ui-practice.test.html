@@ -95,17 +95,18 @@ try {
   type(q(frame, '[data-testid="practice-input"]'), '书');
   pressEnter(q(frame, '[data-testid="practice-input"]'));
   await waitFor(() => q(frame, '[data-testid="feedback"]')?.dataset.ok === 'true', { label: '第三题答对' });
-  eq('最后一题时按钮变成"看小结"', t(frame, '[data-testid="btn-next"]'), '看小结');
+  eq('最后一题时按钮变成"背完了"', t(frame, '[data-testid="btn-next"]'), '背完了');
   click(q(frame, '[data-testid="btn-next"]'));
-  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '出现小结' });
 
-  // ---------------- 5. 会话小结 ----------------
-  const summary = t(frame, '[data-testid="session-summary"]');
-  ok('小结里有练了几题', summary.includes('练了 3 题'), summary);
-  ok('小结里有对错数', summary.includes('对 2') && summary.includes('错 1'), summary);
-  ok('小结里有"差点"', summary.includes('差点'), summary);
-  ok('小结页有"再来一轮"', !!q(frame, '[data-testid="btn-again"]'));
-  ok('小结页有"回首页"', !!q(frame, '[data-testid="btn-home"]'));
+  // ---------------- 5. 背完整个词库：报一句 + 回词库页（不再有成绩单/再来一轮）----------------
+  await waitFor(() => (frame.contentWindow.location.hash || '').startsWith('#/word'), { label: '背完回词库页' });
+  const doneToast = t(frame, '[data-testid="toast"]');
+  ok('轻提示里报了练了几题', doneToast.includes('练完 3 题'), doneToast);
+  ok('轻提示里有对错数', doneToast.includes('对 2') && doneToast.includes('错 1'), doneToast);
+  await waitFor(() => t(frame, '#view-word').includes('四级 Test 1'), { label: '词库页渲染出这个库' });
+  ok('回到了这个库的词库页', true);
+  ok('不再有成绩单那张卡', q(frame, '[data-testid="session-summary"]') === null);
+  ok('不再有"再来一轮"', q(frame, '[data-testid="btn-again"]') === null);
 
   // ---------------- 6. 中译英 + 差点 → 再试一次 ----------------
   await db.wipeAll();
@@ -204,15 +205,15 @@ try {
   eq('生疏也不算答错', pu.lapses, 0);
   eq('标完又进下一题', t(frame, '[data-testid="practice-prompt"]'), 'book');
 
-  // 最后一个词正常答完，看小结
+  // 最后一个词正常答完 → 背完整库
   type(q(frame, '[data-testid="practice-input"]'), '书');
   pressEnter(q(frame, '[data-testid="practice-input"]'));
-  await waitFor(() => t(frame, '[data-testid="btn-next"]') === '看小结', { label: '最后一题' });
+  await waitFor(() => t(frame, '[data-testid="btn-next"]') === '背完了', { label: '最后一题' });
   click(q(frame, '[data-testid="btn-next"]'));
-  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '小结出现' });
-  const sum10 = t(frame, '[data-testid="session-summary"]');
-  ok('小结算进了手动标记', sum10.includes('手动标了 2 个'), sum10);
-  ok('小结分了熟记/生疏', sum10.includes('熟记 1') && sum10.includes('生疏 1'), sum10);
+  await waitFor(() => (frame.contentWindow.location.hash || '').startsWith('#/word'), { label: '背完回词库页' });
+  const sum10 = t(frame, '[data-testid="toast"]');
+  ok('轻提示算进了手动标记', sum10.includes('手动标了 2') && sum10.includes('熟记 1'), sum10);
+  ok('轻提示分了熟记/生疏', sum10.includes('生疏 1'), sum10);
 
   // ---------------- 11. 「过一遍」模式（只看不考，专门用来刷生疏词）----------------
   await db.wipeAll();
@@ -241,14 +242,14 @@ try {
   eq('"不标"就是不写库', await prog('w-book'), undefined);
 
   click(q(frame, '[data-testid="btn-level-unfamiliar"]'));
-  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '过完出现小结' });
-  const sum11 = t(frame, '[data-testid="session-summary"]');
-  ok('小结用"过了一遍"的口径', sum11.includes('过了一遍 3 个词'), sum11);
-  ok('小结统计熟记/生疏/跳过', sum11.includes('熟记 1') && sum11.includes('生疏 1') && sum11.includes('跳过 1'), sum11);
+  await waitFor(() => (frame.contentWindow.location.hash || '').startsWith('#/word'), { label: '过完整库' });
+  const sum11 = t(frame, '[data-testid="toast"]');
+  ok('报成绩用"过了一遍"的口径', sum11.includes('过了一遍 3 个词'), sum11);
+  ok('成绩里统计熟记/生疏/跳过', sum11.includes('熟记 1') && sum11.includes('生疏 1') && sum11.includes('跳过 1'), sum11);
 
-  click(q(frame, '[data-testid="btn-again"]'));
-  await waitFor(() => q(frame, '[data-testid="practice-prompt"]'), { label: '再来一轮' });
-  // 模式是右上角那个选项框（过一遍 / 默写），不再是文字链接
+  // 没有"再来一轮"了：想再练就自己回练习页（这里顺便验模式选项框）
+  frame.contentWindow.location.hash = `#/practice?lib=${lib5}&mode=review`;
+  await waitFor(() => q(frame, '[data-testid="practice-prompt"]'), { label: '重新进练习' });
   eq('模式选项框：过一遍被选中', q(frame, '[data-testid="btn-mode-review"]').getAttribute('aria-pressed'), 'true');
   click(q(frame, '[data-testid="btn-mode-quiz"]'));
   await waitFor(() => q(frame, '[data-testid="practice-input"]').hidden === false, { label: '切回默写' });
@@ -370,13 +371,14 @@ try {
   await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '键盘 → 到下一个词' });
   eq('键盘 → 走的是"跳过"（不写库、算未标）', await prog('w-run'), undefined);
 
-  // 最后一题：往右 = 进小结；小结里滑片收起
+  // 最后一题：往右 = 背完整库（回词库页）
   click(q(frame, '[data-testid="btn-next-word"]'));
   await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'book', { label: '到最后一题' });
   eq('到最后一道题', t(frame, '[data-testid="progress-text"]'), '第 3/3');
   pressKey(cardEl(), 'ArrowRight');
-  await waitFor(() => q(frame, '[data-testid="session-summary"]') && !q(frame, '[data-testid="session-summary"]').hidden, { label: '到小结' });
-  ok('看小结时滑片收起（没有"下一个词"可翻了）', sliderEl().hidden === true);
+  await waitFor(() => (frame.contentWindow.location.hash || '').startsWith('#/word'), { label: '背完回词库页' });
+  await waitFor(() => q(frame, '#view-word').hidden === false, { label: '词库页显示出来了' });
+  ok('背完后练习页收起来了', q(frame, '#view-practice').hidden === true);
 
   // ---------------- 13. 答错自动进生疏库 ----------------
   await db.wipeAll();
@@ -431,10 +433,11 @@ try {
   // ---------------- 15. 爬到"已掌握"自动移出生疏库 ----------------
   await db.wipeAll();
   const lib8 = await seed();
-  await db.put('meta', { key: 'settings', value: { dailyNewLimit: 0 }, updatedAt: NOW });
   await db.put('prog', { wordId: 'w-book', box: 5, dueAt: NOW - 1000, streak: 4, lapses: 0, lastDir: 'en2zh', level: 'unfamiliar', levelFrom: 'wrong', levelAt: NOW, updatedAt: NOW });
   frame = await openApp({ hash: `#/practice?lib=${lib8}&mode=quiz`, sel: '[data-testid="practice-prompt"]' });
-  eq('只练那一个到期的词', t(frame, '[data-testid="progress-text"]'), '第 1/1');
+  // 整库都进队了（不再有每日新词上限），但**到期的复习词排在前面**
+  eq('整库 3 个词都进队', t(frame, '[data-testid="progress-text"]'), '第 1/3');
+  eq('到期的复习词排第一', t(frame, '[data-testid="practice-prompt"]'), 'book');
 
   type(q(frame, '[data-testid="practice-input"]'), '书');
   pressEnter(q(frame, '[data-testid="practice-input"]'));
@@ -694,6 +697,49 @@ try {
   eq('答过的词在列表里显示结果', qa(pickFrame, '[data-testid="picker-row"]')[1].textContent.includes('熟记'), true,
      qa(pickFrame, '[data-testid="picker-row"]')[1].textContent);
   eq('当前行跟着到第 3 行', qa(pickFrame, '[data-testid="picker-row"]')[2].dataset.cur, 'true');
+
+  // ---------------- 21. v29：整个词库一次进队（没有"一轮 N 个"）+ 长释义可折叠 ----------------
+  await db.wipeAll();
+  const libBig = 'lib-big';
+  await db.put('libs', { id: libBig, name: 'Unit 1 Mind the gap', color: '#3b5bff', order: 0, updatedAt: NOW });
+  const longMean = 'a very long definition that keeps going and going so that the card gets really tall 很长的释义之一';
+  for (let i = 1; i <= 12; i++) {
+    const id = `w-big-${i}`;
+    const words = i === 1
+      // 第 1 个词：6 条长释义（卡片会很高，应该被折叠）
+      ? [longMean, longMean, longMean, longMean, longMean, longMean]
+      : i === 2 ? ['短释义'] : [`第 ${i} 个词的意思`];
+    await db.put('words', {
+      id, term: `word${i}`, termNorm: `word${i}`, phonetic: '', pos: 'n.',
+      meanings: words, example: '', note: '', createdAt: NOW + i, updatedAt: NOW
+    });
+    await db.put('links', { id: `${id}|${libBig}`, wordId: id, libId: libBig, addedAt: NOW, updatedAt: NOW });
+  }
+  let bigFrame = await openApp({ hash: `#/practice?lib=${libBig}&mode=review`, sel: '[data-testid="practice-prompt"]' });
+  eq('12 个词的库：一次全进队（以前只给 10 个）', t(bigFrame, '[data-testid="progress-text"]'), '第 1/12');
+
+  // 长释义：默认收起 + 有「展开全部释义（6 条）」
+  const means = () => q(bigFrame, '[data-testid="answer-body"]');
+  const foldBtn = () => q(bigFrame, '[data-testid="btn-fold-means"]');
+  ok('长注释默认收起（释义 + 搭配整体）', means().classList.contains('folded') === true, means().className);
+  ok('收起时给了展开按钮', foldBtn().hidden === false && t(bigFrame, '[data-testid="btn-fold-means"]').includes('展开全部注释（6 条释义）'), t(bigFrame, '[data-testid="btn-fold-means"]'));
+  eq('展开按钮的 aria-expanded=false', foldBtn().getAttribute('aria-expanded'), 'false');
+  const foldedH = means().getBoundingClientRect().height;
+  click(foldBtn());
+  await waitFor(() => means().classList.contains('folded') === false, { label: '展开' });
+  ok('展开后变高', means().getBoundingClientRect().height > foldedH + 20,
+     `${Math.round(foldedH)} → ${Math.round(means().getBoundingClientRect().height)}`);
+  eq('展开后按钮变"收起注释"', t(bigFrame, '[data-testid="btn-fold-means"]'), '收起注释');
+  eq('展开后 aria-expanded=true', foldBtn().getAttribute('aria-expanded'), 'true');
+  click(foldBtn());
+  await waitFor(() => means().classList.contains('folded') === true, { label: '再收起' });
+
+  // 折叠状态本轮内记住：展开过一次，下一张长释义卡默认也是展开的
+  click(foldBtn());
+  await waitFor(() => means().classList.contains('folded') === false, { label: '展开（记住）' });
+  pressKey(q(bigFrame, '.prac-card'), 'ArrowRight');
+  await waitFor(() => t(bigFrame, '[data-testid="practice-prompt"]') === 'word2', { label: '到第 2 个词' });
+  ok('短注释的词不折叠、也没有展开按钮', means().classList.contains('folded') === false && foldBtn().hidden === true);
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
