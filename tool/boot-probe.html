@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>探针：启动耗时拆解（网络 / JS+DB / 版本检查）</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script>
+/* 启动耗时探针：量 app 启动的三段耗时。
+   跑法：python tool/boot_perf.py
+   - t0 → iframe load：网络 + 解析
+   - load → 首页渲染出来：JS 执行 + IndexedDB 读
+   - 首页渲染那一刻 data-update 是什么：判断「版本检查有没有挡着首屏」
+   变体：slow=1（把版本检查指到一个慢端点，模拟「读更新很慢」）；twice=1（同一个页面里连开两次） */
+(async () => {
+  // 拖住顶层 load 事件，等测量做完再放行 —— 无头 Edge 的 --dump-dom 就是在这时 dump
+  const hold = new Image();
+  hold.src = '../__slow?ms=90000';
+  document.body.append(hold);
+
+  const qs = new URL(location.href).searchParams;
+  const slow = qs.get('slow') === '1';
+  const label = qs.get('label') || 'run';
+  const runs = [];
+
+  async function measure(tag) {
+    localStorage.setItem('vocab.versionUrl', slow ? '__slow?ms=5000' : 'version.json');
+    const t0 = performance.now();
+    const f = document.createElement('iframe');
+    f.style.cssText = 'width:390px;height:844px;border:0';
+    f.src = '../index.html';
+    document.body.append(f);
+    await new Promise((r) => f.addEventListener('load', r, { once: true }));
+    const tLoad = performance.now();
+    const w = f.contentWindow;
+    const d = f.contentDocument;
+    await new Promise((r) => {
+      const tick = () => {
+        const v = d.querySelector('#view-home');
+        if (v && v.children.length) return r();
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    const tHome = performance.now();
+    const nav = w.performance.getEntriesByType('navigation')[0] || {};
+    const paints = Object.fromEntries(w.performance.getEntriesByType('paint').map((p) => [p.name, Math.round(p.startTime)]));
+    const res = w.performance.getEntriesByType('resource');
+    const kb = (n) => Math.round((n || 0) / 102.4) / 10;
+    const slowest = res
+      .map((r) => [r.name.split('/').pop().split('?')[0], Math.round(r.duration)])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    const row = {
+      tag,
+      net_ms: Math.round(tLoad - t0),
+      app_ms: Math.round(tHome - tLoad),
+      home_ms: Math.round(tHome - t0),
+      fcp: paints['first-contentful-paint'] ?? null,
+      dcl: Math.round(nav.domContentLoadedEventEnd || 0),
+      load: Math.round(nav.loadEventEnd || 0),
+      requests: res.length,
+      kb: kb(res.reduce((s, r) => s + (r.transferSize || 0), 0)),
+      sw_controlled: !!w.navigator.serviceWorker.controller,
+      update_at_render: d.body.dataset.update,
+      swreg: d.body.dataset.swreg,
+      slowest
+    };
+    runs.push(row);
+    f.remove();
+  }
+
+  await measure(label);
+  if (qs.get('twice') === '1') await measure(label + '-again');
+
+  const el = document.getElementById('result');
+  el.textContent = JSON.stringify({ stage: 'done', runs }, null, 1);
+  document.body.dataset.done = '1';
+  hold.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+})();
+</script>
+</body>
+</html>
