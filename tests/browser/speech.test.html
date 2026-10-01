@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>朗读单词 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 朗读（v31）：只读单词；喇叭该出现才出现、点了读对词、设置改了跟着变、自动朗读不漏答案。
+   跑法：python tool/browser_test.py tests/browser/speech.test.html
+
+   真机能不能出声这里测不了（无头浏览器没有音色），所以把 iframe 里的 speechSynthesis
+   换成一个"记账本"，断言我们**喂给系统**的文本 / 语言 / 语速对不对。 */
+import { click, eq, holdLoad, ok, openApp, pressEnter, report, type, wait, waitFor } from './harness.js';
+import { speechSettings, speechSupported, speakWord, voices } from '../../src/speech.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const W = [
+  { id: 'w-absorb', term: 'absorb', pos: 'v.', meanings: ['take in or soak up吸收', '使专心'] },
+  { id: 'w-run', term: 'run', pos: 'v.', meanings: ['跑', '经营'] }
+];
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-s';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  let i = 0;
+  for (const w of W) {
+    await db.put('words', { ...w, termNorm: w.term, phonetic: '', example: '', note: '', createdAt: NOW + i++, updatedAt: NOW });
+    await db.put('links', { id: `${w.id}|${lib}`, wordId: w.id, libId: lib, addedAt: NOW, updatedAt: NOW });
+  }
+  return lib;
+}
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+const saveSet = (patch) => {
+  localStorage.setItem('vocab.speech', JSON.stringify({ ...speechSettings(), ...patch }));
+};
+
+/** 把 iframe 里的 speechSynthesis 换成记账本（页面渲染完之后装，测点击与后续重渲染） */
+function spy(frame) {
+  const synth = frame.contentWindow.speechSynthesis;
+  const calls = [];
+  if (!synth) return { calls, speakCalls: () => [] };
+  synth.speak = (u) => { calls.push({ text: u.text, lang: u.lang, rate: u.rate, volume: u.volume, voice: u.voice ? u.voice.name : null }); };
+  synth.cancel = () => { calls.push({ cancel: true }); };
+  // 解锁用的空朗读（text 只有一个空格、volume 0）不算"读单词"
+  return { calls, speakCalls: () => calls.filter((c) => !c.cancel && String(c.text || '').trim() !== '') };
+}
+
+try {
+  db = await import('../../src/db.js');
+  localStorage.removeItem('vocab.speech');
+  const lib = await seed();
+
+  // ---------------- 1. 英→中：题面上就有词 → 喇叭在，点了读这个词 ----------------
+  let frame = await openApp({ hash: `#/practice?lib=${lib}&dir=en2zh`, sel: '[data-testid="practice-prompt"]' });
+  const btn = () => q(frame, '[data-testid="btn-speak"]');
+  ok('英→中：题面旁有喇叭按钮', !!btn());
+  eq('喇叭按钮有可读的名字（无障碍）', btn()?.getAttribute('aria-label'), '朗读这个单词');
+  const sp = spy(frame);
+  click(btn());
+  eq('点了喇叭 → 把当前这个词交给系统朗读', sp.speakCalls().map((c) => c.text).join(','), 'absorb');
+  eq('默认用英式（音标本来就是英式）', sp.speakCalls()[0].lang, 'en-GB');
+  eq('默认语速 1', Number(sp.speakCalls()[0].rate), 1);
+  ok('朗读前先掐掉上一条（连点不排队）', sp.calls.some((c) => c.cancel), JSON.stringify(sp.calls));
+  ok('第一次点喇叭会先做一次空朗读解锁（iOS 之后才能程序化发声）',
+     sp.calls.some((c) => c.text === ' ' && c.volume === 0), JSON.stringify(sp.calls.slice(0, 3)));
+
+  // ---------------- 2. 中→英：答完之前不许有喇叭（不然等于给答案）----------------
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=zh2en`, sel: '[data-testid="practice-prompt"]' });
+  ok('中→英：题面是中文释义', t(frame, '[data-testid="practice-prompt"]').includes('吸收'), t(frame, '[data-testid="practice-prompt"]'));
+  ok('中→英：答完之前喇叭是藏着的（不漏答案）', q(frame, '[data-testid="btn-speak"]').hidden === true);
+  const sp2 = spy(frame);
+  type(q(frame, '[data-testid="practice-input"]'), 'absorb');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(() => q(frame, '[data-testid="btn-speak"]').hidden === false, { label: '答完出现喇叭' });
+  click(q(frame, '[data-testid="btn-speak"]'));
+  eq('答完后点喇叭读的是正确答案那个词', sp2.speakCalls().map((c) => c.text).join(','), 'absorb');
+
+  // ---------------- 3. 设置：口音 / 语速 ----------------
+  frame = await openApp({ hash: '#/settings', sel: '[data-testid="speech-accent"]' });
+  ok('设置页有「发音」块', !!q(frame, '[data-testid="speech-accent"]'));
+  const sel = q(frame, '[data-testid="speech-accent"]');
+  sel.value = 'en-US';
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  eq('改口音写进设置', speechSettings().accent, 'en-US');
+  const rateSel = q(frame, '[data-testid="speech-rate"]');
+  rateSel.value = '0.85';
+  rateSel.dispatchEvent(new Event('change', { bubbles: true }));
+  eq('改语速写进设置', Number(speechSettings().rate), 0.85);
+
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=en2zh`, sel: '[data-testid="practice-prompt"]' });
+  const sp3 = spy(frame);
+  click(q(frame, '[data-testid="btn-speak"]'));
+  eq('换口音之后朗读用的是美式', sp3.speakCalls()[0].lang, 'en-US');
+  // utterance.rate 是 float32：0.85 存进去会是 0.8500000238，比较要带容差
+  ok('换语速之后朗读用的是 0.85', Math.abs(Number(sp3.speakCalls()[0].rate) - 0.85) < 0.001,
+     String(sp3.speakCalls()[0].rate));
+
+  // ---------------- 4. 自动朗读：默认关；开了之后进新词自动念 ----------------
+  eq('自动朗读默认关', speechSettings().auto, false);
+  eq('默认关的时候只有手点才发声（自动朗读没开）', sp3.speakCalls().length, 1);
+  saveSet({ auto: true });
+  // 同一个 frame 里换个词重进练习页（触发一次新的渲染 → 自动朗读该生效）
+  const sp4 = spy(frame);
+  frame.contentWindow.location.hash = `#/practice?lib=${lib}&dir=en2zh&from=w-run`;
+  await waitFor(() => t(frame, '[data-testid="practice-prompt"]') === 'run', { label: '换到第二个词' });
+  await wait(80);
+  eq('开了自动朗读：进新词自动念一遍（真机上要先有一次点击解锁）',
+     sp4.speakCalls().map((c) => c.text).join(','), 'run');
+
+  // ---------------- 5. 中→英 + 自动朗读：答完才念（不缺答案）----------------
+  saveSet({ auto: true });
+  await seed(); // 上一节答过题，队列会被学习记录写空 → 重新播种
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=zh2en&from=w-absorb`, sel: '[data-testid="practice-prompt"]' });
+  const sp5 = spy(frame);
+  ok('中→英：这一题就是 absorb（题面是中文释义）',
+     t(frame, '[data-testid="practice-prompt"]').includes('吸收'), t(frame, '[data-testid="practice-prompt"]'));
+  await wait(80);
+  eq('中→英：题面阶段不自动朗读（会漏答案）', sp5.speakCalls().length, 0);
+  type(q(frame, '[data-testid="practice-input"]'), 'absorb');
+  pressEnter(q(frame, '[data-testid="practice-input"]'));
+  await waitFor(() => sp5.speakCalls().length > 0, { label: '答完后自动朗读' });
+  eq('中→英：答完自动朗读正确答案', sp5.speakCalls()[sp5.speakCalls().length - 1].text, 'absorb');
+
+  // ---------------- 6. 关掉开关：练习页与词条页都不再出现喇叭 ----------------
+  saveSet({ on: false, auto: false });
+  await seed();
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=en2zh`, sel: '[data-testid="practice-prompt"]' });
+  ok('关掉发音开关后：练习页不显示喇叭', q(frame, '[data-testid="btn-speak"]').hidden === true);
+  frame = await openApp({ hash: '#/word?id=w-absorb', sel: '[data-testid="word-term"]' });
+  ok('关掉发音开关后：词条页不渲染喇叭', q(frame, '[data-testid="btn-speak-word"]') === null);
+
+  // ---------------- 7. 词条页：开着的时候有喇叭，点了读这个词 ----------------
+  saveSet({ on: true });
+  await seed();
+  frame = await openApp({ hash: '#/word?id=w-absorb', sel: '[data-testid="word-term"]' });
+  const hdrBtn = q(frame, '[data-testid="btn-speak-word"]');
+  ok('词条页词头旁有喇叭', !!hdrBtn);
+  const sp6 = spy(frame);
+  click(hdrBtn);
+  eq('词条页点喇叭读的是这个词', sp6.speakCalls().map((c) => c.text).join(','), 'absorb');
+
+  // ---------------- 8. 不支持的系统：不显示按钮、speakWord 返回 false ----------------
+  ok('这台浏览器支持 Web Speech API（不支持就没法测下面这条）', speechSupported());
+  const orig = window.speechSynthesis;
+  Object.defineProperty(window, 'speechSynthesis', { value: undefined, configurable: true });
+  eq('没有 speechSynthesis 时 speechSupported() = false', speechSupported(), false);
+  eq('没有 speechSynthesis 时 speakWord() 返回 false（不抛错）', speakWord('absorb'), false);
+  eq('没有音色时 voices() 是空数组', voices().length, 0);
+  Object.defineProperty(window, 'speechSynthesis', { value: orig, configurable: true });
+  ok('恢复之后又能用了', speechSupported());
+
+  localStorage.removeItem('vocab.speech');
+} catch (e) {
+  ok('朗读测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

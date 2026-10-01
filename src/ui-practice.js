@@ -16,6 +16,7 @@ import { icon } from './icons.js';
 import { buildQueue, grade, markLevel, newProg, queueFromOrder } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { libWordIds, loadAll } from './store.js';
+import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { showToast } from './toast.js';
 import { keepFocusVisible } from './viewport.js';
 
@@ -214,8 +215,21 @@ export async function renderPractice(params = {}) {
   // （卡片手势还在：拖动时浮出红/绿角标，滑片也把"翻词"这条路讲清楚了）。
   const switchRow = el('div', { className: 'prac-switches' }, [modeSwitch, dirSwitch]);
 
+  // 朗读单词（系统 TTS，见 src/speech.js）。放在题面右边一颗小喇叭：
+  //   · 过一遍 / 英→中：词就在题面上 → 一直显示
+  //   · 中→英：题面是中文释义，**答完揭晓**才出现（不然等于给答案）
+  const speakBtn = el('button', {
+    className: 'speak-btn',
+    dataset: { testid: 'btn-speak' },
+    type: 'button',
+    'aria-label': '朗读这个单词',
+    hidden: true,
+    onclick: () => speakNow()
+  }, icon('volume', { size: 22 }));
+  const promptRow = el('div', { className: 'prac-prompt-row' }, [prompt, speakBtn]);
+
   const card = el('div', { className: 'card prac-card' }, [
-    prompt,
+    promptRow,
     hint,
     input,
     submit,
@@ -333,7 +347,32 @@ export async function renderPractice(params = {}) {
     renderReveal(w);
     answerLine.hidden = false;
     applyFold(); // 必须等它可见了再量高度，否则 scrollHeight 恒为 0
+    // 中→英：答完了才让喇叭出现（顺带把词念一遍，等于听力复习）
+    if (!s.review && s.curDir === 'zh2en') {
+      syncSpeakBtn(true);
+      autoSpeak(w);
+    }
     popIn(answerLine, 4);
+  }
+
+  /** 喇叭按钮的显示条件：设置里开着 + 浏览器支持 + 这个词现在看得见 */
+  function syncSpeakBtn(visible) {
+    speakBtn.hidden = !(visible && speechSettings().on && speechSupported());
+  }
+
+  /** 点喇叭：读当前这个词（先解锁，保证 iOS 上程序化朗读也出声） */
+  function speakNow() {
+    const w = s.queue[s.i];
+    if (!w) return;
+    unlockSpeech();
+    speakWord(w.term);
+  }
+
+  /** 开了"自动朗读"就念一遍（只读单词；中→英方向只在答完后调用，不会漏答案） */
+  function autoSpeak(w) {
+    const cfg = speechSettings();
+    if (!cfg.auto || !speechSupported() || !w) return;
+    speakWord(w.term);
   }
 
   /**
@@ -529,6 +568,10 @@ export async function renderPractice(params = {}) {
     }
     // 提示里是英文词的时候用词头字体（字典式衬线）；中文释义保持系统无衬线
     prompt.classList.toggle('is-word', s.review || s.curDir === 'en2zh');
+    // 喇叭：词可见的时候才出现（中→英要先答完）；开了自动朗读就顺手念一遍
+    const termVisible = s.review || s.curDir === 'en2zh';
+    syncSpeakBtn(termVisible);
+    if (termVisible) autoSpeak(w);
     input.value = '';
     input.placeholder = s.curDir === 'en2zh' ? '写出中文意思' : '写出英文单词';
     input.disabled = false;

@@ -39,6 +39,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑬ 设置页：版本/检查更新/数据状态/备份恢复", "settings", [PY, "tool/browser_test.py", "tests/browser/settings.test.html"], "ui"),
     ("⑭ 生疏/熟记专项：内置于词库（总词库=全局）+ 专项练习", "smart", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
     ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", "mobile", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
+    ("⑯ 朗读单词（只读单词 / 口音语速 / 不漏答案 / 降级）", "speech", [PY, "tool/browser_test.py", "tests/browser/speech.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[str] | None]] = [
@@ -52,6 +53,7 @@ CHECKLIST: list[tuple[str, list[str] | None]] = [
     ("Excel（.xlsx）能直接导入；音标能一键补齐（下载→匹配→写库，之后离线）", ["xlsx", "phonetic"]),
     ("配色对比度达标（正文 AA；提高对比度模式下 AAA）", ["contrast"]),
     ("删词库：两步确认、只删库不删词（词留在总词库）、6 秒内可撤销", ["ui-lib-delete"]),
+    ("朗读单词：只读单词、口音/语速跟着设置、中→英答完才给喇叭、不支持的系统不渲染按钮", ["speech"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

@@ -12,6 +12,7 @@ import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
+import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
 import { showToast } from './toast.js';
 
@@ -359,6 +360,19 @@ async function renderEditor(view, params, data) {
   const myLibs = new Set(links.map((l) => l.libId));
 
   const term = el('h2', { className: 'page-title is-word', dataset: { testid: 'word-term' } }, w.term);
+  // 词条页词头旁也放一颗喇叭（只读单词）；不支持系统朗读或用户关掉了就不显示
+  const speakHdr = speechSettings().on && speechSupported()
+    ? el('button', {
+        className: 'speak-btn',
+        dataset: { testid: 'btn-speak-word' },
+        type: 'button',
+        'aria-label': '朗读这个单词',
+        onclick: () => {
+          unlockSpeech();
+          speakWord(w.term);
+        }
+      }, icon('volume', { size: 22 }))
+    : null;
   const phonetic = el('input', { className: 'field', dataset: { testid: 'word-phonetic' }, type: 'text', value: w.phonetic || '', placeholder: '音标', 'aria-label': '音标' });
   const pos = el('input', { className: 'field', dataset: { testid: 'word-pos' }, type: 'text', value: w.pos || '', placeholder: '词性，例如 v.', 'aria-label': '词性' });
   const meanings = el('textarea', { className: 'field', dataset: { testid: 'word-meanings' }, rows: '3', 'aria-label': '释义（一行一条）' });
@@ -444,8 +458,9 @@ async function renderEditor(view, params, data) {
   view.replaceChildren(
     el('div', { className: 'word-head' }, [
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回词条列表', onclick: () => { location.hash = backHash; } }, [icon('chevronLeft', { size: 20 })]),
-      term
-    ]),
+      term,
+      speakHdr
+    ].filter(Boolean)),
     el('div', { className: 'card word-edit', dataset: { testid: 'word-edit' } }, [
       el('div', { className: 'field-label' }, '释义（一行一条）'),
       meanings,

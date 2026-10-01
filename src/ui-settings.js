@@ -13,6 +13,7 @@ import { all } from './db.js';
 import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo } from './backup.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { confirmThen } from './confirm.js';
+import { ACCENT_LABELS, RATE_LABELS, saveSpeechSettings, speakWord, speechSettings, speechSupported, unlockSpeech, voices } from './speech.js';
 import { showToast } from './toast.js';
 import { APP_VERSION } from './version.js';
 
@@ -138,6 +139,63 @@ export async function renderSettings() {
           }
         }
       }, `补齐音标（还差 ${missing} 个）`)
+    : null;
+
+  // ---------------------------------------------------------------- 发音（只读单词，系统 TTS）
+  // 零字节、离线可用；不支持 Web Speech API 的浏览器就整块不显示，免得点了没反应。
+  const spCfg = speechSettings();
+  const spSupported = speechSupported();
+  const spOn = el('input', {
+    type: 'checkbox',
+    dataset: { testid: 'speech-on' },
+    checked: spCfg.on,
+    onchange: (e) => {
+      saveSpeechSettings({ on: e.currentTarget.checked });
+      spSay(e.currentTarget.checked ? '发音已开启' : '发音已关闭');
+    }
+  });
+  const spAccent = el('select', {
+    className: 'field',
+    dataset: { testid: 'speech-accent' },
+    'aria-label': '口音',
+    onchange: (e) => { saveSpeechSettings({ accent: e.currentTarget.value }); speakWord('vocabulary', { accent: e.currentTarget.value }); }
+  }, Object.entries(ACCENT_LABELS).map(([v, label]) => el('option', { value: v, selected: v === spCfg.accent }, label)));
+  const spRate = el('select', {
+    className: 'field',
+    dataset: { testid: 'speech-rate' },
+    'aria-label': '语速',
+    onchange: (e) => { saveSpeechSettings({ rate: Number(e.currentTarget.value) }); speakWord('vocabulary', { rate: Number(e.currentTarget.value) }); }
+  }, Object.entries(RATE_LABELS).map(([v, label]) => el('option', { value: v, selected: Number(v) === spCfg.rate }, label)));
+  const spAuto = el('input', {
+    type: 'checkbox',
+    dataset: { testid: 'speech-auto' },
+    checked: spCfg.auto,
+    onchange: (e) => saveSpeechSettings({ auto: e.currentTarget.checked })
+  });
+  const spSay = (text, kind = 'ok') => { spStatus.textContent = text; spStatus.dataset.kind = kind; };
+  const spStatus = el('div', { className: 'settings-note', dataset: { testid: 'speech-status' } }, '');
+  const spEnVoices = spSupported ? voices().filter((v) => /^en/i.test(v.lang || '')).length : 0;
+  const speechCard = spSupported
+    ? el('div', { className: 'card settings-card' }, [
+        el('div', { className: 'field-label' }, '发音（只读单词）'),
+        el('label', { className: 'lib-check-label' }, [spOn, el('span', {}, '显示喇叭按钮')]),
+        el('div', { className: 'grid-2' }, [spAccent, spRate]),
+        el('label', { className: 'lib-check-label' }, [spAuto, el('span', {}, '切到新词时自动读一遍')]),
+        el('button', {
+          className: 'ghost',
+          dataset: { testid: 'btn-speech-try' },
+          type: 'button',
+          onclick: () => {
+            unlockSpeech();
+            const cfg = speechSettings();
+            const okSpoken = speakWord('vocabulary');
+            spSay(okSpoken ? `试听：本机 ${spEnVoices} 个英文音色` : '这台设备没给出英文音色，可能读不出声', okSpoken ? 'ok' : 'warn');
+            if (okSpoken && !cfg.auto) spStatus.dataset.hint = 'auto-off';
+          }
+        }, '试听'),
+        spStatus,
+        el('div', { className: 'settings-note' }, '用的是设备自带的朗读（不下载音频、离线也能响）。iPhone 上侧边静音键可能会压掉它；音色在「设置 → 辅助功能 → 朗读内容」里可下载更好的。')
+      ])
     : null;
 
   const dataCard = el('div', { className: 'card settings-card' }, [
@@ -276,16 +334,20 @@ export async function renderSettings() {
     ])
   ]);
 
+  // ⚠️ replaceChildren(null) 会在页面上真的渲染出字符串 "null"（踩过的老坑）→ 先 filter(Boolean)
   view.replaceChildren(
-    el('div', { className: 'word-head' }, [
-      el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
-      el('h2', { className: 'page-title' }, '设置')
-    ]),
-    updateCard,
-    dataCard,
-    backupCard,
-    debugCard,
-    notes,
-    status
+    ...[
+      el('div', { className: 'word-head' }, [
+        el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
+        el('h2', { className: 'page-title' }, '设置')
+      ]),
+      updateCard,
+      dataCard,
+      speechCard,
+      backupCard,
+      debugCard,
+      notes,
+      status
+    ].filter(Boolean)
   );
 }

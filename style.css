@@ -529,6 +529,28 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .prac-card { display: grid; gap: 12px; padding: 16px 16px; }
 .prac-prompt { font-size: clamp(26px, 7.5vw, 42px); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+/* 题面 + 朗读喇叭一行（喇叭只在词可见时出现：过一遍 / 英→中，或中→英答完之后） */
+.prac-prompt-row { display: flex; align-items: center; gap: 10px; }
+.prac-prompt-row .prac-prompt { flex: 1 1 auto; min-width: 0; }
+.speak-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px 是 iOS 的最小可点尺寸；视觉上还是一颗小按钮（内圈 34px） */
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.speak-btn[hidden] { display: none; }
+.speak-btn:active { background: color-mix(in srgb, var(--line) 45%, var(--card)); }
+.speak-btn svg { pointer-events: none; }
 /* 英文词头：换成字典式衬线体（衬线在小字重下光学显小，所以字号和行距略调大一点） */
 .prac-prompt.is-word {
   font-family: var(--font-headword);
