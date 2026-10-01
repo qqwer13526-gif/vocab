@@ -179,6 +179,14 @@ try {
   const normal = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
   await waitFor(() => normal.contentDocument.body.dataset.update === 'no', { label: '没有新版时状态归位' });
   ok('版本探测恢复正常后，横幅不再显示', normal.contentDocument.querySelector('[data-testid="update-banner"]').hidden === true);
+  // ---------------- 10. v30：启动诊断那一行 ----------------
+  const bootFrame = await openApp({ hash: '#/settings', sel: '[data-testid="boot-status"]' });
+  await waitFor(() => t(bootFrame, '[data-testid="boot-status"]').includes('service worker'), { label: '启动诊断写出来了' });
+  const bootLine = t(bootFrame, '[data-testid="boot-status"]');
+  ok('设置页有「启动诊断」那一行', bootLine.startsWith('启动诊断：'), bootLine);
+  ok('诊断里写了 service worker 有没有接管', /service worker：(已接管|未接管)/.test(bootLine), bootLine);
+  ok('诊断里能报出上次启动的耗时或缓存条数',
+     /上次启动 \d+ms/.test(bootLine) || /缓存 vocab-/.test(bootLine), bootLine);
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

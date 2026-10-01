@@ -589,15 +589,62 @@ try {
   pe2('pointermove', 560, 300, 33);
   eq('抓住后继续跟手（+60px）', Math.round(tx() - grabbed), 60);
   pe2('pointerup', 560, 300, 33);
-  // (g) 真机能不能拖的关键：swipeable 卡片的 touch-action 必须是 none
-  //     （pan-y 时 iOS 会把"带一点纵向的拖拽"判给滚动并甩 pointercancel，表现就是完全拖不动）
-  eq('过一遍模式的卡片 touch-action = none（否则 iOS 会抢走手势）',
-     frame.contentWindow.getComputedStyle(cardEl2()).touchAction, 'none');
+  // (g) v30：卡片是 pan-y —— 让练习页**能上下滑**（长注释/滑片够得着），横向手势靠轴锁定保住。
+  //     v22 那段历史：纯 pan-y 时 iOS 会把"带一点纵向的拖拽"判给滚动并甩 pointercancel，
+  //     所以要配合 onMove 里的轴判定 + onUp 对 pointercancel 只复位不翻页（下面有断言）。
+  eq('过一遍模式的卡片 touch-action = pan-y（能上下滑，横向靠轴锁定）',
+     frame.contentWindow.getComputedStyle(cardEl2()).touchAction, 'pan-y');
+
+  // (i) v30 轴锁定：纵向 / 斜向的拖 = 让浏览器滚页面，卡片不许跟手、更不许翻页写库
+  const seedIds = { absorb: 'w-absorb', run: 'w-run', book: 'w-book' };
+  const wordNow = () => t(frame, '[data-testid="practice-prompt"]');
+  const progNow = async () => JSON.stringify((await prog(seedIds[wordNow()])) || null);
+
+  frame = await openReview();
+  const w0 = wordNow();
+  const p0 = await progNow();
+  pe2('pointerdown', 200, 300);
+  pe2('pointermove', 202, 360); // 纵向为主
+  eq('纵向拖：卡片完全不跟手（交给浏览器滚页面）', tx(), 0);
+  pe2('pointermove', 210, 430);
+  eq('纵向拖：还是不动', tx(), 0);
+  pe2('pointerup', 210, 430);
+  await wait(250);
+  eq('纵向拖不写库（不会误标生疏/熟记）', await progNow(), p0);
+  eq('纵向拖也没有翻页', wordNow(), w0);
+
+  pe2('pointerdown', 200, 300);
+  pe2('pointermove', 210, 330); // 斜向：横 10 / 竖 30
+  eq('斜向拖（横 10 / 竖 30）也不跟手', tx(), 0);
+  pe2('pointerup', 210, 330);
+  await wait(200);
+  eq('斜向拖不翻页', wordNow(), w0);
+
+  // pointercancel：iOS 把手势判给滚动时会发它。已经跟手拖了 120px 也必须只复位、不算翻页
+  pe2('pointerdown', 200, 300);
+  pe2('pointermove', 320, 300);
+  eq('横向拖 120px 正常跟手', Math.round(tx()), 120);
+  pe2('pointercancel', 320, 300);
+  await wait(600);
+  eq('pointercancel 之后卡片复位', Math.round(tx()), 0);
+  eq('pointercancel 不写库', await progNow(), p0);
+  eq('pointercancel 不翻页', wordNow(), w0);
+
+  // 竖拖之后状态要清干净：横拖照样翻页
+  pe2('pointerdown', 200, 300);
+  pe2('pointermove', 204, 380);
+  pe2('pointerup', 204, 380);
+  await wait(150);
+  pe2('pointerdown', 200, 300);
+  pe2('pointermove', 600, 300);
+  pe2('pointerup', 600, 300);
+  await waitFor(() => wordNow() !== w0, { label: '竖拖之后横拖仍然能翻页' });
+  ok('竖拖之后横拖仍然能翻页（手势状态清干净）', true);
 
   // (h) ?debug=1 的真机调试浮层：手机上出问题时靠它区分"事件没来"还是"模式不对"
   const dbgFrame = await openApp({ hash: `#/practice?lib=${libS}&mode=review&debug=1`, sel: '[data-testid="debug-hud"]' });
   const hud = () => t(dbgFrame, '[data-testid="debug-hud"]');
-  ok('调试浮层显示了模式和 touch-action', hud().includes('过一遍') && hud().includes('touch-action：none'), hud());
+  ok('调试浮层显示了模式和 touch-action', hud().includes('过一遍') && hud().includes('touch-action：pan-y'), hud());
   const hudCard = dbgFrame.contentDocument.querySelector('.prac-card');
   const hudPe = (type, x, y = 300) =>
     hudCard.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, isPrimary: true }));

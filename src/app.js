@@ -5,13 +5,15 @@
  *
  * 这里还负责"更新"这件事：iOS 上的主屏幕应用不会自己发现新版本，
  * 所以应用在前台时会**主动检查**，发现新版就在顶部显示一条"立即更新"。
+ *
+ * v30 启动优化：
+ *   - 首屏只静态 import 首页那条链；其余界面（练习/导入/词条/设置）改成**按需 import**，
+ *     冷启动要下的模块从 21 个降到 ~12 个（国内到 GitHub Pages 每个请求 ~400ms）
+ *   - 首屏骨架（index.html 里的内联块）在第一屏渲染完后删掉，冷启动不再白屏
+ *   - 记一次启动耗时 + 申请持久化存储，都写进设置页的「数据状态」
  */
 
 import { renderHome } from './ui-home.js';
-import { renderPractice } from './ui-practice.js';
-import { renderImport } from './ui-import.js';
-import { renderWord } from './ui-word.js';
-import { renderSettings } from './ui-settings.js';
 import { icon } from './icons.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
@@ -52,6 +54,39 @@ export function register(name, fn) {
   RENDER[name] = fn;
 }
 
+/** 按需加载的界面：值是"返回渲染函数"的 loader（见 v30 的启动优化） */
+const LAZY = {};
+export function registerLazy(name, loader) {
+  LAZY[name] = loader;
+}
+
+let bootRecorded = false;
+
+/** 第一屏渲染完：删掉骨架、记下这次启动花了多久（设置页会显示） */
+function markFirstPaint() {
+  const sk = document.getElementById('boot-skeleton');
+  if (sk) sk.remove();
+  if (bootRecorded) return; // 只记"这一次会话的第一屏"，后面切界面不算启动
+  bootRecorded = true;
+  try {
+    const nav = performance.getEntriesByType('navigation')[0];
+    const res = performance.getEntriesByType('resource');
+    const bytes = res.reduce((s, r) => s + (r.transferSize || 0), 0);
+    localStorage.setItem('vocab.lastBoot', JSON.stringify({
+      at: Date.now(),
+      ms: Math.round(performance.now()),
+      responseEnd: Math.round(nav?.responseEnd || 0),
+      requests: res.length,
+      kb: Math.round(bytes / 102.4) / 10,
+      sw: !!navigator.serviceWorker?.controller
+    }));
+  } catch {
+    /* 隐私模式不让写就算了 */
+  }
+  // 设置页可能已经渲染出来了（直接打开 #/settings 的情况），叫它把这行字补上
+  window.dispatchEvent(new Event('vocab:boot'));
+}
+
 let current = { name: null, params: {} };
 export const currentRoute = () => current;
 
@@ -79,14 +114,18 @@ export function show(name, params = {}) {
     bar.style.setProperty('--nav-i', String(idx));
   }
   delete document.body.dataset.ready;
-  const fn = RENDER[name];
-  if (!fn) return;
-  // 渲染函数可以是异步的（要读 IndexedDB）；渲染完打一个 ready 标记，验证脚本靠它
+  if (!RENDER[name] && !LAZY[name]) return;
+  // 渲染函数可以是异步的（要读 IndexedDB），也可能要先按需把界面模块 import 进来；
+  // 渲染完打一个 ready 标记，验证脚本靠它，骨架也在这一刻撤掉
   Promise.resolve()
-    .then(() => fn(params))
+    .then(async () => {
+      const fn = RENDER[name] || (await LAZY[name]());
+      if (fn) await fn(params);
+    })
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
       document.body.dataset.ready = '1';
+      markFirstPaint();
     });
 }
 
@@ -109,11 +148,12 @@ export function route() {
 }
 
 // ---------------------------------------------------------------- 各界面
+// 首页静态引入（首屏就要它）；其余四个按需 import —— 冷启动不必先把练习/导入/词条/设置的代码也下下来
 register('home', renderHome);
-register('practice', renderPractice);
-register('import', renderImport);
-register('word', renderWord);
-register('settings', renderSettings);
+registerLazy('practice', () => import('./ui-practice.js').then((m) => m.renderPractice));
+registerLazy('import', () => import('./ui-import.js').then((m) => m.renderImport));
+registerLazy('word', () => import('./ui-word.js').then((m) => m.renderWord));
+registerLazy('settings', () => import('./ui-settings.js').then((m) => m.renderSettings));
 
 // ---------------------------------------------------------------- service worker 与"更新"
 
@@ -287,6 +327,27 @@ function boot() {
   wireUpdateButton();
   setupServiceWorker();
   setupViewport(); // 键盘高度写进 CSS 变量，输入框不会被键盘盖住
+  requestPersistence(); // 尽量别让系统清掉缓存/数据（"每次打开都要重下"多半是这个）
+}
+
+/**
+ * 申请持久化存储。iOS 在空间紧张 / 长期不打开时会清掉 service worker 缓存和 IndexedDB，
+ * 结果就是"每次进应用都像第一次"（要重新下载 200 多 KB）。申请到了就稳得多。
+ * 不弹权限框、失败也不影响使用，结果写进 body 供设置页与排查看。
+ */
+function requestPersistence() {
+  if (!navigator.storage?.persist) {
+    document.body.dataset.persist = 'unsupported';
+    return;
+  }
+  navigator.storage.persisted?.()
+    .then((already) => (already ? true : navigator.storage.persist()))
+    .then((ok) => {
+      document.body.dataset.persist = ok ? 'granted' : 'denied';
+    })
+    .catch(() => {
+      document.body.dataset.persist = 'error';
+    });
 }
 
 addEventListener('hashchange', route);

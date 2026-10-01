@@ -258,6 +258,11 @@
 ```
 
 - 跟手 / 橡皮筋 / 投射落点判翻 / 速度接管 / 可打断 —— 和卡片滑动同一套弹簧（`spring.js`），不引入新依赖
+- **卡片可上下滑（v30）**：`.prac-card.swipeable { touch-action: pan-y }` —— 纵向手势交给浏览器滚页面。
+  横向靠**轴锁定**保住：`|dx| ≥ 6 且 |dx| > |dy| × 1.15` 才接管（`setPointerCapture` + 跟手），
+  否则当场放弃、让浏览器滚。`pointercancel`（iOS 把手势判给滚动时会发）**只复位、不按位移判翻页** ——
+  否则"想滚页面"会被误标成生疏/熟记。滑片轨道仍是 `touch-action: none`（横向控件，永不滚页面）
+- 点「展开全部注释」后 `scrollIntoView({ block: 'nearest' })` 把注释块滚到眼前
 - 判据：投射落点 ≥ 半程 60%，或实拖 ≥ 全程 80%；没过阈值 → 弹回中间且**不算数**
 - 药丸上写字：往左拖「← 上一个」，往右拖「下一个 →」，静止写「翻词」
 - 端点：第一题左端禁用；最后一个词右端 = 背完整库（回词库页 + 一句轻提示）；空队列时整条收起
@@ -405,6 +410,22 @@
 - 高频操作（打字、切标签、列表滚动）**不加**动效
 - `prefers-reduced-motion` 下把位移缩放的令牌归零，保留很淡的透明度变化（gentler, not zero）
 
+### 启动路径（v30）
+
+冷启动的瓶颈是**网络**（app 自己只花 20~50ms：JS + IndexedDB 全量读），所以：
+
+| 手段 | 做法 |
+|---|---|
+| 少下东西 | `app.js` 只静态 import 首页那条链；练习/导入/词条/设置用 `registerLazy()` + 动态 `import()` |
+| 少下东西 | `sw.js` 的 `ASSETS` 只放首屏必需的 20 项，`DEFERRED` 的 9 个模块首次用到时再缓存 |
+| 别重复下 | 静态资源 **cache-first + 后台 revalidate**（`CACHE` 名带版本，发新版自然换新缓存） |
+| 早点看到 | `index.html` 里的**内联骨架**（第一屏渲染完 `markFirstPaint()` 删掉）+ `<link rel="modulepreload">` |
+| 别被清掉 | 启动时 `navigator.storage.persist()`；设置页「启动诊断」显示上次启动耗时 / SW 是否接管 / 缓存文件数 |
+
+实测（`python tool/boot_perf.py`，390×844，本地服务）：冷启动 **23 个请求 / 243 KB → 14 个 / 113 KB**；
+SW 接管后 **0 KB / ~100ms**。版本检查**不挡首屏**（人为慢 5 秒时首屏照样 100ms 出来，那一刻
+`body.dataset.update` 还是 `"no"`）—— 它只影响顶部那条"立即更新"什么时候出现。
+
 ## 9. 第二阶段：同步（本版不实现，但数据结构现在就为它留好）
 
 - 后端：Supabase（免费版）；表结构与本地四张表一一对应
@@ -458,6 +479,14 @@
     点开/收起时 `aria-expanded` 与文案同步、本轮内记住；短注释不折叠也不显示按钮；
     折叠后卡片一屏放得下 → 底部翻词胶囊离屏幕底 ≥ 250px（不再落进 iOS 的 Home Indicator 手势区）
 
+22. **练习页能上下滑**（v30）：卡片 `touch-action: pan-y`；纵向拖 = 滚页面（卡片不跟手、不写库、不翻页），
+    横向拖（横 > 纵 × 1.15 且 > 6px）才接管翻词/定级；`pointercancel` 只复位不翻页；
+    滑片轨道仍 `touch-action: none`；展开长注释后自动把注释块滚到眼前
+23. **启动要快**（v30）：`app.js` 只静态 import 首页那条链（其余走 `registerLazy` + 动态 import）；
+    `sw.js` 分 `ASSETS`（首屏必需，安装时预缓存）与 `DEFERRED`（按需缓存），静态资源 cache-first + 后台更新；
+    首屏有内联骨架、模块 `modulepreload`、启动申请持久化存储；设置页有「启动诊断」；
+    实测冷启动 **14 个请求 / 113 KB**（v29 是 23 个 / 243 KB），SW 接管后 0 KB / ~100ms
+
 
 
 ### 验收记录
@@ -490,6 +519,8 @@
 > 第 1 版的验收到此结束。以后每改一版，先跑 `python tool\verify_all.py` 再 `git push`（Pages 会自动重建）。
 
 | 2026-10-01 | 一次背整个词库 + 长注释折叠（v29，两条真机反馈）：① **删掉「一轮十个」那一套** —— `buildQueue()` 不再有 `newLimit`（整个词库一次进队，到期复习词在前），练习页不再有成绩单与「再来一轮」，背完最后一个词直接回词库页 + 一句轻提示；`store.js` 的 `dailyNewLimit` 映射与 `DEFAULT_NEW_LIMIT` 一并删除。② **长注释默认折叠**（`answer-body` = 释义 + 搭配整体，超过 `--fold-max: 168px` 就收起 + 底部渐隐 + 「展开全部注释（N 条释义）」，本轮内记住展开状态）—— `amid` 这类词卡片一短，底部的翻词胶囊就不会停在 iOS 的 Home Indicator 手势区（实测胶囊离屏幕底 277px） | `verify_all` 19 步全绿；`node --test` 139 项（「上限」那条改成「整库都进队」）、`ui-practice` **187 项**（新增：12 词库一次全进队 `第 1/12`、长注释默认折叠 + 展开后变高 + `aria-expanded` + 本轮记忆、短注释不折叠、背完回词库页且没有成绩单）；`shots/` 重出（含 `amid-*` 折叠样张） |
+
+| 2026-10-01 | 启动优化 + 练习页可上下滑（v30）：① **冷启动少下一半**（实测 23 个请求 / 243 KB → **14 个 / 113 KB**）—— `app.js` 只静态 import 首页那条链，练习/导入/词条/设置改 `registerLazy` + 动态 `import()`；`sw.js` 拆 `ASSETS`（首屏必需 20 项）与 `DEFERRED`（9 个模块按需缓存），静态资源从"联网取最新"改成 **cache-first + 后台 revalidate**（Pages 的 `max-age=600` 一过期就不再逼你重下）；`index.html` 加**内联骨架** + `modulepreload`；启动 `navigator.storage.persist()`；设置页加**启动诊断**（上次启动 ms / 等响应 ms / 请求数 / KB / SW 是否接管 / 缓存文件数）。② **练习页能上下滑**：卡片 `touch-action: none → pan-y` + **轴锁定**（横 > 纵 × 1.15 才接管翻词），`pointercancel` 只复位不判翻页（iOS 把带纵向分量的拖拽判给滚动时会发它 —— v22 就是被这个咬过才改成 `none`），滑片轨道保持 `none`，展开长注释后自动滚到注释块 | `verify_all` 19 步全绿（`verify_sw` 23/23：新增"清单只列首屏必需""src 每个模块都有着落""缓存优先分支存在"）；`node --test` 139 项；`ui-practice` **198 项**（新增 11 条：touch-action=pan-y、纵向/斜向拖不跟手不写库不翻页、pointercancel 复位不翻页、竖拖后横拖仍能翻）；新增 `tool/boot_perf.py` + `tool/boot-probe.html` 量启动三段耗时 |
 
 ## 11. 已知限制（写清楚，免得当作 bug）
 

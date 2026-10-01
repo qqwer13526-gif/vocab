@@ -80,13 +80,37 @@ def check() -> int:
         text = sw.decode("utf-8", "replace")
         m = re.search(r"const ASSETS = \[(.*?)\];", text, re.S)
         listed = re.findall(r"'([^']+)'", m.group(1)) if m else []
-        missing = [p for p in listed if get(base + "/" + p.removeprefix("./"))[0] != 200]
-        reps.check("sw 预缓存清单里的文件都存在", bool(listed) and not missing, f"清单 {len(listed)} 项，缺失 {missing}")
+        md = re.search(r"const DEFERRED = \[(.*?)\];", text, re.S)
+        deferred = re.findall(r"'([^']+)'", md.group(1)) if md else []
+        missing = [p for p in listed + deferred if get(base + "/" + p.removeprefix("./"))[0] != 200]
+        reps.check(
+            "sw 缓存清单（预缓存 + 按需）里的文件都存在",
+            bool(listed) and bool(deferred) and not missing,
+            f"预缓存 {len(listed)} 项 / 按需 {len(deferred)} 项，缺失 {missing}",
+        )
 
-        # 反向检查：src 下每个模块都得登记（不然离线时会缺文件）
+        # 反向检查：src 下每个模块都得有着落（预缓存 或 按需），不然离线时会缺文件
         src_files = sorted(p.name for p in (ROOT / "src").glob("*.js"))
-        not_listed = [f"./src/{n}" for n in src_files if f"./src/{n}" not in listed]
-        reps.check("src 下每个模块都在预缓存清单里", not not_listed, f"漏了：{not_listed}")
+        not_listed = [
+            f"./src/{n}" for n in src_files
+            if f"./src/{n}" not in listed and f"./src/{n}" not in deferred
+        ]
+        reps.check("src 下每个模块都在清单里（预缓存或按需）", not not_listed, f"漏了：{not_listed}")
+
+        # 首屏那几个必须在**预缓存**里（在按需里就等于首屏要等网络）
+        first_screen = ["./index.html", "./style.css", "./src/app.js", "./src/ui-home.js",
+                        "./src/store.js", "./src/db.js", "./src/srs.js", "./src/judge.js"]
+        late = [p for p in first_screen if p not in listed]
+        reps.check("首屏必需的文件都在预缓存清单里", not late, f"被挪到按需了：{late}")
+        both = [p for p in listed if p in deferred]
+        reps.check("预缓存与按需清单不重叠", not both, f"重复：{both}")
+
+        # 静态资源必须是"缓存优先"（v30）：verif 靠源码里有没有那个分支
+        reps.check(
+            "静态资源走缓存优先（首屏不等网络）",
+            "const cached = await caches.match(req" in text and "e.waitUntil(refreshing)" in text,
+            "sw.js 里没找到缓存优先 + 后台更新的分支",
+        )
 
         # 应用版本号必须和 sw.js 的缓存版本一致（发版时一起改，改漏了这里会红）
         app_ver = re.search(r"APP_VERSION = '([^']+)'", (ROOT / "src" / "version.js").read_text(encoding="utf-8"))

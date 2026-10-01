@@ -16,6 +16,36 @@
 <link rel="icon" href="icon-192.png">
 <title>背单词</title>
 <link rel="stylesheet" href="style.css">
+<!-- 首屏模块并行预取（v30）：不然 "app.js → 它的 import → 它们的 import" 是一层层的瀑布，
+     国内到 GitHub Pages 每层 ~400ms。这里只列首屏真要用的那几个（其余界面改成按需 import）。 -->
+<link rel="modulepreload" href="src/app.js">
+<link rel="modulepreload" href="src/ui-home.js">
+<link rel="modulepreload" href="src/store.js">
+<link rel="modulepreload" href="src/db.js">
+<link rel="modulepreload" href="src/srs.js">
+<link rel="modulepreload" href="src/judge.js">
+<link rel="modulepreload" href="src/smart.js">
+<link rel="modulepreload" href="src/icons.js">
+<link rel="modulepreload" href="src/version.js">
+<link rel="modulepreload" href="src/viewport.js">
+<link rel="modulepreload" href="src/toast.js">
+<!-- 首屏骨架：**内联**（不等 style.css、不等任何 JS），一进页面就有东西看，
+     不然冷启动那几秒是纯白屏。放在 #app 里（各 view 这时都还是 hidden），app.js 渲染完第一屏就删掉。 -->
+<style>
+  #boot-skeleton .sk-block { background: #fff; border: 1px solid #ececf0; border-radius: 16px; padding: 18px 16px; }
+  #boot-skeleton .sk-line { height: 14px; border-radius: 7px; background: #ececf0; margin: 0 0 10px; animation: sk-pulse 1.4s ease-in-out infinite; }
+  #boot-skeleton .sk-line.w40 { width: 40%; }
+  #boot-skeleton .sk-line.w70 { width: 70%; }
+  #boot-skeleton .sk-card { height: 92px; border-radius: 16px; background: #fff; border: 1px solid #ececf0; margin-top: 12px; animation: sk-pulse 1.4s ease-in-out infinite; }
+  #boot-skeleton .sk-tip { text-align: center; color: #666c76; font-size: 13px; margin-top: 14px; }
+  @keyframes sk-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+  @media (prefers-color-scheme: dark) {
+    #boot-skeleton .sk-block, #boot-skeleton .sk-card { background: #1c1c1e; border-color: #2c2c2e; }
+    #boot-skeleton .sk-line { background: #2c2c2e; }
+    #boot-skeleton .sk-tip { color: #9a9aa0; }
+  }
+  @media (prefers-reduced-motion: reduce) { #boot-skeleton .sk-line, #boot-skeleton .sk-card { animation: none } }
+</style>
 </head>
 <body>
 <div id="update-bar" class="update-bar" data-testid="update-banner" hidden>
@@ -28,6 +58,16 @@
   <section id="view-import"   class="view" hidden></section>
   <section id="view-word"     class="view" hidden></section>
   <section id="view-settings" class="view" hidden></section>
+  <div id="boot-skeleton" aria-hidden="true" data-testid="boot-skeleton">
+    <div class="sk-block">
+      <div class="sk-line w40"></div>
+      <div class="sk-line w70"></div>
+      <div class="sk-line"></div>
+    </div>
+    <div class="sk-card"></div>
+    <div class="sk-card"></div>
+    <p class="sk-tip">正在打开词库…</p>
+  </div>
 </main>
 <nav id="tabbar" aria-label="主导航">
   <span class="nav-pill" aria-hidden="true"></span>

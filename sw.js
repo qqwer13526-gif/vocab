@@ -1,19 +1,22 @@
 /* 背单词 App 的 service worker。
  *
- * 策略（v9 起改为"联网优先"）：
- *   - 安装时把 ASSETS 全部预缓存（装完就能离线用）
- *   - 导航请求：联网时取最新，断网回退缓存外壳
- *   - 同源静态资源：**联网时也取最新**，失败才回退缓存
- *     （以前是"先用缓存、后台更新"，结果手机上更新完还得刷两次；
- *      代价只是联网时多一次请求，换来"一刷新就是新代码"）
+ * 策略（v30 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
+ *   - 安装时只预缓存 ASSETS（**首屏必需的那一小撮**）→ 第一次打开要下的东西少一半
+ *   - DEFERRED 里那些（练习/导入/词条/设置界面及其重依赖）首次用到时才下，下完就进缓存
+ *   - 导航请求：联网时取最新（一刷新就是新代码），断网回退缓存外壳
+ *   - 同源静态资源：**先给缓存**（首屏 ~100ms 出来），同时在后台把新版本写进缓存
+ *     v9~v30 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
+ *     重新从网上拉一遍（国内每请求 ~400ms）→ 进应用要好几秒。要立刻换版本仍走
+ *     「立即更新」按钮（它清缓存 + 让新 SW 接管），或等新 SW 装上后自动换。
  *   - 改代码后把 VERSION 加一，旧缓存会在 activate 时清掉
  *
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
- * ⚠️ ASSETS 清单必须和真实文件一一对应；tool/verify_sw.py 会逐个检查。
+ * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v29';
+const VERSION = 'v30';
 const CACHE = `vocab-${VERSION}`;
 
+// 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）
 const ASSETS = [
   './',
   './index.html',
@@ -26,18 +29,23 @@ const ASSETS = [
   './src/app.js',
   './src/version.js',
   './src/viewport.js',
-  './src/confirm.js',
   './src/icons.js',
-  './src/spring.js',
   './src/toast.js',
+  './src/confirm.js',
   './src/db.js',
   './src/store.js',
   './src/smart.js',
   './src/srs.js',
   './src/judge.js',
+  './src/ui-home.js'
+];
+
+// 按需缓存：首次进对应界面时下载（之后离线也能用）。
+// 只是"登记"，好让 verify_sw.py 能核对"每个模块都有着落"。
+const DEFERRED = [
+  './src/spring.js',
   './src/parse.js',
   './src/backup.js',
-  './src/ui-home.js',
   './src/ui-practice.js',
   './src/ui-import.js',
   './src/ui-word.js',
@@ -73,6 +81,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
+  // 版本探测文件永远交给网络（应用用 no-store + ?t= 取它，缓存住就发现不了新版本）
+  if (url.pathname.endsWith('/version.json')) return;
 
   // 页面导航：联网时取最新（开发时不会吃陈旧外壳），断网时回退到缓存里的外壳
   if (req.mode === 'navigate') {
@@ -93,19 +103,27 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 静态资源：联网时取最新（保证更新立刻生效），断网才用缓存
+  // 静态资源：**缓存优先 + 后台更新**（stale-while-revalidate）。
+  //   有缓存 → 立刻给（首屏不等网络），同时后台 fetch 一份新的写回缓存
+  //   没缓存 → 走网络（首屏/按需模块第一次用到就是这样），成功就缓存下来
   e.respondWith(
     (async () => {
-      try {
-        const res = await fetch(req);
-        if (res && res.ok) {
-          const c = await caches.open(CACHE);
-          c.put(req, res.clone());
-        }
-        return res;
-      } catch {
-        return (await caches.match(req, { ignoreSearch: true })) || Response.error();
+      const cached = await caches.match(req, { ignoreSearch: true });
+      const refreshing = fetch(req)
+        .then(async (res) => {
+          if (res && res.ok) {
+            const c = await caches.open(CACHE);
+            c.put(req, res.clone());
+          }
+          return res;
+        })
+        .catch(() => null);
+      if (cached) {
+        e.waitUntil(refreshing); // 后台更新，不挡这次响应
+        return cached;
       }
+      const res = await refreshing;
+      return res || Response.error();
     })()
   );
 });

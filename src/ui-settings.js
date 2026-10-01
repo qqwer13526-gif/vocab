@@ -77,6 +77,41 @@ export async function renderSettings() {
     }
   }, '申请持久化存储');
 
+  // 启动诊断（v30）：手机上觉得"进应用慢"时，这一行能说清慢在哪
+  //   —— 网络那段（首次要下多少）、app 自己那段、以及 SW 有没有接管（接管了就该是 0 KB）
+  const bootLine = el('div', { className: 'settings-note', dataset: { testid: 'boot-status' } }, '启动诊断：还没记录');
+  const paintBoot = async () => {
+    let last = null;
+    try {
+      last = JSON.parse(localStorage.getItem('vocab.lastBoot') || 'null');
+    } catch {
+      last = null;
+    }
+    let cached = null;
+    try {
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        const mine = keys.find((k) => k.startsWith('vocab-')) || keys[0];
+        if (mine) cached = { name: mine, n: (await (await caches.open(mine)).keys()).length };
+      }
+    } catch {
+      cached = null;
+    }
+    const swOn = !!navigator.serviceWorker?.controller;
+    const parts = [];
+    if (last) {
+      const when = new Date(last.at).toLocaleString('zh-CN', { hour12: false });
+      parts.push(`上次启动 ${last.ms}ms（其中等响应 ${last.responseEnd}ms · ${last.requests} 个请求 · ${last.kb}KB）`);
+      parts.push(`当时 ${last.sw ? '已接管' : '未接管'} · ${when}`);
+    }
+    parts.push(`service worker：${swOn ? '已接管 ✅' : '未接管（首次打开会慢，之后就快了）'}`);
+    if (cached) parts.push(`缓存 ${cached.name} 里有 ${cached.n} 个文件`);
+    bootLine.textContent = '启动诊断：' + parts.join(' · ');
+  };
+  paintBoot();
+  // 直接打开设置页时，第一屏还没渲染完 → 数据要等 app.js 记完再补一次
+  window.addEventListener('vocab:boot', paintBoot, { once: true });
+
   // 补音标：从首页搬过来的 —— 这是"数据维护"，属于设置；首页只留词库
   const missing = await countMissing(await all('words'));
   const btnPhonetic = missing
@@ -115,6 +150,7 @@ export async function renderSettings() {
     ]),
     persistLine,
     btnPersist,
+    bootLine,
     btnPhonetic
   ].filter(Boolean));
 

@@ -366,6 +366,15 @@ export async function renderPractice(params = {}) {
     btnFold.setAttribute('aria-expanded', String(!on));
     const n = (s.queue[s.i]?.meanings || []).filter(Boolean).length;
     btnFold.textContent = on ? `展开全部注释（${n} 条释义）` : '收起注释';
+    if (!on) {
+      // 展开了：新露出来的内容在按钮上方，把这块滚到眼前，从头读
+      // （nearest = 只滚最少的距离；不支持 options 的老浏览器就当没这回事）
+      try {
+        answerBody.scrollIntoView({ block: 'nearest', behavior: reduced() ? 'auto' : 'smooth' });
+      } catch {
+        /* 忽略 */
+      }
+    }
   }
 
   /** 切「默写 / 过一遍」。只改地址栏，不触发 hashchange（否则这一轮就白练了） */
@@ -642,8 +651,10 @@ export async function renderPractice(params = {}) {
     const dxRaw = e.clientX - drag.x0;
     const dy = e.clientY - drag.y0;
     if (!drag.active) {
-      // 先分清"横向滑动"还是"纵向滚动/轻点"（6px 迟滞：阈值太大，手指一动 iOS 就把手势收走了）
-      if (Math.abs(dxRaw) < 6 || Math.abs(dxRaw) < Math.abs(dy)) return;
+      // 轴锁定（v30）：横向要明显压过纵向才算"翻词"，否则这一段手势交给浏览器滚页面。
+      //   6px 迟滞别调大：阈值太大，手指一动 iOS 就把手势收走（v22 的教训）。
+      //   1.15 的比值让"斜着往下拖"更容易被判成滚动 —— 用户要的正是"卡片上也能上下滑"。
+      if (Math.abs(dxRaw) < 6 || Math.abs(dxRaw) < Math.abs(dy) * 1.15) return;
       drag.active = true;
       try {
         card.setPointerCapture(e.pointerId);
@@ -674,6 +685,14 @@ export async function renderPractice(params = {}) {
     const dx = cardX;
     const w = cardW();
     card.classList.remove('swiping');
+
+    // v30：卡片允许纵向滚动后，iOS 会在把手势判给滚动时甩出 pointercancel。
+    // 收到它只复位，**绝不能**按位移算翻页（否则"想滚页面"会误标生疏/熟记）。
+    if (e && e.type === 'pointercancel') {
+      paintBadge(null);
+      resetCard(v);
+      return;
+    }
 
     if (!decideFlip(dx, v, w)) {
       resetCard(v); // 回弹也带着速度回来，不会"啪"一下停住

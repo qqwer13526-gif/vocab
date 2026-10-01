@@ -1005,10 +1005,15 @@ body[data-view='practice'] #tabbar { display: none; }
 
 /* 过一遍模式的手势：卡片跟手拖 → 松手回弹或飞出去 */
 .prac-wrap { position: relative; }
-/* ⚠️ 必须是 none，不能是 pan-y：pan-y 时 iOS 会把"带一点纵向的拖拽"判给滚动并甩出
-   pointercancel，于是我们一个 pointermove 都收不到 —— 真机上表现就是"完全拖不动"。
-   代价：在卡片上拖不再能滚页面（过一遍模式本来就不需要滚动，卡片外还有地方可以拖）。 */
-.prac-card.swipeable { touch-action: none; }
+/* ⚠️ v30：这里从 none 改回 pan-y —— 让练习页**能上下滑**。
+   历史：v22 用 pan-y 时，iOS 把"带一点纵向的拖拽"判给滚动并甩出 pointercancel，
+   一个 pointermove 都收不到 —— 真机上表现就是"完全拖不动"，于是改成 none
+   （代价：在卡片上拖不再能滚页面，长注释展开后底部的翻词滑片够不着）。
+   现在两边都要，靠**轴锁定**分工（见 ui-practice.js 的 onMove）：
+     · 横向明显压过纵向 → 我们自己接管（翻词 / 定级）并 setPointerCapture
+     · 纵向占先 → 放手让浏览器滚页面；iOS 若发 pointercancel，onUp 只复位、不算翻页
+   滑片那条轨道保持 none（横向控件，在它上面拖永远不滚页面）。 */
+.prac-card.swipeable { touch-action: pan-y; }
 .prac-card.swiping { transition: none; will-change: transform; } /* 只在拖动期间提示合成器，松手就撤掉 */
 .prac-card.snapping { transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) linear; }
 .swipe-badge {
