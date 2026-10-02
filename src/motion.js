@@ -78,7 +78,7 @@ const lastGen = new Map();
  * 弹道用多段关键帧近似，仍然跑在合成器上（不回到每帧 rAF 写 style 那条老路）。 */
 const MAX_STAGGER = 12;
 const STEP = 90;            // 每张延迟（07 是 100ms；90ms 在"看得出重拍"和"别太慢"之间）
-const PAGE_CAP = 6;         // 一页最多给前 6 张做交错，其余直接到位
+const PAGE_CAP = 12;        // 硬上限（真正决定给谁做交错的是"这一屏看不看得见"，见 staggerPage）
 const ENTRY_MS = 480;       // 单张时长（07 的 settle ≈ 470ms）
 const ENTRY_TOTAL_MS = 960; // 整批上限：6 张 × 90ms + 480ms = 930ms，所以 90ms 的步长保得住
 
@@ -89,7 +89,7 @@ const ENTRY_TOTAL_MS = 960; // 整批上限：6 张 × 90ms + 480ms = 930ms，�
  * @param opts.step  每行延迟 ms
  * @param opts.cap   最多播几行（默认 12）
  */
-export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, offset = 26, scale = 1 } = {}) {
+export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, offset = 26, scale = 1, delay = 0 } = {}) {
   const rows = [...(nodes || [])].filter(Boolean);
   if (!rows.length) return;
   // 帧率浮层里的归因开关：关掉"入场动画"这一项
@@ -105,7 +105,7 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, o
     if (!r.animate) return;
     const anim = r.animate(entryFrames(offset, scale), {
       duration: ENTRY_MS,
-      delay: Math.round(i * useStep),
+      delay: Math.round(delay + i * useStep),
       // 每段之间用 ease-out；过冲由关键帧本身给出（近似 07 那条 ζ≈0.62 的弹簧）
       easing: 'ease-out',
       fill: 'backwards'
@@ -139,7 +139,7 @@ export function entryFrames(offset = 26, scale = 1) {
  * 只取一层：直接的 .card，以及容器（section.pinned / section.libs / .word-list）里的卡片。
  * 练习页不调用它 —— 那张卡片是拖拽面，动画会跟拖拽抢 transform。
  */
-export function staggerPage(root, { scope = 'page', step = STEP, cap = PAGE_CAP, offset = 26, scale = 1 } = {}) {
+export function staggerPage(root, { scope = 'page', step = STEP, cap = null, offset = 26, scale = 1, delay = 0 } = {}) {
   if (!root || reduced) return;
   const blocks = [];
   for (const child of root.children || []) {
@@ -149,7 +149,19 @@ export function staggerPage(root, { scope = 'page', step = STEP, cap = PAGE_CAP,
       if (inner.classList.contains('card') || inner.classList.contains('newlib-row')) blocks.push(inner);
     }
   }
-  staggerIn(blocks, { scope, step, cap, offset, scale });
+  // 只给"这一屏看得见的卡片"做交错（v40）：
+  // 以前写死给前 6 张 —— 于是第 7 张之后（比如首页第 6 个词库）直接出现，肉眼就是"这张没动画"。
+  // 屏幕外的直接到位是合理的：出现时你看不到它。
+  // ⚠️ 调用方必须**先把滚动归零**（否则量到的是上一页的滚动位置，判断会错）。
+  const vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
+  const visible = blocks.filter((n) => {
+    const r = n.getBoundingClientRect();
+    return r.top < vh && r.bottom > 0;
+  });
+  const list = visible.length ? visible : blocks;
+  // cap 没传 = 屏内可见的全都要（这是 v40 修"最后一张直接出现"的关键）；传了就尊重调用方
+  const want = cap == null ? list.length : Math.min(cap, list.length);
+  staggerIn(list, { scope, step, cap: want, offset, scale, delay });
 }
 
 /** 换页/换范围时清掉记忆，让下次进场重新播（一般不用手动调：换页会自动 +1 代） */

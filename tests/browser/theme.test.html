@@ -142,6 +142,17 @@ try {
      !wanted || after.some((a) => a.effect.getKeyframes().some((k) => (k.transform || '').includes('1.02'))),
      after.map((a) => a.effect.getKeyframes().map((k) => k.transform).join('|')).join(' ; '));
 
+  // ---------------- 7b. 根画布也要上色（v40 修"滑动切换时四周一闪白边"）----------------
+  {
+    const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+    const rootStyle = f.contentWindow.getComputedStyle(f.contentDocument.documentElement);
+    const htmlBg = norm(rootStyle.backgroundColor);
+    const bodyBg = norm(f.contentWindow.getComputedStyle(f.contentDocument.body).backgroundColor);
+    const token = norm(rootStyle.getPropertyValue('--bg'));
+    ok('html（根画布）也涂了底色：iOS 滑动过渡露出的就是它，不涂就是白边',
+       htmlBg === token || htmlBg === bodyBg, `html=${htmlBg} body=${bodyBg} --bg=${token}`);
+  }
+
   // ---------------- 8. 快速连续换库/切页：氛围光的颜色插值不能把渲染打断 ----------------
   // 真 bug：上一段 420ms 插值还没跑完就再 setAmbient（连点两个词库/快速切页），
   // 会把 rAF 的 id 当函数调用 → renderImport 抛错 → 导入页整页空白。这条按用户路径钉住它。

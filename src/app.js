@@ -152,18 +152,21 @@ export function show(name, params = {}) {
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
       // v37：把"一帧里的活"拆成两步 ——
-      // ① 入场动画在**还看不见的时候**就先跑起来（.is-swapping 现在是 opacity:0，内容是画好的；
+      // ① 先把滚动归零，再启动入场：staggerPage 要按"新页在顶部的样子"判断哪些卡片在屏内。
+      //    两步都在同一个同步块里，所以用户看不到旧页被滚上去（同一帧只画最终状态）。
+      // ② 入场动画在**还看不见的时候**就跑起来（.is-swapping 是 opacity:0，内容是画好的；
       //    fill:backwards 让卡片停在起点）→ 建层/绘制的成本摊到渲染期间，不挤在对调那一帧
-      if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
+      window.scrollTo(0, 0);
+      if (name !== 'practice') staggerPage(view, { scope: `page:${name}`, delay: navDelayMs });
+      navDelayMs = 0;
       perfMark('entry');
-      // ② 对调这一帧只做：撤掉不可见、藏旧页、滚动归零（实测过 900 → 0 的夹跳，必须显式归零）
+      // ③ 对调这一帧只做：撤掉不可见、藏旧页
       if (view) {
         view.hidden = false;
         if (prev && prev !== view) prev.hidden = true;
         view.classList.remove('is-swapping');
         view.inert = false;
       }
-      window.scrollTo(0, 0);
       perfMark('swap');
       document.body.dataset.ready = '1';
       markFirstPaint();
@@ -185,6 +188,11 @@ function parseHash() {
 
 export function route() {
   const { name, params } = parseHash();
+  // 这次是不是"历史导航"（返回/前进/边缘滑动）？→ 是的话入场要等系统过渡结束（见上面的注释）
+  const traversal = popstateSeen && history.length === histLen;
+  popstateSeen = false;
+  histLen = history.length;
+  navDelayMs = traversal ? HISTORY_NAV_DELAY_MS : 0;
   bumpMotionGen(); // v34：换页 = 新一代 → 整页卡片的交错入场会重新播
   show(name, params);
 }
@@ -205,6 +213,18 @@ let perfHook = null;
 function perfMark(name) {
   if (perfHook) perfHook(name);
 }
+
+/* 历史导航（返回/前进/边缘滑动）的判据 + 它的入场延迟：
+   iOS 的边缘滑动返回是**系统级过渡**（约 300ms 滑动 + 快照），而 popstate 在过渡一开始就触发 ——
+   若这时就播入场，动画会在快照后面偷偷跑完，用户看到真页面时已经播完（"依次重排"看不见了）。
+   判据：`popstate 触发` **且** `history.length 与上次相同`。
+   ⚠️ 只用 popstate 不行：Chromium 里程序化改 hash 也会触发它（第一版就是这么错的，测试当场抓到）。
+   规范上 push 一个历史项会让 length +1，返回/前进不会 —— 这才是"历史导航"的可靠特征。
+   （已知限制：个别浏览器 history.length 会封顶在 50；我们的历史很短，够用。） */
+let popstateSeen = false;
+let histLen = typeof history !== 'undefined' ? history.length : 0;
+let navDelayMs = 0;
+const HISTORY_NAV_DELAY_MS = 340;
 
 let swReg = null;
 let lastCheck = 0;
@@ -601,4 +621,15 @@ function requestPersistence() {
 }
 
 addEventListener('hashchange', route);
+// 返回/前进/边缘滑动会先来 popstate（hash 变了的话浏览器随后补 hashchange → route() 在那里跑）
+addEventListener('popstate', () => {
+  popstateSeen = true;
+});
+// 从 bfcache 回来（比如从别的 App 切回来、或跨文档返回）：DOM 还是旧样子，重新播一次入场
+addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  bumpMotionGen();
+  const view = document.querySelector(`#view-${current.name}`);
+  if (view && current.name !== 'practice') staggerPage(view, { scope: `page:${current.name}` });
+});
 boot();

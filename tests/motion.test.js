@@ -9,6 +9,7 @@ let queue = [];
 globalThis.performance = { now: () => vnow };
 globalThis.requestAnimationFrame = (cb) => { queue.push(cb); return queue.length; };
 globalThis.cancelAnimationFrame = () => {};
+globalThis.window = { innerHeight: 800 };
 globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
 
 function tick(ms) {
@@ -29,8 +30,9 @@ function fakeNode() {
 }
 
 /** 假元素：只有 classList / children / hidden / animate —— staggerPage 需要的那点接口 */
-function fakeEl(cls, className = cls) {
+function fakeEl(cls, className = cls, rect = { top: 0, bottom: 100 }) {
   const node = fakeNode();
+  node.getBoundingClientRect = () => rect;
   node.className = className;
   node.classList = { contains: (c) => String(className).split(/\s+/).includes(c) };
   node.hidden = false;
@@ -105,14 +107,19 @@ test('交错入场：只给前 cap 张做动画（默认 12）', () => {
   assert.equal(rows[19].anims.length, 0, '第 20 行不动');
 });
 
-test('整页入场：最多 6 张，步长 90ms（一页卡片多也不会拖太久）', () => {
-  const page = fakeRoot(Array.from({ length: 10 }, () => fakeEl('div', 'card')));
+test('整页入场：**这一屏看得见的**都给交错，屏幕外的直接到位（v40 修「最后一张直接出现」）', () => {
+  // 前 3 张在屏内，后 4 张在屏外（top 超过 innerHeight=800）
+  const cards = [
+    ...Array.from({ length: 3 }, (_, i) => fakeEl('div', 'card', { top: i * 100, bottom: i * 100 + 90 })),
+    ...Array.from({ length: 4 }, () => fakeEl('div', 'card', { top: 900, bottom: 990 }))
+  ];
+  const page = fakeRoot(cards);
   motion.bumpMotionGen();
-  motion.staggerPage(page, { scope: 'page:many' });
+  motion.staggerPage(page, { scope: 'page:visible' });
   const animated = page.all.filter((n) => n.anims.length);
-  assert.equal(animated.length, 6, '只给前 6 张');
-  assert.equal(animated[5].anims[0].opts.delay, 450, '第 6 张 5×90ms');
-  assert.ok(animated[5].anims[0].opts.delay + animated[5].anims[0].opts.duration <= 1000, '整批 ≈930ms');
+  assert.equal(animated.length, 3, '屏内 3 张都动，屏外 4 张不动');
+  assert.equal(animated[0].anims[0].opts.delay, 0);
+  assert.equal(animated[2].anims[0].opts.delay, 180, '第 3 张 2×90ms');
 });
 
 test('交错入场：同一代里不重播（搜索逐字重渲染时不闪）', () => {
@@ -189,4 +196,16 @@ test('resetMotion：清掉记忆后，同一范围也会重新播', () => {
   const b = Array.from({ length: 4 }, fakeNode);
   motion.staggerIn(b, { scope: 's3' });
   assert.equal(b.filter((r) => r.anims.length).length, 4);
+});
+
+
+test('整页入场：屏内卡片特别多时，整批上限把步长压缩（不拖成 2 秒）', () => {
+  const cards = Array.from({ length: 12 }, (_, i) => fakeEl('div', 'card', { top: i * 60, bottom: i * 60 + 50 }));
+  const page = fakeRoot(cards);
+  motion.bumpMotionGen();
+  motion.staggerPage(page, { scope: 'page:many' });
+  const animated = page.all.filter((n) => n.anims.length);
+  const last = animated[animated.length - 1];
+  assert.ok(last.anims[0].opts.delay + last.anims[0].opts.duration <= 1000, `最后一张 ${last.anims[0].opts.delay}+480`);
+  assert.ok(last.anims[0].opts.delay < 11 * 90, '步长被压缩了');
 });

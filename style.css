@@ -207,6 +207,9 @@ html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
+  /* ⚠️ 根画布也要上色（v40）：只给 body 上色的话，iOS 做"滑动返回/回弹"过渡时露出的是**根画布**，
+     默认是白的 —— 深色主题下就是一闪过白边。用变量，换主题自动跟着变。 */
+  background: var(--bg);
   /* 纵向滚动条出现/消失会让底部悬浮胶囊的宽度跟着变（切换"短页面↔长页面"时胶囊会横跳 15px）。
      留出固定的滚动条槽位，宽度就稳了；iOS 的 overlay 滚动条本来就不占位，等于无副作用。 */
   scrollbar-gutter: stable;

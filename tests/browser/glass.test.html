@@ -275,6 +275,7 @@ try {
     }
   }
 
+
   // 渲染不能失败：app.js 的渲染错误都会走 console.error('[route] 渲染失败', …)。
   // 这条是 v34 加的 —— 它当天就抓到"氛围光插值把 rAF id 当函数调用 → 导入页整页空白"。
   const routeErrs = (frame.contentWindow.__errs || []).filter((t) => t.includes('渲染失败'));
@@ -282,6 +283,43 @@ try {
 } catch (e) {
   ok('玻璃测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
+
+  // ---------------- 3a2. 历史导航（滑动返回）要等系统过渡结束再播（v40）----------------
+  {
+    const f = await openApp({ hash: '#/', sel: '[data-testid="all-lib-row"]' });
+    f.contentWindow.eval(`(() => {
+      window.__anim = [];
+      const orig = Element.prototype.animate;
+      Element.prototype.animate = function (frames, opts) {
+        window.__anim.push({ cls: this.className || '', delay: (opts && opts.delay) || 0 });
+        return orig.call(this, frames, opts);
+      };
+    })()`);
+    // 先点着切一次（delay 应为 0）
+    f.contentWindow.location.hash = '#/settings';
+    await waitFor(() => q(f, '[data-testid="theme-switch"]') !== null, { label: '设置页' });
+    await new Promise((r) => setTimeout(r, 200));
+    const byTap = JSON.parse(f.contentWindow.eval('JSON.stringify(window.__anim || [])'));
+    f.contentWindow.eval('window.__anim = []');
+    // 再用历史返回（模拟滑动返回）：浏览器前进/后退会触发 popstate
+    f.contentWindow.history.back();
+    await waitFor(() => q(f, '#view-home') && !q(f, '#view-home').hidden, { label: '历史返回到首页' });
+    await new Promise((r) => setTimeout(r, 700));
+    const byHistory = JSON.parse(f.contentWindow.eval('JSON.stringify(window.__anim || [])'));
+    const wantAnim = !f.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (wantAnim) {
+      ok('点导航切页：入场立刻开始（delay 0）',
+         byTap.length > 0 && Math.min(...byTap.map((a) => a.delay)) === 0,
+         byTap.map((a) => a.delay).join(','));
+      ok('历史返回（滑动返回）：入场等系统过渡结束再播（delay ≥ 300ms）',
+         byHistory.length > 0 && Math.min(...byHistory.map((a) => a.delay)) >= 300,
+         byHistory.length ? byHistory.map((a) => a.delay).join(',') : '（没记录到动画）');
+    } else {
+      ok('减弱动效下两种导航都不播', byTap.length === 0 && byHistory.length === 0);
+    }
+  }
+
+
 
 report();
 release();
