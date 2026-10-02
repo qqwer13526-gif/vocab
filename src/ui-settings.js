@@ -8,7 +8,7 @@
  */
 
 import { icon } from './icons.js';
-import { $, el, checkForUpdate, updateState, applyUpdate } from './app.js';
+import { $, el, checkForUpdate, forceReload, updateState, applyUpdate } from './app.js';
 import { all } from './db.js';
 import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo } from './backup.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
@@ -34,6 +34,17 @@ export async function renderSettings() {
   // ---------------------------------------------------------------- 更新
   const updateStatus = el('div', { className: 'settings-note', dataset: { testid: 'update-status' } },
     '打开应用、切回前台时会自动检查一次。');
+  /** service worker 现在什么状态（真机上出现过"注册没成功"，得让它自己说得出来） */
+  function swLine() {
+    const d = document.body.dataset;
+    if (d.swreg === 'unsupported') return '这个浏览器不支持，或者不是 https（比如直接打开本地文件）';
+    if (String(d.swreg || '').startsWith('error')) return `注册失败：${String(d.swreg).slice(6)}（不影响用，但自动更新会靠"强制重新加载"）`;
+    if (d.sw === 'ready') return '已接管（离线可用）';
+    if (d.swreg === 'active') return '已注册但还没接管，下次打开会接管';
+    if (d.swreg) return `已注册（${d.swreg}）`;
+    return '还没注册（离线可用会差一些）';
+  }
+
   const btnCheck = el('button', {
     className: 'ghost',
     dataset: { testid: 'btn-check-update' },
@@ -44,23 +55,36 @@ export async function renderSettings() {
       updateStatus.textContent = '检查中…';
       const res = await checkForUpdate({ force: true });
       btn.disabled = false;
-      if (!res.checked) {
-        updateStatus.textContent = '这个环境里没有 service worker（比如直接打开本地文件），没法检查更新。';
-      } else if (res.ready) {
-        updateStatus.textContent = `发现新版本 ${res.remote || ''}（本机 ${res.local}）——点右边「立即更新」，或顶部那条。`;
-        document.querySelector('[data-testid="btn-update-now"]')?.removeAttribute('hidden');
-      } else if (res.error) {
+      // 没有 service worker 也能查、也能更（版本对比是独立的一层）—— 以前这里直接说"没法检查更新" ✗
+      if (res.error) {
         updateStatus.textContent = `查不到最新版本（可能没网）：${res.error}。本机是 ${res.local}。`;
+      } else if (res.ready) {
+        updateStatus.textContent = `发现新版本 ${res.remote || ''}（本机 ${res.local}）——点「立即更新」，或顶部那条。`;
+        document.querySelector('[data-testid="btn-update-now"]')?.removeAttribute('hidden');
       } else {
         updateStatus.textContent = `已是最新（${res.local}）。`;
+        document.querySelector('[data-testid="btn-update-now"]')?.setAttribute('hidden', '');
       }
+      updateStatus.dataset.checked = '1';
     }
   }, '检查更新');
+
+  const btnForce = el('button', {
+    className: 'ghost',
+    dataset: { testid: 'btn-force-reload' },
+    type: 'button',
+    onclick: () => forceReload()
+  }, '强制重新加载');
+
+  const swState = el('div', { className: 'settings-note', dataset: { testid: 'sw-state' } }, '');
+  const paintSwState = () => { swState.textContent = `service worker：${swLine()}`; };
+  paintSwState();
 
   const updateCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '版本'),
     el('div', { className: 'settings-big', dataset: { testid: 'settings-version' } }, APP_VERSION),
     el('div', { className: 'settings-note' }, '更新不会动你的数据（词库和学习进度都在本机存储里，不在代码里）。'),
+    swState,
       el('div', { className: 'row-2' }, [
         btnCheck,
         // 这颗按钮**常驻**（发现新版本时去掉 hidden）：以前只在「已经有 waiting worker」时才渲染，
@@ -71,7 +95,8 @@ export async function renderSettings() {
           type: 'button',
           hidden: updateState().ready ? undefined : true,
           onclick: () => applyUpdate()
-        }, '立即更新')
+        }, '立即更新'),
+        btnForce
       ]),
     updateStatus
   ]);

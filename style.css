@@ -282,7 +282,8 @@ body {
 .cl-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cl-now {
   font-size: 11px; padding: 1px 7px; border-radius: var(--r-full); white-space: nowrap;
-  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); font-weight: 600;
+  /* 实底白字：accent@16% 半透明底 + accent-text 只有 4.31，不达标（check_contrast 抓到的） */
+  background: var(--accent); color: #fff; font-weight: 600;
 }
 .cl-points { margin: 0; padding-left: 16px; display: grid; gap: 4px; }
 .cl-points li { font-size: 13px; color: var(--muted); line-height: 1.55; }

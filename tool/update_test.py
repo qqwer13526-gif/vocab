@@ -71,7 +71,7 @@ def publish(site: pathlib.Path, new: str) -> None:
     p.write_text(s, encoding="utf-8")
 
 
-def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, label: str) -> None:
+def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, label: str, block_sw: bool = False) -> None:
     serve.ROOT = site
     testserver.ROOT = site
     httpd, base = testserver.start_free(5251)
@@ -81,8 +81,11 @@ def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, 
         slow = {"on": False}
 
         def handle(route):
-            if slow["on"] and route.request.url.endswith("/sw.js"):
-                time.sleep(0.8)
+            if route.request.url.endswith("/sw.js"):
+                if block_sw:
+                    return route.abort()          # 让注册彻底失败
+                if slow["on"]:
+                    time.sleep(0.8)
             route.continue_()
 
         ctx.route("**/*", handle)
@@ -91,9 +94,14 @@ def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, 
         page.goto(base, wait_until="load")
         page.wait_for_timeout(2200)
         page.goto(base, wait_until="load")
-        page.wait_for_function("() => !!navigator.serviceWorker.controller", timeout=15000)
+        if not block_sw:
+            page.wait_for_function("() => !!navigator.serviceWorker.controller", timeout=15000)
         page.wait_for_timeout(800)
         check(f"{label}：起始版本是 {cur}", page.evaluate("() => document.body.dataset.appVersion") == cur)
+        if block_sw:
+            swreg = page.evaluate("() => document.body.dataset.swreg || ''")
+            check(f"{label}：确实没有可用的 service worker（注册失败/不支持）",
+                  "error" in swreg or swreg == "unsupported", swreg)
 
         publish(site, nxt)
         slow["on"] = slow_sw
@@ -118,6 +126,8 @@ def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, 
         loads = {"n": 0}
         page.on("load", lambda _: loads.update(n=loads["n"] + 1))
         t0 = time.time()
+        has_force = page.evaluate("() => !!document.querySelector('[data-testid=btn-force-reload]')")
+        check(f"{label}：设置页给了「强制重新加载」兜底按钮", has_force)
         page.click('[data-testid="btn-update"]')
         for _ in range(200):
             page.wait_for_timeout(100)
@@ -160,6 +170,10 @@ def main() -> int:
         # 第二次：再造一份干净的站点，这次拖慢 sw.js
         site2 = make_site(pathlib.Path(tempfile.mkdtemp(prefix="vocab-update-slow-")))
         run_case(b, site2, cur, nxt, slow_sw=True, label="慢网络(sw.js +800ms)")
+        # 第三种：service worker 根本装不起来（真机上就出现过：设置页写着"没有 service worker"）
+        # 此时**必须**还能发现新版本，并且靠「强制重新加载」更新上去
+        site3 = make_site(pathlib.Path(tempfile.mkdtemp(prefix="vocab-update-nosw-")))
+        run_case(b, site3, cur, nxt, slow_sw=False, label="没有 service worker", block_sw=True)
         b.close()
 
     print("\n" + "=" * 64)

@@ -331,7 +331,8 @@ export async function fetchRemoteVersion() {
  *   3) 聊天窗口切回前台、网络恢复时都会再查一次
  */
 export async function checkForUpdate({ force = false } = {}) {
-  if (!swReg) return { checked: false, reason: 'no-registration' };
+  // ⚠️ 这里**不能**因为"没有 service worker"就退出：版本对比是独立的一层，
+  //    真机上就出现过注册没成功（设置页写着"这个环境里没有 service worker"）→ 于是永远发现不了新版本。
   const now = Date.now();
   if (!force && now - lastCheck < CHECK_THROTTLE_MS) return { checked: false, reason: 'throttled' };
   lastCheck = now;
@@ -343,14 +344,22 @@ export async function checkForUpdate({ force = false } = {}) {
   } catch (err) {
     error = String((err && err.message) || err);
   }
+  if (remote && remote === APP_VERSION) markUpdateReady(false); // 已经是最新 → 把横幅收掉
   if (remote && remote !== APP_VERSION) markUpdateReady(true, remote);
 
   try {
-    await swReg.update();
+    if (swReg) await swReg.update();
   } catch {
     /* 离线或 SW 有问题都不影响上面的版本对比 */
   }
-  return { checked: true, local: APP_VERSION, remote, ready: document.body.dataset.update === 'ready', error };
+  return {
+    checked: true,
+    local: APP_VERSION,
+    remote,
+    ready: document.body.dataset.update === 'ready',
+    hasReg: !!swReg,
+    error
+  };
 }
 
 /**
@@ -376,7 +385,8 @@ export async function applyUpdate() {
   const clean = (async () => {
     if (!navigator.onLine || typeof caches === 'undefined') return;
     const keys = await caches.keys();
-    const stale = keys.filter((k) => !k.includes(APP_VERSION));
+    // 没有 SW 时（真机上遇到过）缓存可能整片都是旧的 → 这里全清；有 SW 时只清非当前版本的
+    const stale = swReg ? keys.filter((k) => !k.includes(APP_VERSION)) : keys;
     await Promise.all(stale.map((k) => caches.delete(k)));
     // 让 SW 自己也清一遍（它最清楚哪些是自己人的）
     if (swReg && swReg.active) swReg.active.postMessage({ type: 'CLEAN' });
@@ -390,9 +400,26 @@ export async function applyUpdate() {
     /* 上面每步失败都不影响"最后一定要 reload" */
   }
   await Promise.race([clean.catch(() => {}), timeout]);
-  // ③ 新 worker 装上就顺便等它接管（最多 2.5s），等不到也照样 reload
-  await Promise.race([waitForControllerChange(2500), timeout]);
-  location.reload();
+  if (swReg) {
+    // 新 worker 装上就顺便等它接管（最多 2.5s），等不到也照样 reload
+    await Promise.race([waitForControllerChange(2500), timeout]);
+    location.reload();
+    return;
+  }
+  // 没有 SW 可等：带时间戳重开，绕开 HTTP 缓存（这就是那条硬路径）
+  const url = new URL(location.href);
+  url.searchParams.set('v', String(Date.now()));
+  location.replace(url.toString());
+}
+
+/**
+ * 硬路径（设置页的「强制重新加载」）：注销 service worker、清掉缓存、带时间戳重开。
+ * 没有 SW 的安装上，这是唯一可靠的更新方式 —— 真机截图里那台就是这样。
+ */
+export async function forceReload() {
+  const target = document.body.dataset.updateVersion || null;
+  if (target) writeSession(UPDATE_TO_KEY, target);
+  await hardReload(target);
 }
 
 function waitForControllerChange(ms) {
@@ -476,6 +503,16 @@ function boot() {
     /* 老浏览器没有就算了 */
   }
   settleUpdateAttempt();
+  // ?v=xxx 只是用来破缓存的，进页面后把地址栏恢复干净
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.has('v')) {
+      u.searchParams.delete('v');
+      history.replaceState(null, '', u.pathname + (u.searchParams.toString() ? '?' + u.searchParams : '') + u.hash);
+    }
+  } catch {
+    /* 无所谓 */
+  }
   applyTheme(loadTheme()); // 主题：内联脚本已在第一帧前写过 data-theme，这里做状态栏/持久化的收口
   watchSystemTheme();
   wirePressFeedback(); // 全局按压反馈：按下 0.96、松手轻微超调（减弱动效下自动不动）
