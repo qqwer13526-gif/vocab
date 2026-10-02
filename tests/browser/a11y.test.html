@@ -152,6 +152,26 @@ try {
   ok('输入框聚焦时有可见的焦点圈（≥2px 实线）',
      sStyle.outlineStyle === 'solid' && parseFloat(sStyle.outlineWidth) >= 2,
      `outline=${sStyle.outlineStyle} ${sStyle.outlineWidth}`);
+  // v32：全局按压反馈必须尊重 prefers-reduced-motion
+  {
+    // 挑一个**真的 <button>**：底部导航是 <a>，它有自己的药丸动效，本来就不吃按压反馈
+    const f2 = await openApp({ hash: '#/import', sel: '[data-testid="tab-import"]' });
+    const reducedOn = f2.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const anyBtn = f2.contentDocument.querySelector('button:not([disabled])');
+    if (anyBtn) {
+      anyBtn.dispatchEvent(new f2.contentWindow.PointerEvent('pointerdown', {
+        pointerId: 9, clientX: 5, clientY: 5, bubbles: true, cancelable: true, button: 0, isPrimary: true
+      }));
+      await new Promise((r) => requestAnimationFrame(r));
+      // 只认"我们那个按压动画"（关键帧里带 scale）—— 页面上别的 CSS transition 不算
+      const pressAnims = (anyBtn.getAnimations ? anyBtn.getAnimations() : []).filter(
+        (x) => x.effect && x.effect.getKeyframes().some((k) => (k.transform || '').includes('scale('))
+      );
+      const n = pressAnims.length;
+      ok(reducedOn ? '减弱动效下按下不产生按压动画' : '减弱动效关闭时按下有按压动画',
+         reducedOn ? n === 0 : n > 0, 'pressAnims=' + n + ' reduced=' + reducedOn);
+    }
+  }
 } catch (e) {
   ok('无障碍检查脚本本身不能崩', false, (e && e.stack) || String(e));
 }

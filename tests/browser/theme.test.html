@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>主题 / 氛围光 / 按压反馈 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* v32 的测试：
+   ① 主题三态（跟随系统 / 浅色 / 深色）—— 真的写对 data-theme、真的换了 token、theme-color 跟着换、能持久化
+   ② 不闪白：localStorage 里预置深色时，**第一帧之前**就该带上 data-theme（内联脚本干的）
+   ③ 氛围光：进词库页染库色、回首页回品牌色
+   ④ 按压反馈：按下有 scale 动画（减弱动效下不该有，那条在 a11y 里按环境断言）
+   跑法：python tool/browser_test.py tests/browser/theme.test.html
+*/
+import { click, eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+const LIB_COLOR = '#ff9f0a';
+const BRAND = 'rgb(59,91,255)';     // --ambient-color 默认值 #3b5bff
+const LIB_RGB = 'rgb(255,159,10)';  // 词库色 #ff9f0a
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
+const css = (frame, name) => frame.contentWindow.getComputedStyle(frame.contentDocument.documentElement).getPropertyValue(name).trim();
+/** computed 的 rgb() 是空格写法（rgb(59 91 255)），统一成逗号写法再比 */
+const norm = (v) => String(v).trim().replace(/rgb\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\)/g, 'rgb($1,$2,$3)');
+const ambientOf = (f) => norm(q(f, '[data-testid="ambient"]').style.getPropertyValue('--ambient-color'));
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-theme';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: LIB_COLOR, order: 0, updatedAt: NOW });
+  await db.put('words', { id: 'w-absorb', term: 'absorb', termNorm: 'absorb', phonetic: '', pos: 'v.', meanings: ['吸收'], example: '', note: '', createdAt: NOW, updatedAt: NOW });
+  await db.put('links', { id: 'w-absorb|' + lib, wordId: 'w-absorb', libId: lib, addedAt: NOW, updatedAt: NOW });
+  return lib;
+}
+
+try {
+  db = await import('../../src/db.js');
+  localStorage.removeItem('vocab.theme');
+  const lib = await seed();
+
+  // ---------------- 1. 设置页有三态，默认跟随系统 ----------------
+  let frame = await openApp({ hash: '#/settings', sel: '[data-testid="theme-switch"]' });
+  const btns = qa(frame, '[data-testid="theme-switch"] button');
+  eq('外观有三个选项', btns.length, 3);
+  eq('默认选中「跟随系统」', q(frame, '[data-testid="btn-theme-auto"]').getAttribute('aria-pressed'), 'true');
+  eq('默认不写 data-theme（交给系统）', frame.contentDocument.documentElement.hasAttribute('data-theme'), false);
+  const sysDark = frame.contentWindow.matchMedia('(prefers-color-scheme: dark)').matches;
+  ok('（记录环境：这台机器系统默认是' + (sysDark ? '深色' : '浅色') + '）', true);
+  const lightMetas = qa(frame, 'meta[name="theme-color"]');
+  eq('跟随系统时 theme-color 仍是两条媒体查询版', lightMetas.filter((m) => m.hasAttribute('media')).length, 2);
+
+  // 浅色 token 用"强制浅色"量，别拿 auto 当浅色（系统可能是深色）
+  click(q(frame, '[data-testid="btn-theme-light"]'));
+  await waitFor(() => frame.contentDocument.documentElement.dataset.theme === 'light', { label: '先切浅色量基准' });
+  const lightBg = css(frame, '--bg');
+  eq('强制浅色的 --bg', lightBg, '#f2f2f7');
+  click(q(frame, '[data-testid="btn-theme-auto"]'));
+  await waitFor(() => !frame.contentDocument.documentElement.hasAttribute('data-theme'), { label: '回到跟随系统' });
+
+  // ---------------- 2. 切到深色：属性 / token / 状态栏配色 / 持久化 ----------------
+  click(q(frame, '[data-testid="btn-theme-dark"]'));
+  await waitFor(() => frame.contentDocument.documentElement.dataset.theme === 'dark', { label: 'data-theme=dark' });
+  eq('按钮的 aria-pressed 跟着换', q(frame, '[data-testid="btn-theme-dark"]').getAttribute('aria-pressed'), 'true');
+  eq('「跟随系统」不再选中', q(frame, '[data-testid="btn-theme-auto"]').getAttribute('aria-pressed'), 'false');
+  const darkBg = css(frame, '--bg');
+  ok('深色的 --bg 和浅色不一样（token 真的换了）', darkBg !== lightBg, `浅 ${lightBg} / 深 ${darkBg}`);
+  eq('写成深色主题该有的值', darkBg, '#0f1012');
+  eq('body 上留了解析结果给排查用', frame.contentDocument.body.dataset.themeResolved, 'dark');
+  eq('color-scheme 也切成 dark（表单控件/滚动条）', css(frame, 'color-scheme'), 'dark');
+  const darkMetas = qa(frame, 'meta[name="theme-color"]');
+  ok('强制时两条 theme-color 都摘掉 media 并写成深色',
+     darkMetas.every((m) => !m.hasAttribute('media') && m.getAttribute('content') === '#0f1012'),
+     darkMetas.map((m) => m.getAttribute('content')).join(','));
+  eq('写进了 localStorage（下次打开还记得）', localStorage.getItem('vocab.theme'), 'dark');
+
+  // ---------------- 3. 切浅色 ----------------
+  click(q(frame, '[data-testid="btn-theme-light"]'));
+  await waitFor(() => frame.contentDocument.documentElement.dataset.theme === 'light', { label: 'data-theme=light' });
+  eq('浅色用回浅色 token', css(frame, '--bg'), lightBg);
+  eq('浅色时 color-scheme 是 light', css(frame, 'color-scheme'), 'light');
+  eq('theme-color 写成白色', qa(frame, 'meta[name="theme-color"]')[0].getAttribute('content'), '#ffffff');
+
+  // ---------------- 4. 切回跟随系统 ----------------
+  click(q(frame, '[data-testid="btn-theme-auto"]'));
+  await waitFor(() => !frame.contentDocument.documentElement.hasAttribute('data-theme'), { label: '去掉 data-theme' });
+  eq('恢复成两条媒体查询版 theme-color', qa(frame, 'meta[name="theme-color"]').filter((m) => m.hasAttribute('media')).length, 2);
+  eq('localStorage 记成 auto', localStorage.getItem('vocab.theme'), 'auto');
+
+  // ---------------- 5. 不闪白：预置深色后重开，第一帧就该是深色 ----------------
+  localStorage.setItem('vocab.theme', 'dark');
+  frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+  eq('重开后 html 上直接带着 data-theme', frame.contentDocument.documentElement.dataset.theme, 'dark');
+  eq('而且日志显示应用也确认了深色', frame.contentDocument.body.dataset.themeResolved, 'dark');
+  eq('首帧就是深色 token（说明内联脚本抢在渲染前写了）', css(frame, '--bg'), '#0f1012');
+
+  // ---------------- 6. 氛围光：词库页染库色、首页回品牌色 ----------------
+  const ambient = (f) => q(f, '[data-testid="ambient"]');
+  ok('页面里有氛围光那一层', !!ambient(frame));
+  eq('首页是品牌色柔光', ambientOf(frame), BRAND);
+  frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
+  await waitFor(() => ambientOf(frame) === LIB_RGB, { label: '词库页换成库色（等插值走完）' });
+  eq('词库页染的是这个库的颜色', ambientOf(frame), LIB_RGB);
+  ok('氛围光只铺在页面底（不吃点击）', frame.contentWindow.getComputedStyle(ambient(frame)).pointerEvents === 'none');
+
+  // 深度：练习页也该跟着库色
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=en2zh`, sel: '[data-testid="practice-prompt"]' });
+  await waitFor(() => ambientOf(frame) === LIB_RGB, { label: '练习页也是库色' });
+  ok('练习页也用库色柔光', true);
+
+  // ---------------- 7. 按压反馈（减弱动效那条在 a11y 里按环境断言）----------------
+  frame = await openApp({ hash: `#/practice?lib=${lib}&dir=en2zh`, sel: '[data-testid="btn-submit"]' });
+  const btn = q(frame, '[data-testid="btn-submit"]');
+  const wanted = !frame.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const pe = (type) => btn.dispatchEvent(new frame.contentWindow.PointerEvent(type, { pointerId: 5, clientX: 10, clientY: 10, bubbles: true, cancelable: true, button: 0, isPrimary: true }));
+  pe('pointerdown');
+  await new Promise((r) => requestAnimationFrame(r));
+  const anims = btn.getAnimations ? btn.getAnimations() : [];
+  eq(wanted ? '按下时按钮上有动画（压到 0.96）' : '减弱动效下不该有动画', anims.length > 0, wanted);
+  if (wanted && anims[0]) {
+    const frames = anims[0].effect.getKeyframes().map((k) => k.transform).join(' → ');
+    ok('动画是从 scale(1) 压到 scale(0.96)', frames.includes('scale(1)') && frames.includes('scale(0.96)'), frames);
+  }
+  pe('pointerup');
+  await new Promise((r) => setTimeout(r, 60));
+  const after = btn.getAnimations ? btn.getAnimations() : [];
+  ok('松手后有回弹动画（含超调那一段）',
+     !wanted || after.some((a) => a.effect.getKeyframes().some((k) => (k.transform || '').includes('1.02'))),
+     after.map((a) => a.effect.getKeyframes().map((k) => k.transform).join('|')).join(' ; '));
+
+  localStorage.removeItem('vocab.theme');
+} catch (e) {
+  ok('主题测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

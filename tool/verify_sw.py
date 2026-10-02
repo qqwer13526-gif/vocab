@@ -99,7 +99,8 @@ def check() -> int:
 
         # 首屏那几个必须在**预缓存**里（在按需里就等于首屏要等网络）
         first_screen = ["./index.html", "./style.css", "./src/app.js", "./src/ui-home.js",
-                        "./src/store.js", "./src/db.js", "./src/srs.js", "./src/judge.js"]
+                        "./src/store.js", "./src/db.js", "./src/srs.js", "./src/judge.js",
+                        "./src/theme.js", "./src/press.js"]
         late = [p for p in first_screen if p not in listed]
         reps.check("首屏必需的文件都在预缓存清单里", not late, f"被挪到按需了：{late}")
         both = [p for p in listed if p in deferred]

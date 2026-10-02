@@ -10,6 +10,7 @@ import { all, applyImport, put } from './db.js';
 import { guessColumns, parseTable, planImport, rowsToWords } from './parse.js';
 import { fillPhonetics, loadDict } from './phonetic.js';
 import { PALETTE, loadAll, nextLibOrder } from './store.js';
+import { setAmbient } from './theme.js';
 import { readXlsx, rowsToTsv } from './xlsx.js';
 
 const PREVIEW_ROWS = 5;
@@ -34,6 +35,7 @@ const truncate = (s, n) => (String(s).length > n ? String(s).slice(0, n) + '…'
 export async function renderImport() {
   const view = $('#view-import');
   if (!view) return;
+  setAmbient(); // 导入页没有单一库色 → 回到品牌色柔光
 
   let data = await loadAll();
   const s = {

@@ -307,6 +307,29 @@
 - 卡片上原来那行「← 左滑算生疏 · 右滑算熟记 →」的提示**删掉**（v26）：拖动时浮出的红/绿角标仍然在，
   翻词也由滑片讲清楚；`熟记 → 60 天后再见` 这类规则说明一律不写在卡片上（见 §4.1）
 
+### 7.6 主题、氛围光、按压反馈（v32）
+
+**主题三态**（`src/theme.js`）：`vocab.theme` = `auto | light | dark`。
+
+- 样式表两条路都命中：`@media (prefers-color-scheme: dark)`（跟随系统，选择器带
+  `:root:not([data-theme='light'])`）与 `:root[data-theme='dark']`（强制）
+- **两处深色令牌必须逐项一致** —— `tool/check_contrast.py` 会比对（含 `prefers-contrast` 那两处）
+- **不闪白**：`index.html` 头部的内联脚本在第一帧前写 `data-theme`
+- `theme-color`（两条 media meta）在强制时被改写、跟随系统时恢复；`color-scheme` 走 CSS
+- 设置页「外观」是 `seg-box` 三态（和「过一遍 / 默写」同款），切换即时生效
+
+**氛围光**（`.ambient` + `setAmbient()`）：把当前词库色铺成页面底的大半径柔光。
+
+- 颜色由 JS 写 `--ambient-color`（换库时做插值，不硬切）；深浅强度/半径由主题块给
+- **只铺页面底、不铺进卡片**：卡片不透明，正文对比度不受影响（这是它能安全存在的前提）
+- 首页/导入/设置回到品牌色；词库页、词条编辑页、练习页用对应库色（生疏/熟记用它们自己的色）
+
+**按压反馈**（`src/press.js`）：文档级 `pointerdown/up` 委托 + WAAPI 关键帧。
+
+- 按下 `scale(1) → scale(0.96)`（110ms），松手 `0.96 → 1.022 → 0.997 → 1`（300ms，ζ<1 的超调）
+- 只认 `button:not([disabled])`；动画结束 `cancel()` 交还 CSS，不留 `fill: forwards`
+- `prefers-reduced-motion: reduce` 下**一个动画都不产生**（`tests/browser/a11y.test.html` 两种环境各验一次）
+
 ### 7.5 朗读单词（v31）
 
 用**系统 TTS**（Web Speech API），不是音频文件：零字节、离线可用、不拖慢启动。
@@ -539,6 +562,8 @@ SW 接管后 **0 KB / ~100ms**。版本检查**不挡首屏**（人为慢 5 秒�
 | 2026-10-01 | 启动优化 + 练习页可上下滑（v30）：① **冷启动少下一半**（实测 23 个请求 / 243 KB → **14 个 / 113 KB**）—— `app.js` 只静态 import 首页那条链，练习/导入/词条/设置改 `registerLazy` + 动态 `import()`；`sw.js` 拆 `ASSETS`（首屏必需 20 项）与 `DEFERRED`（9 个模块按需缓存），静态资源从"联网取最新"改成 **cache-first + 后台 revalidate**（Pages 的 `max-age=600` 一过期就不再逼你重下）；`index.html` 加**内联骨架** + `modulepreload`；启动 `navigator.storage.persist()`；设置页加**启动诊断**（上次启动 ms / 等响应 ms / 请求数 / KB / SW 是否接管 / 缓存文件数）。② **练习页能上下滑**：卡片 `touch-action: none → pan-y` + **轴锁定**（横 > 纵 × 1.15 才接管翻词），`pointercancel` 只复位不判翻页（iOS 把带纵向分量的拖拽判给滚动时会发它 —— v22 就是被这个咬过才改成 `none`），滑片轨道保持 `none`，展开长注释后自动滚到注释块 | `verify_all` 19 步全绿（`verify_sw` 23/23：新增"清单只列首屏必需""src 每个模块都有着落""缓存优先分支存在"）；`node --test` 139 项；`ui-practice` **198 项**（新增 11 条：touch-action=pan-y、纵向/斜向拖不跟手不写库不翻页、pointercancel 复位不翻页、竖拖后横拖仍能翻）；新增 `tool/boot_perf.py` + `tool/boot-probe.html` 量启动三段耗时 |
 
 | 2026-10-01 | 朗读单词（v31）：用**系统 TTS**（Web Speech API）而不是音频包 —— 零字节、离线可用、不拖慢启动。`src/speech.js`（设置 `vocab.speech` = on/accent/rate/auto，坏数据退默认；`speakWord()` 先 cancel 再 speak，音色按口音挑、退同语言；`unlockSpeech()` 做 iOS 解锁）；练习卡题面旁 + 词条页词头旁的喇叭（44×44）；**只读单词**；**中→英答完才给喇叭**（否则报答案）；自动朗读只在词可见时触发；不支持 TTS 时按钮与设置块都不渲染；设置页新增「发音」块（开关/口音/语速/自动/试听 + 静音键与音色提示） | `verify_all` **20 步**全绿（新增第 ⑯ 步 speech）；`node --test` **151 项**（新增 `tests/speech.test.js` 12 项：默认值/坏数据退默认/合并保存/只读单词/音色挑选与回退/空词不发声/解锁只做一次/不支持时降级）；`speech` 浏览器测试 **30 项**（点喇叭读对词与语言语速、改设置立刻生效、中→英答完才发声、关开关后练习页与词条页都不显示、不支持时 `speakWord` 返回 false） |
+
+| 2026-10-01 | 主题三态 + 氛围光 + 按压反馈（v32）：① **夜间模式从"只能跟随系统"补成手动三态**（设置 → 外观：跟随系统/浅色/深色，记 `vocab.theme`）—— 样式表走两条路（`@media` 带 `:root:not([data-theme='light'])`、加 `:root[data-theme='dark']`），**两处深色令牌逐项一致由 `check_contrast.py` 比对**（含 `prefers-contrast` 那两处）；`theme-color` 强制时改写/跟随系统时还原，`color-scheme` 跟着切；**不闪白**靠 `index.html` 头部内联脚本在第一帧前写 `data-theme`。② **氛围光**（`.ambient` + `setAmbient()`）：把当前词库色铺成页面底的大半径柔光，换库时颜色插值；**只铺页面底、不铺进卡片**（卡片不透明 → 正文对比度不受影响），深浅两套参数。③ **按压反馈**（`src/press.js`）：文档级委托 + WAAPI，按下 `scale(0.96)`、松手 `1.022 → 0.997 → 1` 超调；`prefers-reduced-motion` 下完全不产生动画 | `verify_all` **21 步**全绿（新增第 ⑰ 步 theme；`verify_sw` 把 theme/press 列入首屏必需清单并对齐 modulepreload）；`theme` 浏览器测试 **30 项**（三态切换改 token/theme-color/aria、深色 --bg 实测 `#0f1012`、预置 localStorage 后重开首帧就是深色、氛围光首页品牌色→词库页库色、按压动画含 scale 关键帧）；`a11y` **45 项 ×2**（常规/减弱动效各一遍，减弱下按压零动画）；`check_contrast` 新增**两条路一致性**比对全绿；新增 `tool/shot_theme.py`（强制主题截图 4 张） |
 
 ## 11. 已知限制（写清楚，免得当作 bug）
 

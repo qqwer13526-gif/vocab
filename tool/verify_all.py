@@ -40,6 +40,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑭ 生疏/熟记专项：内置于词库（总词库=全局）+ 专项练习", "smart", [PY, "tool/browser_test.py", "tests/browser/smart.test.html"], "ui"),
     ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", "mobile", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
     ("⑯ 朗读单词（只读单词 / 口音语速 / 不漏答案 / 降级）", "speech", [PY, "tool/browser_test.py", "tests/browser/speech.test.html"], "ui"),
+    ("⑰ 主题三态 / 氛围光 / 按压反馈", "theme", [PY, "tool/browser_test.py", "tests/browser/theme.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[str] | None]] = [
@@ -54,6 +55,7 @@ CHECKLIST: list[tuple[str, list[str] | None]] = [
     ("配色对比度达标（正文 AA；提高对比度模式下 AAA）", ["contrast"]),
     ("删词库：两步确认、只删库不删词（词留在总词库）、6 秒内可撤销", ["ui-lib-delete"]),
     ("朗读单词：只读单词、口音/语速跟着设置、中→英答完才给喇叭、不支持的系统不渲染按钮", ["speech"]),
+    ("主题三态（跟随系统/浅色/深色）：token 与 theme-color 跟着换、不闪白、氛围光染库色、按压反馈尊重减弱动效", ["theme"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

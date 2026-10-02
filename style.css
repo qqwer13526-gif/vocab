@@ -16,6 +16,11 @@
      定这个值是为了让"卡片 + 顶部工具条 + 滑片 + 页面留白"一屏放得下 —— 页面不滚动，
      底部的翻词胶囊就不会停在 iOS 的 Home Indicator 手势区。 */
   --fold-max: 168px;
+  /* 氛围光（v32）：颜色由 JS 按当前词库色写进来；深浅两套强度/半径在主题块里 */
+  --ambient-color: #3b5bff;
+  --ambient-a: 0.10;
+  --ambient-r: 58%;
+  --ambient-blend: normal;
   /* 页面底是灰的、卡片是白的（iOS 惯例）。以前是反的（白底灰卡），
      导致半透明的悬浮胶囊和页面底一个颜色、只能靠阴影辨认 —— 换过来它才"比页面亮"。 */
   --bg: #f2f2f7;
@@ -86,8 +91,18 @@
   }
 }
 
+/* ================================================================ 主题（浅色 / 深色）
+ *
+ * 两条路，都要能命中：
+ *   ① 跟随系统 → @media (prefers-color-scheme: dark)
+ *   ② 手动强制 → html[data-theme='light' | 'dark']（设置 → 外观，存 localStorage）
+ *
+ * ⚠️ 深色 token **写了两遍**（媒体查询一遍、属性选择器一遍）——CSS 没法把 @media 混进选择器列表，
+ *    而"跟随系统"和"手动强制"必须是两条独立的路。
+ *    防漂移：tool/check_contrast.py 会逐项比对这两处（还有 prefers-contrast 那两处），不一致就红。
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #0f1012;
     --fg: #f2f3f5;
     --muted: #9aa0a6;
@@ -103,10 +118,59 @@
     /* 深色下阴影几乎看不见，真正起作用的是"面上沿的一线高光" */
     --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), inset 0 1px 0 rgb(255 255 255 / 6%);
     --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
+    /* 氛围光：深底上可以更亮、半径更大（见 .ambient） */
+    --ambient-a: 0.30;
+    --ambient-r: 78%;
+    --ambient-blend: plus-lighter;
   }
 }
+:root[data-theme='dark'] {
+  --bg: #0f1012;
+  --fg: #f2f3f5;
+  --muted: #9aa0a6;
+  --line: #26282c;
+  --card: #1c2024;
+  --accent-text: #8ea6ff;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #fb8282;
+  --ok-ink: var(--ok);
+  --warn-ink: var(--warn);
+  --bad-ink: var(--bad);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), inset 0 1px 0 rgb(255 255 255 / 6%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
+  --ambient-a: 0.30;
+  --ambient-r: 78%;
+  --ambient-blend: plus-lighter;
+}
+/* 强制浅色时，别让系统深色把 token 抢走 */
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
+
+/* ---------------------------------------------------------------- 氛围光（v32）
+ * 把「当前词库的颜色」铺一层大半径柔光到**页面底**，整页就有了这个库的气味。
+ *
+ * ⚠️ 两条纪律：
+ *   1. 只铺页面底，**不铺进卡片** —— 卡片是不透明的，正文对比度才守得住（check_contrast 那条线）
+ *   2. 深浅两套参数分离（浅色压低透明度 + 收小半径，免得白卡被染色；深色可以更亮更大）
+ * 颜色变化由 JS 用 spring 插值写 --ambient-color，所以这里不做 CSS transition。
+ */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    var(--ambient-r) 56% at 50% -8%,
+    color-mix(in srgb, var(--ambient-color) 78%, transparent) 0%,
+    color-mix(in srgb, var(--ambient-color) 26%, transparent) 40%,
+    transparent 74%
+  );
+  opacity: var(--ambient-a);
+  mix-blend-mode: var(--ambient-blend);
+}
 
 /* ---------------------------------------------------------------- 移动端基线
  * 每一条都是"这就是网页"的信号（见 mobile-native skill）：
@@ -1112,7 +1176,7 @@ body[data-view='practice'] #tabbar { display: none; }
   :focus-visible { outline-width: 3px; }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --muted: #c8ccd2;
     --line: #6b7280;
     /* 深色下要显式写回深色主题的亮色：上面那个 (prefers-contrast: more) 块里的深绿/深蓝
@@ -1121,6 +1185,20 @@ body[data-view='practice'] #tabbar { display: none; }
     --ok: #4ade80;
     --warn: #fbbf24;
     --bad: #fca5a5;   /* 原来的 #f87171 压在深底上只有 6.88，7:1 差一点 */
+    --ok-ink: var(--ok);
+    --warn-ink: var(--warn);
+    --bad-ink: var(--bad);
+  }
+}
+/* 上面那块的手动强制版（逐项必须一致，check_contrast.py 会比） */
+@media (prefers-contrast: more) {
+  :root[data-theme='dark'] {
+    --muted: #c8ccd2;
+    --line: #6b7280;
+    --accent-text: #8ea6ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #fca5a5;
     --ok-ink: var(--ok);
     --warn-ink: var(--warn);
     --bad-ink: var(--bad);

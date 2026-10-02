@@ -14,12 +14,14 @@ import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo 
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { confirmThen } from './confirm.js';
 import { ACCENT_LABELS, RATE_LABELS, saveSpeechSettings, speakWord, speechSettings, speechSupported, unlockSpeech, voices } from './speech.js';
+import { THEMES, THEME_LABEL, applyTheme, loadTheme, setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 import { APP_VERSION } from './version.js';
 
 export async function renderSettings() {
   const view = $('#view-settings');
   if (!view) return;
+  setAmbient(); // 设置页没有单一库色 → 回到品牌色柔光
 
   const info = await storageInfo();
   const status = el('div', { className: 'word-status', dataset: { testid: 'settings-status' } }, '');
@@ -198,6 +200,30 @@ export async function renderSettings() {
       ])
     : null;
 
+  // ---------------------------------------------------------------- 外观（v32）
+  // 夜间模式以前只有"跟随系统"（@media prefers-color-scheme）；这里补手动三态。
+  // 强制深色时同时改 theme-color（状态栏/地址栏配色）与 color-scheme（表单控件/滚动条）。
+  const themeCard = el('div', { className: 'card settings-card' }, [
+    el('div', { className: 'field-label' }, '外观'),
+    el('div', { className: 'seg-box theme-switch', dataset: { testid: 'theme-switch' }, role: 'group', 'aria-label': '外观主题' },
+      THEMES.map((t) =>
+        el('button', {
+          type: 'button',
+          dataset: { testid: `btn-theme-${t}`, theme: t },
+          'aria-pressed': String(t === loadTheme()),
+          onclick: (e) => {
+            applyTheme(t);
+            for (const b of e.currentTarget.parentElement.children) {
+              b.setAttribute('aria-pressed', String(b.dataset.theme === t));
+            }
+          }
+        }, THEME_LABEL[t])
+      )
+    ),
+    el('div', { className: 'settings-note', dataset: { testid: 'theme-note' } },
+      '强制深色用的是同一套深色令牌（和「跟随系统」逐项一致，对比度脚本会比对）。切换不闪白、不动你的数据。')
+  ]);
+
   const dataCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '本机数据'),
     el('div', { className: 'settings-list', dataset: { testid: 'storage-summary' } }, [
@@ -342,6 +368,7 @@ export async function renderSettings() {
         el('h2', { className: 'page-title' }, '设置')
       ]),
       updateCard,
+      themeCard,
       dataCard,
       speechCard,
       backupCard,

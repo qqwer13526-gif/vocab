@@ -13,6 +13,7 @@ import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
+import { setAmbient } from './theme.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
 import { showToast } from './toast.js';
 
@@ -29,6 +30,7 @@ async function renderList(view, params, data) {
   const smart = isSmartId(params.smart) ? smartDef(params.smart) : null;
   const libId = smart ? null : params.lib || null;
   const lib = libId ? data.libs.find((l) => l.id === libId) : null;
+  setAmbient(smart?.color || lib?.color); // 氛围光：进哪个库就染哪个色（总词库用品牌色）
   const ids = smart ? smartWordIds(data, smart.id) : libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
   const words = ids
     .map((id) => data.wordsById.get(id))
@@ -358,6 +360,8 @@ async function renderEditor(view, params, data) {
 
   const links = (await byIndex('links', 'by_word', w.id)).filter((l) => !l.deleted);
   const myLibs = new Set(links.map((l) => l.libId));
+  // 氛围光：词条编辑页用"它所属第一个库"的颜色
+  setAmbient(data.libs.find((l) => myLibs.has(l.id))?.color);
 
   const term = el('h2', { className: 'page-title is-word', dataset: { testid: 'word-term' } }, w.term);
   // 词条页词头旁也放一颗喇叭（只读单词）；不支持系统朗读或用户关掉了就不显示

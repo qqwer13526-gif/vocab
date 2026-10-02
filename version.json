@@ -1,5 +1,5 @@
 {
-  "version": "v31",
+  "version": "v32",
   "builtAt": "2026-09-26",
   "note": "应用启动时会用 no-store 取这个文件来对比版本，所以它**不能**放进 sw.js 的预缓存清单（否则会被缓存住）。发版时和 sw.js 的 VERSION、src/version.js 的 APP_VERSION 一起改。"
 }

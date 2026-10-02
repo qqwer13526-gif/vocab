@@ -26,9 +26,11 @@ import {
   statsFor,
   undoDeleteLibCascade
 } from './store.js';
+import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 
 export async function renderHome() {
+  setAmbient(); // 首页没有单一库色 → 回到品牌色柔光
   const view = $('#view-home');
   if (!view) return;
   const now = Date.now();

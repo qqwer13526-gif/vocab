@@ -15,6 +15,13 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 <title>背单词</title>
+<!-- 主题要在**第一帧之前**定下来，否则强制深色时会先闪一下白（内联、极小、不依赖任何资源） -->
+<script>
+  try {
+    var t = localStorage.getItem('vocab.theme');
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch (e) { /* 隐私模式下读不到就跟随系统 */ }
+</script>
 <link rel="stylesheet" href="style.css">
 <!-- 首屏模块并行预取（v30）：不然 "app.js → 它的 import → 它们的 import" 是一层层的瀑布，
      国内到 GitHub Pages 每层 ~400ms。这里只列首屏真要用的那几个（其余界面改成按需 import）。 -->
@@ -28,6 +35,8 @@
 <link rel="modulepreload" href="src/icons.js">
 <link rel="modulepreload" href="src/version.js">
 <link rel="modulepreload" href="src/viewport.js">
+<link rel="modulepreload" href="src/theme.js">
+<link rel="modulepreload" href="src/press.js">
 <link rel="modulepreload" href="src/toast.js">
 <!-- 首屏骨架：**内联**（不等 style.css、不等任何 JS），一进页面就有东西看，
      不然冷启动那几秒是纯白屏。放在 #app 里（各 view 这时都还是 hidden），app.js 渲染完第一屏就删掉。 -->
@@ -44,10 +53,17 @@
     #boot-skeleton .sk-line { background: #2c2c2e; }
     #boot-skeleton .sk-tip { color: #9a9aa0; }
   }
+  /* 强制深色（设置 → 外观）时骨架也得跟着深，不然首屏会白一下 */
+  :root[data-theme='dark'] #boot-skeleton .sk-block,
+  :root[data-theme='dark'] #boot-skeleton .sk-card { background: #1c1c1e; border-color: #2c2c2e; }
+  :root[data-theme='dark'] #boot-skeleton .sk-line { background: #2c2c2e; }
+  :root[data-theme='dark'] #boot-skeleton .sk-tip { color: #9a9aa0; }
   @media (prefers-reduced-motion: reduce) { #boot-skeleton .sk-line, #boot-skeleton .sk-card { animation: none } }
 </style>
 </head>
 <body>
+<!-- 氛围光（v32）：铺在页面最底、库色的大半径柔光；颜色由 src/theme.js 写 --ambient-color -->
+<div class="ambient" aria-hidden="true" data-testid="ambient"></div>
 <div id="update-bar" class="update-bar" data-testid="update-banner" hidden>
   <span>有新版本了，更新后数据不会丢</span>
   <button type="button" data-testid="btn-update">立即更新</button>

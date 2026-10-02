@@ -21,6 +21,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CSS = (ROOT / "style.css").read_text(encoding="utf-8")
+# 找块之前先去掉注释：注释里也会出现 "prefers-color-scheme: dark" 这种字符串（本文件就写过一次教训）
+CSS_NC = re.sub(r"/\*.*?\*/", "", CSS, flags=re.S)
+TOK = r"--([\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--[\w-]+\))"
+
+
+def block_after(anchor: str, nth: int = 0) -> str:
+    """取 anchor（**要带结尾的 {**）之后到第一个 } 为止的正文。
+
+    这些块都是扁平的（媒体查询里那层嵌套也只在末尾），所以要的内容一定在第一个 } 之前 ——
+    注意别再 split("{"): 锚点里已经含 { 了，多切一刀会跑到下一个规则里去（这是踩过的坑）。
+    """
+    i = -1
+    for _ in range(nth + 1):
+        i = CSS_NC.index(anchor, i + 1)
+    return CSS_NC[i + len(anchor):].split("}", 1)[0]
 
 
 def hex2rgb(h: str) -> tuple[int, int, int]:
@@ -50,13 +65,16 @@ def over(fg: tuple[float, float, float], bg: tuple[float, float, float], alpha: 
 
 
 def tokens(marker: str = "") -> dict[str, str]:
-    """读 :root 里的颜色令牌。值可能是 #rrggbb，也可能是 var(--别的令牌)（深色下 --ok-ink 就指回 --ok）。"""
+    """浅色读第一个 :root；深色读媒体查询里那段（跟随系统那条路）。
+    值可能是 #rrggbb，也可能是 var(--别的令牌)（深色下 --ok-ink 就指回 --ok）。"""
     if not marker:
-        seg = CSS.split(":root {", 1)[1].split("}", 1)[0]
-    else:
-        i = CSS.index("prefers-color-scheme: dark")
-        seg = CSS[i:].split(":root {", 1)[1].split("}", 1)[0]
-    return dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--[\w-]+\))", seg))
+        return dict(re.findall(TOK, block_after(":root {")))
+    return dict(re.findall(TOK, block_after(":root:not([data-theme='light']) {")))
+
+
+def forced_tokens() -> dict[str, str]:
+    """手动强制深色那条路（html[data-theme='dark']）的令牌 —— 必须和 tokens('dark') 逐项一致。"""
+    return dict(re.findall(TOK, block_after(":root[data-theme='dark'] {")))
 
 
 def flatten(tok: dict[str, str]) -> dict[str, str]:
@@ -75,24 +93,34 @@ def flatten(tok: dict[str, str]) -> dict[str, str]:
 
 
 def hc_block(dark: bool) -> str:
-    """取「提高对比度」那段 @media 的正文；dark=True 时取它跟深色主题叠加的那段。"""
+    """取「提高对比度」那段 @media 的正文；dark=True 时把"跟随系统深色"和"强制深色"两块合并。"""
     if dark:
-        i = CSS.index("@media (prefers-contrast: more) and (prefers-color-scheme: dark)")
-        return CSS[i:].split("{", 1)[1].split("\n}", 1)[0]
-    i = CSS.index("@media (prefers-contrast: more) {")
-    seg = CSS[i:].split("{", 1)[1]
-    # 到下一个顶层 @media 为止（深色那段单独处理）
-    j = seg.find("@media (prefers-contrast: more) and")
-    return seg if j < 0 else seg[:j]
+        auto = block_after("@media (prefers-contrast: more) and (prefers-color-scheme: dark) {")
+        forced = block_after("@media (prefers-contrast: more) {", nth=1)  # 第二个才是强制深色那块
+        return auto + "\n" + forced
+    return block_after("@media (prefers-contrast: more) {")
+
+
+def hc_tokens_auto_dark() -> dict[str, str]:
+    return dict(re.findall(TOK, re.sub(r"/\*.*?\*/", "", block_after(
+        "@media (prefers-contrast: more) and (prefers-color-scheme: dark) {"))))
+
+
+def hc_tokens_forced_dark() -> dict[str, str]:
+    return dict(re.findall(TOK, re.sub(r"/\*.*?\*/", "", block_after(
+        "@media (prefers-contrast: more) {", nth=1))))
 
 
 def hc_tokens(dark: bool) -> dict[str, str]:
-    """提高对比度块里覆写的颜色令牌。"""
-    return dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--[\w-]+\))", hc_block(dark)))
+    """提高对比度块里覆写的颜色令牌（深色 = 两条路合并）。"""
+    if dark:
+        return {**hc_tokens_auto_dark(), **hc_tokens_forced_dark()}
+    return dict(re.findall(TOK, hc_block(False)))
 
 
 LIGHT = flatten(tokens())
 DARK = flatten({**LIGHT, **tokens("dark")})
+FORCED = flatten({**LIGHT, **forced_tokens()})
 
 # (前景, 背景, 类别, 说明)。类别决定门槛：text 4.5（提高对比度下 7.0）、ui 3.0、deco 1.1
 SEMANTIC = [
@@ -229,12 +257,38 @@ def check_hc_block(fails: list[str]) -> None:
             print(f"  OK {label}块只改颜色（{len(props)} 条声明）")
 
 
+def check_theme_sync(fails: list[str]) -> None:
+    """两条路（跟随系统 / 手动强制）的深色令牌必须逐项一致 —— 防两处写漂。"""
+    print("\n=== 主题两条路一致性 ===")
+    pairs = [
+        ("深色令牌", tokens("dark"), forced_tokens()),
+        ("提高对比度·深色令牌", hc_tokens_auto_dark(), hc_tokens_forced_dark()),
+    ]
+    for label, auto, forced in pairs:
+        only_auto = {k: v for k, v in auto.items() if k not in forced}
+        only_forced = {k: v for k, v in forced.items() if k not in auto}
+        diff = {k: (auto[k], forced[k]) for k in auto if k in forced and auto[k] != forced[k]}
+        if only_auto or only_forced or diff:
+            fails.append(f"{label}两条路不一致：只在媒体查询里 {only_auto} / 只在强制里 {only_forced} / 值不同 {diff}")
+            print(f"  !! {label}：只在媒体 {only_auto} · 只在强制 {only_forced} · 值不同 {diff}")
+        else:
+            print(f"  OK {label}（{len(auto)} 项）两条路完全一致")
+    # 强制深色的实际配色也要达标（用的是同一套令牌，这里顺带把它当真跑一遍）
+    if FORCED == DARK:
+        print("  OK 强制深色解析出来的配色与媒体查询深色完全一致")
+    else:
+        diff = {k: (DARK.get(k), FORCED.get(k)) for k in set(DARK) | set(FORCED) if DARK.get(k) != FORCED.get(k)}
+        fails.append(f"强制深色配色和媒体查询深色不一致：{diff}")
+        print(f"  !! 配色不一致：{diff}")
+
+
 def main() -> int:
     fails: list[str] = []
     check_scheme("浅色", LIGHT, False, fails)
     check_scheme("深色", DARK, False, fails)
     check_scheme("提高对比度·浅色", flatten({**LIGHT, **hc_tokens(False)}), True, fails)
     check_scheme("提高对比度·深色", flatten({**DARK, **hc_tokens(False), **hc_tokens(True)}), True, fails)
+    check_theme_sync(fails)
     check_hc_block(fails)
 
     print("\n" + "=" * 64)

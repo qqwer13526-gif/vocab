@@ -11,10 +11,17 @@
  *     冷启动要下的模块从 21 个降到 ~12 个（国内到 GitHub Pages 每个请求 ~400ms）
  *   - 首屏骨架（index.html 里的内联块）在第一屏渲染完后删掉，冷启动不再白屏
  *   - 记一次启动耗时 + 申请持久化存储，都写进设置页的「数据状态」
+ *
+ * v32：
+ *   - 主题三态（浅色 / 深色 / 跟随系统）：启动时应用一次 + 监听系统变化；见 src/theme.js
+ *   - 全局按钮按压反馈（0.96 + 轻微超调）：一处委托，全 app 都有；见 src/press.js
+ *   - 氛围光：把当前词库色铺成页面底的柔光
  */
 
 import { renderHome } from './ui-home.js';
 import { icon } from './icons.js';
+import { applyTheme, loadTheme, setAmbient, watchSystemTheme } from './theme.js';
+import { wirePressFeedback } from './press.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
 
@@ -317,6 +324,10 @@ function wireUpdateButton() {
 
 function boot() {
   markSW();
+  applyTheme(loadTheme()); // 主题：内联脚本已在第一帧前写过 data-theme，这里做状态栏/持久化的收口
+  watchSystemTheme();
+  wirePressFeedback(); // 全局按压反馈：按下 0.96、松手轻微超调（减弱动效下自动不动）
+  setAmbient(undefined, { immediate: true }); // 氛围光先落品牌色，进词库页/练习页会被换成库色
   // 底部导航的图标只写在 icons.js 一处，这里按 data-nav 注入（HTML 里保持纯文字）
   const TAB_ICONS = { home: 'layers', import: 'upload', settings: 'settings' };
   for (const a of document.querySelectorAll('#tabbar a')) {

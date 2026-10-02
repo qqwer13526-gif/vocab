@@ -17,6 +17,7 @@ import { buildQueue, grade, markLevel, newProg, queueFromOrder } from './srs.js'
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { libWordIds, loadAll } from './store.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
+import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 import { keepFocusVisible } from './viewport.js';
 
@@ -91,6 +92,9 @@ export async function renderPractice(params = {}) {
           libIds: libId ? [libId] : null,
           now: Date.now()
         });
+
+    // 氛围光：练习页用当前库（或生疏/熟记库）的颜色 —— 整页就染上这个库的气味
+    setAmbient(smartDef(smartId)?.color || data.libs.find((l) => l.id === libId)?.color);
 
     // 「从这个词开始背」（v23）：把队列旋转到它开头；不在队列里也强制排第一
     let order = [...q.review, ...q.fresh];
