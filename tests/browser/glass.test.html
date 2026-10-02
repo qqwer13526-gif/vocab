@@ -361,12 +361,13 @@ try {
       // v43：延迟的是"对调整页"，不是动画本身 ——
       // 动画的 delay 必须是 0，否则 fill:backwards 会让卡片在延迟期间保持 opacity:0
       // （用户看到的正是"新界面一出现，卡片全隐形、过一会儿才一个个冒出来"）
-      // 阶梯延迟本来就有 0/90/180…，要看的是**基准**延迟为 0（没有额外那 340ms）
-      ok('历史返回：入场动画本身没有延迟（不再有"先隐形再出现"）',
+      // v44：历史导航不再特殊处理 —— 立刻对调、立刻起入场
+      // （两版延迟都试过且都错了：延迟动画 → 卡片先隐形；延迟对调 → iOS 过渡结束露出实时 DOM 时还是旧页）
+      ok('历史返回：入场立刻开始（基准延迟 0，没有"先隐形再出现"）',
          byHistory.length > 0 && Math.min(...byHistory.map((a) => a.delay)) === 0,
          byHistory.length ? byHistory.map((a) => a.delay).join(',') : '（没记录到动画）');
-      ok('历史返回：确实等了一会儿才对调（把延迟放在了对调上）',
-         historyCommitDelay >= 300, `${historyCommitDelay}ms`);
+      ok('历史返回：立刻对调（不在过渡结束后才换页 —— 否则会先看到旧页再跳）',
+         historyCommitDelay > 0 && historyCommitDelay < 200, `${historyCommitDelay}ms`);
     } else {
       ok('减弱动效下两种导航都不播', byTap.length === 0 && byHistory.length === 0);
     }

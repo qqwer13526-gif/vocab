@@ -167,23 +167,11 @@ export function show(name, params = {}) {
           view.inert = false;
         }
         perfMark('swap');
-        navDelayMs = 0;
       };
 
+      commitView();
       document.body.dataset.ready = '1';
       markFirstPaint();
-
-      // ⚠️ 历史导航（返回/前进/边缘滑动）要等系统过渡结束再对调，否则入场会在 iOS 的快照后面跑完
-      //    （用户就看不到"依次重排"）。
-      //    ⚠️ 但延迟的必须是**整页对调**，不能只延迟动画：动画用 fill:backwards，
-      //    延迟期间会保持第一帧（opacity:0）→ 用户看到"新界面一出现，卡片全是隐形、过一会儿才一个个冒出来"。
-      //    延迟对调就没这问题：过渡期间继续显示旧页，过渡结束后新页带着入场一起出现。
-      if (navDelayMs > 0) {
-        const wait = navDelayMs;
-        setTimeout(commitView, wait);
-      } else {
-        commitView();
-      }
     });
 }
 
@@ -202,11 +190,7 @@ function parseHash() {
 
 export function route() {
   const { name, params } = parseHash();
-  // 这次是不是"历史导航"（返回/前进/边缘滑动）？→ 是的话入场要等系统过渡结束（见上面的注释）
-  const traversal = popstateSeen && history.length === histLen;
-  popstateSeen = false;
-  histLen = history.length;
-  navDelayMs = traversal ? HISTORY_NAV_DELAY_MS : 0;
+  popstateSeen = false; // 只为诊断留着（body.dataset 里能看到这次是历史导航还是点导航）
   bumpMotionGen(); // v34：换页 = 新一代 → 整页卡片的交错入场会重新播
   show(name, params);
 }
@@ -228,17 +212,13 @@ function perfMark(name) {
   if (perfHook) perfHook(name);
 }
 
-/* 历史导航（返回/前进/边缘滑动）的判据 + 它的入场延迟：
-   iOS 的边缘滑动返回是**系统级过渡**（约 300ms 滑动 + 快照），而 popstate 在过渡一开始就触发 ——
-   若这时就播入场，动画会在快照后面偷偷跑完，用户看到真页面时已经播完（"依次重排"看不见了）。
-   判据：`popstate 触发` **且** `history.length 与上次相同`。
-   ⚠️ 只用 popstate 不行：Chromium 里程序化改 hash 也会触发它（第一版就是这么错的，测试当场抓到）。
-   规范上 push 一个历史项会让 length +1，返回/前进不会 —— 这才是"历史导航"的可靠特征。
-   （已知限制：个别浏览器 history.length 会封顶在 50；我们的历史很短，够用。） */
+/* 历史导航（返回/前进/边缘滑动）**不再特殊处理**（v44）。
+   曾经试过两版：
+     ① 延迟入场动画 → fill:backwards 让卡片在延迟期间保持 opacity:0 → 新页一出现全是隐形 ✗
+     ② 延迟整页对调 → iOS 过渡结束时露出的是实时 DOM，那时它还是旧页 → 先看到旧页再跳 ✗
+   现在就是**立刻对调 + 立刻起入场**：实时 DOM 任何时刻都是对的；
+   整套入场约 930ms，系统过渡只吃掉前 ~300ms，剩下的依然看得见（不需要延迟）。 */
 let popstateSeen = false;
-let histLen = typeof history !== 'undefined' ? history.length : 0;
-let navDelayMs = 0;
-const HISTORY_NAV_DELAY_MS = 340;
 
 let swReg = null;
 let lastCheck = 0;
