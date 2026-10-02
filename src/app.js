@@ -436,7 +436,9 @@ export async function applyUpdate() {
     if (navigator.onLine && typeof caches !== 'undefined') {
       const keys = await caches.keys();
       mark('keys');
-      const stale = swReg ? keys.filter((k) => !k.includes(APP_VERSION)) : keys;
+      // 以【目标版本】为准（不是【当前版本】）：目标是 v41 就保留 vocab-v41、删掉 vocab-v40。
+      // 拿不到目标版本时才退回全清。⚠️ 改成只删【非当前 APP_VERSION】的缓存会导致双重重载（踩过）。
+      const stale = target ? keys.filter((k) => !k.includes(target)) : keys;
       phases.stale = stale.length;
       await Promise.race([Promise.all(stale.map((k) => caches.delete(k))), wait(600)]);
       mark('cleared');

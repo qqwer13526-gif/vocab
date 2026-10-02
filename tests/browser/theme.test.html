@@ -108,6 +108,23 @@ try {
   eq('而且日志显示应用也确认了深色', frame.contentDocument.body.dataset.themeResolved, 'dark');
   eq('首帧就是深色 token（说明内联脚本抢在渲染前写了）', css(frame, '--bg'), '#0f1012');
 
+  // ---------------- 5b. 首帧就要是深色（治「重载时白闪」）----------------
+  {
+    for (const [theme, wantScheme, wantBg] of [['dark', 'dark', 'rgb(15, 16, 18)'], ['light', 'light', 'rgb(242, 242, 247)']]) {
+      localStorage.setItem('vocab.theme', theme);
+      const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+      const root = f.contentDocument.documentElement;
+      // 这两个是 index.html 头部内联脚本写的**内联样式** —— 样式表还没解析时它们就在了，
+      // 所以浏览器首帧铺的就是对的底色（否则会按系统的 prefers-color-scheme 铺一层白的）
+      eq(`强制${theme}：根元素内联 color-scheme=${wantScheme}（首帧不白闪）`, root.style.colorScheme, wantScheme);
+      eq(`强制${theme}：根元素内联背景色已就位`, root.style.backgroundColor, wantBg);
+      eq(`强制${theme}：data-theme 也在首帧写上了`, root.dataset.theme, theme);
+    }
+    localStorage.removeItem('vocab.theme');
+    // openApp 会把已有的 iframe 删掉重建 → 后面的用例用的是 frame 变量，这里恢复一下
+    frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+  }
+
   // ---------------- 6. 氛围光：词库页染库色、首页回品牌色 ----------------
   const ambient = (f) => q(f, '[data-testid="ambient"]');
   ok('页面里有氛围光那一层', !!ambient(frame));

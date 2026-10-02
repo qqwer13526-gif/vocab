@@ -148,7 +148,10 @@ def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, 
         check(f"{label}：点了会重新加载", loads["n"] > 0, f"{took:.2f}s")
         # v39：有 SW 的那条路以前白等 ~1.2s（最多 3.7s）→ 用户读作"桌面端要等半天"。这里钉住 2.5s。
         check(f"{label}：重载发生在 2.5s 内（不许再白等）", loads["n"] and took <= 2.5, f"{took:.2f}s")
-        page.wait_for_timeout(2500)
+        page.wait_for_timeout(3000)
+        # v42：点更新只该重载**一次**。以前第一次重载会拿到旧文件（旧缓存没删对）→
+        # settleUpdateAttempt() 判定「没生效」→ 又走硬路径 → 用户看到「白闪之后页面又重载一遍」。
+        check(f"{label}：整个过程只重载了一次（没有第二次兜底重载）", loads["n"] == 1, f"{loads['n']} 次")
 
         final = page.evaluate(
             """() => ({

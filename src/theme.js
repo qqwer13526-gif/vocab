@@ -14,6 +14,11 @@
 const KEY = 'vocab.theme';
 const META = { light: '#ffffff', dark: '#0f1012' };
 
+/* 根画布底色：与 index.html 头部内联脚本、manifest 里的颜色必须一致。
+   切主题时要同步 documentElement 的【内联】color-scheme / background-color ——
+   那两条是首帧不闪白的关键，而内联样式优先级高于样式表，所以得由 JS 维护。 */
+const ROOT_BG = { light: '#f2f2f7', dark: '#0f1012' };
+
 export const THEMES = ['auto', 'light', 'dark'];
 export const THEME_LABEL = { auto: '跟随系统', light: '浅色', dark: '深色' };
 
@@ -53,6 +58,10 @@ export function applyTheme(theme = loadTheme()) {
   const root = document.documentElement;
   if (t === 'auto') delete root.dataset.theme;
   else root.dataset.theme = t;
+  // 同步内联的 color-scheme / 根背景色（首帧不闪白靠它们）
+  const darkRoot = resolvedTheme(t) === 'dark';
+  root.style.colorScheme = darkRoot ? 'dark' : 'light';
+  root.style.backgroundColor = darkRoot ? ROOT_BG.dark : ROOT_BG.light;
   paintMeta(t);
   try {
     localStorage.setItem(KEY, t);

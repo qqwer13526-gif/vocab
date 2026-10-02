@@ -17,10 +17,24 @@
 <title>背单词</title>
 <!-- 主题要在**第一帧之前**定下来，否则强制深色时会先闪一下白（内联、极小、不依赖任何资源） -->
 <script>
-  try {
-    var t = localStorage.getItem('vocab.theme');
-    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-  } catch (e) { /* 隐私模式下读不到就跟随系统 */ }
+  (function () {
+    var BG = { light: '#f2f2f7', dark: '#0f1012' };
+    try {
+      var t = localStorage.getItem('vocab.theme');
+      if (t === 'light' || t === 'dark') {
+        document.documentElement.dataset.theme = t;
+        var dark = t === 'dark';
+        // 只写 data-theme 不够：样式表还没解析，浏览器会先按【系统的】prefers-color-scheme
+        // 铺一层默认画布 —— 手动强制深色而系统是浅色时，那层就是白的（每次重载白边一闪）。
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        document.documentElement.style.backgroundColor = dark ? BG.dark : BG.light;
+      } else if (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.style.backgroundColor = BG.dark;
+      } else {
+        document.documentElement.style.backgroundColor = BG.light;
+      }
+    } catch (e) { /* 隐私模式下读不到就交给系统 */ }
+  })();
 </script>
 <link rel="stylesheet" href="style.css">
 <!-- 首屏模块并行预取（v30）：不然 "app.js → 它的 import → 它们的 import" 是一层层的瀑布，
