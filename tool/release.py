@@ -19,6 +19,7 @@ import os
 import pathlib
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -101,13 +102,37 @@ def main() -> int:
         {"tag_name": version, "target_commitish": "main", "name": version, "body": body, "draft": False, "prerelease": False},
     )
     if code >= 300:
-        print("!! 建 Release 失败：", code, res)
-        return 1
-    print(f"[3/4] Release 建好：{res.get('html_url')}")
+        # 已经建过（比如上次上传附件失败后重跑）：查出来继续走附件这一步，别直接退出
+        if "already_exists" in str(res):
+            print(f"[3/4] Release {version} 已存在，直接复用")
+            rcode, rres = api(f"https://api.github.com/repos/{REPO}/releases/tags/{version}")
+            if rcode >= 300:
+                print("!! 取已有 Release 失败：", rcode, rres)
+                return 1
+            res = rres
+        else:
+            print("!! 建 Release 失败：", code, res)
+            return 1
+    else:
+        print(f"[3/4] Release 建好：{res.get('html_url')}")
 
+    # 附件：已经有了就跳过；上传失败重试几次（网络抖一下不该少一个附件）
+    have = {a.get("name") for a in res.get("assets", [])}
     ctype = mimetypes.guess_type(zip_path.name)[0] or "application/zip"
-    code, res = api(f"{res['upload_url'].split('{')[0]}?name={zip_path.name}", "POST", raw=zip_path.read_bytes(), ctype=ctype)
-    print(f"[4/4] 附件：{code} {res.get('name')}")
+    if zip_path.name in have:
+        print(f"[4/4] 附件已存在：{zip_path.name}")
+        return 0
+    upload = res["upload_url"].split("{")[0] + f"?name={zip_path.name}"
+    for attempt in range(1, 5):
+        code, up = api(upload, "POST", raw=zip_path.read_bytes(), ctype=ctype)
+        if code < 300:
+            print(f"[4/4] 附件：{code} {up.get('name')}（{up.get('size', 0) // 1024} KB）")
+            print("提示：本地记得 git tag 一下再 push（或让 GitHub 从 Release 自动建 tag）")
+            return 0
+        print(f"    附件上传第 {attempt} 次失败：{code} {str(up)[:120]}")
+        time.sleep(2 * attempt)
+    print("!! 附件上传始终失败（Release 本身已经在，稍后重跑本脚本可补传）")
+    return 1
     print("提示：本地记得 git tag 一下再 push（或让 GitHub 从 Release 自动建 tag）")
     return 0
 
