@@ -23,6 +23,7 @@ import { icon } from './icons.js';
 import { applyTheme, loadTheme, setAmbient, watchSystemTheme } from './theme.js';
 import { wirePressFeedback } from './press.js';
 import { wireNavGlass } from './glass.js';
+import { bumpMotionGen, staggerPage } from './motion.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
 
@@ -100,6 +101,7 @@ export const currentRoute = () => current;
 
 export function show(name, params = {}) {
   if (!VIEWS[name]) name = 'home';
+  const view = $(VIEWS[name]);
   for (const [k, sel] of Object.entries(VIEWS)) {
     const v = $(sel);
     if (v) v.hidden = k !== name;
@@ -133,6 +135,9 @@ export function show(name, params = {}) {
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
       document.body.dataset.ready = '1';
+      // v34：换页时整页的卡片依次入场（底部导航切页时每一张卡都"落"进来）。
+      // 练习页例外：那张卡是拖拽面，动画会和拖拽抢 transform。
+      if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
       markFirstPaint();
     });
 }
@@ -152,6 +157,7 @@ function parseHash() {
 
 export function route() {
   const { name, params } = parseHash();
+  bumpMotionGen(); // v34：换页 = 新一代 → 整页卡片的交错入场会重新播
   show(name, params);
 }
 

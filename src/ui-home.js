@@ -26,7 +26,7 @@ import {
   statsFor,
   undoDeleteLibCascade
 } from './store.js';
-import { countUp, staggerIn } from './motion.js';
+import { countUp } from './motion.js';
 import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 
@@ -133,8 +133,8 @@ export async function renderHome() {
   );
 
   view.replaceChildren(pinned, list);
-  // 列表入场：只有"换界面/换范围"那一次会依次弹上来（搜索逐字重渲染不会重播）
-  staggerIn([...pinned.children, ...list.children], { scope: 'home' });
+  // 整页入场由 app.js 在渲染完之后统一做（staggerPage）—— 切页时每一张卡依次落进来
+  // 这里只负责让数字"滚"上去
 
   // ---------------------------------------------------------------- 行内操作
 

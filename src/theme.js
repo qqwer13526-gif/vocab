@@ -78,7 +78,7 @@ export function watchSystemTheme() {
 
 const AMBIENT_DEFAULT = '#3b5bff';
 let ambient = null;
-let stopAmbient = null;
+let ambientRaf = 0;
 let ambientNow = null;
 
 function hexToRgb(hex) {
@@ -99,23 +99,36 @@ export function setAmbient(color, { immediate = false } = {}) {
   const to = hexToRgb(color || AMBIENT_DEFAULT);
   const from = ambientNow || to;
   ambientNow = to;
-  stopAmbient && stopAmbient();
+  stopAmbientAnim();
   const apply = (rgb) => ambient.style.setProperty('--ambient-color', `rgb(${rgb.map(Math.round).join(' ')})`);
   if (immediate || from.join() === to.join()) {
     apply(to);
     return;
   }
-  // 用一条很小的弹簧做颜色插值（顺手复用页面里那套手感的参数）
+  // 颜色插值（ease-out-cubic，420ms）：换库/换页时"流"过去，不硬切
   const t0 = performance.now();
   const dur = 420;
   const tick = (now) => {
     const p = Math.min(1, (now - t0) / dur);
-    const e = 1 - Math.pow(1 - p, 3); // ease-out-cubic：够顺、不用额外引弹簧
+    const e = 1 - Math.pow(1 - p, 3);
     apply(from.map((v, i) => v + (to[i] - v) * e));
-    if (p < 1) stopAmbient = requestAnimationFrame(tick);
-    else stopAmbient = null;
+    if (p < 1) ambientRaf = requestAnimationFrame(tick);
+    else ambientRaf = 0;
   };
-  stopAmbient = requestAnimationFrame(tick);
+  ambientRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * 停掉上一段颜色插值。
+ * ⚠️ 以前这里写的是 `stopAmbient && stopAmbient()`，而 stopAmbient 存的是 rAF **id（数字）**
+ *    —— 上一次插值还没跑完就再调一次 setAmbient（连点两个词库、快速切页）会抛
+ *    TypeError，直接把那次渲染打断、页面空白。测试逮到过一次，别改回去。
+ */
+function stopAmbientAnim() {
+  if (ambientRaf) {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(ambientRaf);
+    ambientRaf = 0;
+  }
 }
 
 export function currentAmbient() {

@@ -12,7 +12,7 @@ import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
-import { countUp, staggerIn } from './motion.js';
+import { countUp } from './motion.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { setAmbient } from './theme.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
@@ -204,10 +204,9 @@ async function renderList(view, params, data) {
     const slice = current.slice(rendered, rendered + PAGE_SIZE);
     const batch = slice.map((w) => rowFor(w));
     for (const r of batch) list.append(r);
-    const first = rendered === 0;
     rendered += slice.length;
-    // 只有**首屏那一批**做交错入场：翻页/继续加载时再播一次会显得很吵
-    if (first) staggerIn(batch, { scope: `word:${libId || (smart && smart.id) || 'all'}` });
+    // 交错入场交给 app.js 的整页机制（staggerPage 会取 .word-list 里的卡片）；
+    // 继续加载（sentinel）的那几批不播，免得翻页时一直在动
 
     if (sentinel) {
       observer?.unobserve(sentinel);

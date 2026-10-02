@@ -138,6 +138,35 @@ try {
      !wanted || after.some((a) => a.effect.getKeyframes().some((k) => (k.transform || '').includes('1.02'))),
      after.map((a) => a.effect.getKeyframes().map((k) => k.transform).join('|')).join(' ; '));
 
+  // ---------------- 8. 快速连续换库/切页：氛围光的颜色插值不能把渲染打断 ----------------
+  // 真 bug：上一段 420ms 插值还没跑完就再 setAmbient（连点两个词库/快速切页），
+  // 会把 rAF 的 id 当函数调用 → renderImport 抛错 → 导入页整页空白。这条按用户路径钉住它。
+  {
+    const lib2 = 'lib-theme-2';
+    await db.put('libs', { id: lib2, name: '考研核心词', color: '#34c759', order: 1, updatedAt: NOW });
+    await db.put('links', { id: 'w-absorb|' + lib2, wordId: 'w-absorb', libId: lib2, addedAt: NOW, updatedAt: NOW });
+    const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+    f.contentWindow.eval(`(() => {
+      window.__errs2 = [];
+      const orig = console.error;
+      console.error = function (...a) { window.__errs2.push(a.map((x) => (x && x.stack) || String(x)).join(' ')); orig.apply(console, a); };
+    })()`);
+    // 每次只隔 60ms —— 都在 420ms 的颜色插值窗口里
+    for (const h of [`#/word?lib=${lib}`, `#/word?lib=${lib2}`, '#/import', '#/settings']) {
+      f.contentWindow.location.hash = h;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    await waitFor(() => f.contentDocument.querySelector('#view-settings .card') !== null, { label: '最后一次切页渲染成功' });
+    const log = JSON.parse(f.contentWindow.eval('JSON.stringify(window.__errs2 || [])'));
+    const routeErrs = log.filter((t) => t.includes('渲染失败'));
+    ok('连续快速切页时没有渲染失败', routeErrs.length === 0, routeErrs.join(' ;; '));
+    // 中途切过的导入页（现在被隐藏了，但内容留着）确实画出了卡片，不是空白
+    const impKids = f.contentDocument.querySelector('#view-import')?.children.length || 0;
+    ok('中途切过的导入页确实渲染出了内容（不是空白）', impKids > 0, String(impKids));
+    // 最后落在设置页，且设置页卡片齐（外观块也在）
+    ok('设置页渲染完整（含外观块）', !!f.contentDocument.querySelector('[data-testid="theme-switch"]'));
+  }
+
   localStorage.removeItem('vocab.theme');
 } catch (e) {
   ok('主题测试脚本本身不能崩', false, (e && e.stack) || String(e));

@@ -14,6 +14,14 @@ try {
   reduced = false;
 }
 
+/* 「换页」的代号：路由每次切换都会 +1（app.js 的 route() 调）。
+   交错入场要不要播，看的是**这一代有没有播过**，而不是看内容变没变 ——
+   这样"底部导航切页"一定重播，"同一次渲染里重绘"（搜索逐字过滤之类）不会闪。 */
+let gen = 0;
+export function bumpMotionGen() {
+  gen += 1;
+}
+
 const lastValue = new Map();
 
 /**
@@ -45,25 +53,25 @@ export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}
   requestAnimationFrame(tick);
 }
 
-const lastScope = new Map();
+const lastGen = new Map();
 const MAX_STAGGER = 12;   // 只给前 12 行做交错 —— 词条库有 191 行，全播会变成"等 3 秒"
 const STEP = 46;          // 每行延迟
 
 /**
- * 列表交错入场：行依次"弹上来"。
+ * 交错入场：行依次"弹上来"。
  * @param nodes 行元素数组
- * @param opts.scope 范围标识（**别把搜索词算进去**，否则每敲一个字都重播）
+ * @param opts.scope 范围标识（同一个 scope 在**同一代**里只播一次）
  * @param opts.step  每行延迟 ms
+ * @param opts.cap   最多播几行（默认 12）
  */
-export function staggerIn(nodes, { scope = '', step = STEP } = {}) {
+export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } = {}) {
   const rows = [...(nodes || [])].filter(Boolean);
   if (!rows.length) return;
-  const same = lastScope.get(scope) === rows.length;
-  lastScope.set(scope, rows.length);
-  if (reduced) return;
-  // 同一个范围、同样行数（比如只是数字变了）→ 不重播
-  if (same) return;
-  rows.slice(0, MAX_STAGGER).forEach((r, i) => {
+  const stamp = String(gen);
+  const played = lastGen.get(scope) === stamp;
+  lastGen.set(scope, stamp);
+  if (reduced || played) return;
+  rows.slice(0, cap).forEach((r, i) => {
     if (!r.animate) return;
     r.animate(
       [
@@ -81,10 +89,28 @@ export function staggerIn(nodes, { scope = '', step = STEP } = {}) {
   });
 }
 
-/** 换页/换范围时清掉记忆，让下次进场重新播（比如从别的界面回来） */
-export function resetMotion(scope = null) {
-  if (scope === null) { lastScope.clear(); lastValue.clear(); }
-  else { lastScope.delete(scope); }
+/**
+ * 整页入场：把这一页的卡片按文档顺序依次"落"进来（底部导航切页时的那个感觉）。
+ * 只取一层：直接的 .card，以及容器（section.pinned / section.libs / .word-list）里的卡片。
+ * 练习页不调用它 —— 那张卡片是拖拽面，动画会跟拖拽抢 transform。
+ */
+export function staggerPage(root, { scope = 'page', step = STEP, cap = 8 } = {}) {
+  if (!root || reduced) return;
+  const blocks = [];
+  for (const child of root.children || []) {
+    if (child.hidden || child.classList.contains('word-head')) continue; // 返回+标题是外壳，不动
+    if (child.classList.contains('card')) { blocks.push(child); continue; }
+    for (const inner of child.children || []) {
+      if (inner.classList.contains('card') || inner.classList.contains('newlib-row')) blocks.push(inner);
+    }
+  }
+  staggerIn(blocks, { scope, step, cap });
 }
 
-export const _internal = { lastValue, lastScope };
+/** 换页/换范围时清掉记忆，让下次进场重新播（一般不用手动调：换页会自动 +1 代） */
+export function resetMotion(scope = null) {
+  if (scope === null) { lastGen.clear(); lastValue.clear(); }
+  else { lastGen.delete(scope); }
+}
+
+export const _internal = { lastValue, lastGen };

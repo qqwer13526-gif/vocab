@@ -71,11 +71,14 @@ try {
   frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
   await waitFor(() => qa(frame, '[data-testid="word-row"]').length >= 5, { label: '词条列表首屏画完' });
   const rows = qa(frame, '[data-testid="word-row"]');
-  ok('词条列表首屏画出来了', rows.length >= 5, String(rows.length));
 
-  // 钩住 Element.prototype.animate：把"入场动画"的调用如实记下来 ——
-  // 比"查的时候动画还没跑完"可靠得多（动画跑完 WAAPI 会自动移除，赌时序必翻车）
+  // ⚠️ 钩子必须装在**最后一个 openApp 之后**：openApp 会重建 iframe，之前装的钩子会跟着丢
+  //    （装早了就会出现"记录永远是空的"，我今天就踩了）
   frame.contentWindow.eval(`(() => {
+    window.__errs = [];
+    const origErr = console.error;
+    console.error = function (...a) { window.__errs.push(a.map((x) => (x && x.stack) || String(x)).join(' ')); origErr.apply(console, a); };
+    window.addEventListener('error', (e) => window.__errs.push('onerror: ' + (e.message || '')));
     window.__anim = [];
     const orig = Element.prototype.animate;
     Element.prototype.animate = function (frames, opts) {
@@ -89,20 +92,74 @@ try {
     };
   })()`);
   const wantAnim = !frame.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const animLog = () => JSON.parse(frame.contentWindow.eval('JSON.stringify(window.__anim || [])'));
+  const clearLog = () => frame.contentWindow.eval('window.__anim = []');
+  ok('词条列表首屏画出来了', rows.length >= 5, String(rows.length));
 
-  // 换到第二个库（换范围 → 该重新播），用钩子的记录来判断
+  // 换到第二个库（换页 → 该重新播），用钩子的记录来判断
+  clearLog();
   frame.contentWindow.location.hash = '#/word?lib=lib-glass-2';
-  await waitFor(() => frame.contentWindow.eval('window.__anim.length') > 0, { label: '第二个库重新播入场' });
-  const recs = frame.contentWindow.eval('JSON.stringify(window.__anim)');
-  const anims = JSON.parse(recs);
+  await waitFor(() => animLog().length > 0, { label: '第二个库重新播入场' });
+  const anims = animLog();
   const rowAnims = anims.filter((a) => a.cls.includes('word-row'));
   eq(wantAnim ? '换库后词条行重新播入场动画' : '减弱动效下换库也不播', rowAnims.length > 0, wantAnim);
-  if (wantAnim && rowAnims.length >= 4) {
-    eq('第一行没有延迟', rowAnims[0].delay, 0);
-    ok('延迟按 46ms 递增（第 4 行 ≈ 138ms）', Math.abs(rowAnims[3].delay - 138) < 30, String(rowAnims[3].delay));
+  if (wantAnim && rowAnims.length >= 2) {
+    // 整页入场是按文档顺序排的：这一页排在列表行前面的是「生疏/熟记」卡片，所以第一行不是 0 延迟
+    const ds = rowAnims.map((a) => a.delay);
+    ok('列表行的延迟按 46ms 递增', ds.every((d, i) => i === 0 || d > ds[i - 1]), ds.join(','));
     ok('入场是从下方 9px 弹上来', rowAnims[0].frames.includes('translateY(9px)'), rowAnims[0].frames);
-    // 「只给前 12 行」这条在 tests/motion.test.js 里精确验过（20 行只动 12 行），这里不重复
+    eq('整页第一个入场的是延迟 0 的那张卡', anims.filter((a) => a.cls.includes('card') || a.cls.includes('row'))[0].delay, 0);
+    // 「只给前 N 行」这条在 tests/motion.test.js 里精确验过（cap），这里不重复
   }
+
+  // ---------------- 3b. 切页重播：底部导航换个页面，整页卡片依次落进来 ----------------
+  // 去导入页：这一页的卡片也要入场（初次只有 1 张可见卡片，其余在 hidden 的 import-work 里）
+  clearLog();
+  frame.contentWindow.location.hash = '#/import';
+  const dumpView = () => {
+    const d = frame.contentDocument;
+    const v = d.querySelector('#view-import');
+    return JSON.stringify({
+      hash: frame.contentWindow.location.hash,
+      view: d.body.dataset.view,
+      ready: d.body.dataset.ready,
+      viewHidden: v ? v.hidden : 'no-view',
+      kids: v ? [...v.children].map((c) => c.className || c.tagName).join(',') : '',
+      html: v ? v.innerHTML.length : 0,
+      errs: (frame.contentWindow.__errs || []).slice(0, 2)
+    });
+  };
+  try {
+    await waitFor(() => q(frame, '#view-import .card') !== null, { label: '导入页渲染出来', timeout: 6000 });
+  } catch (err) {
+    ok('导入页渲染出来', false, dumpView());
+  }
+  await new Promise((r) => setTimeout(r, 200));
+  const imp = animLog().filter((a) => a.cls.includes('card'));
+  eq(wantAnim ? '切到导入页：可见卡片入场（1 张）' : '减弱动效下切页也不播', imp.length, wantAnim ? 1 : 0);
+  if (wantAnim) ok('导入页第一张卡延迟为 0', imp[0].delay === 0, String(imp[0].delay));
+
+  // 再切回首页：同一页也要**重新**播（这是 v34 的核心：换代就重播）
+  clearLog();
+  frame.contentWindow.location.hash = '#/';
+  await waitFor(() => qa(frame, '[data-testid="lib-row"]').length > 0, { label: '切回首页渲染' });
+  await new Promise((r) => setTimeout(r, 200));
+  const back = animLog().filter((a) => a.cls.includes('lib-row'));
+  ok(wantAnim ? '切回首页：词库卡片重新依次入场' : '减弱动效下切回也不播', back.length >= 2, String(back.length));
+  if (wantAnim) {
+    const ds = back.map((a) => a.delay);
+    ok('首页卡片延迟递增（0, 46, 92…）', ds.every((d, i) => i === 0 || d > ds[i - 1]), ds.join(','));
+  }
+
+  // 练习页不整页入场：那张卡是拖拽面，动画会和拖拽抢 transform
+  clearLog();
+  frame.contentWindow.location.hash = '#/practice?dir=en2zh';
+  await waitFor(() => q(frame, '[data-testid="practice-prompt"]') !== null || q(frame, '[data-testid="nothing-due"]') !== null, { label: '练习页渲染' });
+  await new Promise((r) => setTimeout(r, 500));
+  const pracAnim = JSON.parse(frame.contentWindow.eval(
+    `JSON.stringify((document.querySelector('.prac-card')?.getAnimations?.() || []).map((a) => a.effect?.getKeyframes?.().map((k) => k.transform || '').join('|') || ''))`
+  ));
+  ok('练习卡片没有整页入场动画（拖拽面不能被抢）', pracAnim.filter((x) => x.includes('translateY(9px)')).length === 0, JSON.stringify(pracAnim));
 
   // ---------------- 4. 液态：高光随滚动位移 ----------------
   // 首页行太少滚不动 → 塞一个高占位块把页面撑高（只在这个测试里做）
@@ -139,6 +196,11 @@ try {
   eq('浓度变量真的调高了', css(frame, q(frame, '#tabbar'), '--nav-tint'), '84%');
 
   ok('玻璃层不吃点击（::after 是装饰）', doc.querySelector('#tabbar a') !== null);
+
+  // 渲染不能失败：app.js 的渲染错误都会走 console.error('[route] 渲染失败', …)。
+  // 这条是 v34 加的 —— 它当天就抓到"氛围光插值把 rAF id 当函数调用 → 导入页整页空白"。
+  const routeErrs = (frame.contentWindow.__errs || []).filter((t) => t.includes('渲染失败'));
+  ok('全程没有渲染失败（没有整页空白）', routeErrs.length === 0, routeErrs.join(' ;; '));
 } catch (e) {
   ok('玻璃测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

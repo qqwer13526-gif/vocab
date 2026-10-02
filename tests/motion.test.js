@@ -28,6 +28,25 @@ function fakeNode() {
   };
 }
 
+/** 假元素：只有 classList / children / hidden / animate —— staggerPage 需要的那点接口 */
+function fakeEl(cls, className = cls) {
+  const node = fakeNode();
+  node.className = className;
+  node.classList = { contains: (c) => String(className).split(/\s+/).includes(c) };
+  node.hidden = false;
+  node.children = [];
+  return node;
+}
+
+function fakeRoot(children, cls = 'div', className = cls) {
+  const node = fakeEl(cls, className);
+  node.children = children;
+  node.all = [];
+  const flat = (n) => { node.all.push(n); (n.children || []).forEach(flat); };
+  children.forEach(flat);
+  return node;
+}
+
 const motion = await import('../src/motion.js');
 
 test('数字滚动：第一次直接落位（没有"从 0 滚上来"的假动作）', () => {
@@ -68,24 +87,55 @@ test('交错入场：只给前 12 行做动画，且带递增延迟', () => {
   assert.equal(rows[19].anims.length, 0, '第 20 行不动');
 });
 
-test('交错入场：同一范围 + 同样行数不重播（搜索逐字重渲染时不闪）', () => {
+test('交错入场：同一代里不重播（搜索逐字重渲染时不闪）', () => {
   const first = Array.from({ length: 5 }, fakeNode);
   motion.staggerIn(first, { scope: 's2' });
   assert.equal(first.filter((r) => r.anims.length).length, 5);
   const again = Array.from({ length: 5 }, fakeNode);
   motion.staggerIn(again, { scope: 's2' });
-  assert.equal(again.filter((r) => r.anims.length).length, 0, '第二次不该再动');
-  const changed = Array.from({ length: 7 }, fakeNode);
-  motion.staggerIn(changed, { scope: 's2' });
-  assert.equal(changed.filter((r) => r.anims.length).length, 7, '行数变了就重播');
+  assert.equal(again.filter((r) => r.anims.length).length, 0, '没换页就不该再动');
 });
 
-test('交错入场：换范围会重新播', () => {
+test('交错入场：换页（新一代）一定重播 —— 底部导航切页就是这个', () => {
   const a = Array.from({ length: 3 }, fakeNode);
   motion.staggerIn(a, { scope: 'sA' });
   const b = Array.from({ length: 3 }, fakeNode);
   motion.staggerIn(b, { scope: 'sB' });
-  assert.equal(b.filter((r) => r.anims.length).length, 3);
+  assert.equal(b.filter((r) => r.anims.length).length, 3, '换范围重播');
+
+  const home1 = Array.from({ length: 4 }, fakeNode);
+  motion.staggerIn(home1, { scope: 'page:home' });
+  motion.bumpMotionGen();               // 切到别的页
+  motion.bumpMotionGen();               // 再切回首页
+  const home2 = Array.from({ length: 4 }, fakeNode);
+  motion.staggerIn(home2, { scope: 'page:home' });
+  assert.equal(home2.filter((r) => r.anims.length).length, 4, '切回同一页也要重播');
+});
+
+test('整页入场：取一层卡片（直接的 .card + 容器里的卡片），跳过 word-head，尊重 cap', () => {
+  const page = fakeRoot([
+    fakeEl('div', 'word-head'),
+    fakeEl('div', 'card'),
+    fakeRoot([fakeEl('div', 'card lib-row'), fakeEl('div', 'card lib-row'), fakeEl('div', 'newlib-row')], 'section', 'libs'),
+    fakeEl('div', 'card')
+  ]);
+  motion.bumpMotionGen(); // 新的一代（否则会被上一轮同代记忆正确地挡掉）
+  motion.staggerPage(page, { scope: 'page:settings', step: 40, cap: 4 });
+  const animated = page.all.filter((n) => n.anims.length);
+  assert.equal(animated.length, 4, '只动 cap 指定的前 4 个');
+  assert.equal(page.all[0].anims.length, 0, 'word-head 不动');
+  assert.equal(animated[0].anims[0].opts.delay, 0);
+  assert.equal(animated[2].anims[0].opts.delay, 80, '第三个延迟 2×40');
+  assert.equal(page.all[page.all.length - 1].anims.length, 0, 'cap 之外的卡片不动');
+});
+
+test('整页入场：减弱动效下什么也不做', async () => {
+  globalThis.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
+  const m3 = await import('../src/motion.js?reduced-page=1');
+  const page = fakeRoot([fakeEl('div', 'card'), fakeEl('div', 'card')]);
+  m3.staggerPage(page, { scope: 'page:x' });
+  assert.equal(page.all.filter((n) => n.anims.length).length, 0);
+  globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
 });
 
 test('减弱动效：数字直接落位、列表完全不产生动画', async () => {
