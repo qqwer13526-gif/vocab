@@ -14,6 +14,7 @@ import { exportToFile, formatBytes, importFromText, requestPersist, storageInfo 
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { confirmThen } from './confirm.js';
 import { ACCENT_LABELS, RATE_LABELS, saveSpeechSettings, speakWord, speechSettings, speechSupported, unlockSpeech, voices } from './speech.js';
+import { CHANGELOG, entryFor } from './changelog.js';
 import { THEMES, THEME_LABEL, applyTheme, loadTheme, setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 import { APP_VERSION } from './version.js';
@@ -46,7 +47,8 @@ export async function renderSettings() {
       if (!res.checked) {
         updateStatus.textContent = '这个环境里没有 service worker（比如直接打开本地文件），没法检查更新。';
       } else if (res.ready) {
-        updateStatus.textContent = `发现新版本 ${res.remote || ''}（本机 ${res.local}），点顶部那条"立即更新"。`;
+        updateStatus.textContent = `发现新版本 ${res.remote || ''}（本机 ${res.local}）——点右边「立即更新」，或顶部那条。`;
+        document.querySelector('[data-testid="btn-update-now"]')?.removeAttribute('hidden');
       } else if (res.error) {
         updateStatus.textContent = `查不到最新版本（可能没网）：${res.error}。本机是 ${res.local}。`;
       } else {
@@ -59,9 +61,18 @@ export async function renderSettings() {
     el('div', { className: 'field-label' }, '版本'),
     el('div', { className: 'settings-big', dataset: { testid: 'settings-version' } }, APP_VERSION),
     el('div', { className: 'settings-note' }, '更新不会动你的数据（词库和学习进度都在本机存储里，不在代码里）。'),
-    el('div', { className: 'row-2' }, [btnCheck, updateState().ready
-      ? el('button', { className: 'primary', dataset: { testid: 'btn-update-now' }, type: 'button', onclick: () => applyUpdate() }, '立即更新')
-      : null]),
+      el('div', { className: 'row-2' }, [
+        btnCheck,
+        // 这颗按钮**常驻**（发现新版本时去掉 hidden）：以前只在「已经有 waiting worker」时才渲染，
+        // 于是「发现新版本」却没有任何能直接点的动作，用户只能去点顶部那条。
+        el('button', {
+          className: 'primary',
+          dataset: { testid: 'btn-update-now' },
+          type: 'button',
+          hidden: updateState().ready ? undefined : true,
+          onclick: () => applyUpdate()
+        }, '立即更新')
+      ]),
     updateStatus
   ]);
 
@@ -224,6 +235,49 @@ export async function renderSettings() {
       '强制深色用的是同一套深色令牌（和「跟随系统」逐项一致，对比度脚本会比对）。切换不闪白、不动你的数据。')
   ]);
 
+  // ---------------------------------------------------------------- 更新日志（v35）
+  // 每版 1~3 条"用户能感知的变化"（数据在 src/changelog.js）。默认展开最近 3 版。
+  const CL_OPEN = 3;
+  const clList = el('div', { className: 'changelog', dataset: { testid: 'changelog' } });
+  const clMore = el('button', {
+    className: 'ghost cl-more',
+    type: 'button',
+    dataset: { testid: 'btn-changelog-more' },
+    onclick: (e) => {
+      const open = clList.dataset.open === 'all';
+      clList.dataset.open = open ? 'some' : 'all';
+      e.currentTarget.textContent = open ? `展开全部 ${CHANGELOG.length} 版` : '收起';
+      paintChangelog();
+    }
+  }, `展开全部 ${CHANGELOG.length} 版`);
+  function paintChangelog() {
+    const all = clList.dataset.open === 'all';
+    const show = all ? CHANGELOG : CHANGELOG.slice(0, CL_OPEN);
+    clList.replaceChildren(
+      ...show.map((entry) => {
+        const isNow = entry.v === APP_VERSION;
+        const head = el('div', { className: 'cl-head' }, [
+          el('span', { className: 'cl-ver' }, entry.v),
+          el('span', { className: 'cl-title' }, entry.title),
+          isNow ? el('span', { className: 'cl-now', dataset: { testid: 'cl-current' } }, '当前') : null,
+          el('span', { className: 'cl-date' }, entry.date)
+        ]);
+        return el('div', { className: 'cl-entry', dataset: { testid: `cl-${entry.v}` } }, [
+          head,
+          el('ul', { className: 'cl-points' }, entry.points.map((t) => el('li', {}, t)))
+        ]);
+      })
+    );
+  }
+  clList.dataset.open = 'some';
+  paintChangelog();
+
+  const changelogCard = el('div', { className: 'card settings-card' }, [
+    el('div', { className: 'field-label' }, '更新日志'),
+    clList,
+    CHANGELOG.length > CL_OPEN ? clMore : null
+  ]);
+
   const dataCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '本机数据'),
     el('div', { className: 'settings-list', dataset: { testid: 'storage-summary' } }, [
@@ -368,6 +422,7 @@ export async function renderSettings() {
         el('h2', { className: 'page-title' }, '设置')
       ]),
       updateCard,
+      changelogCard,
       themeCard,
       dataCard,
       speechCard,

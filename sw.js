@@ -1,11 +1,11 @@
 /* 背单词 App 的 service worker。
  *
- * 策略（v34 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
+ * 策略（v35 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
  *   - 安装时只预缓存 ASSETS（**首屏必需的那一小撮**）→ 第一次打开要下的东西少一半
  *   - DEFERRED 里那些（练习/导入/词条/设置界面及其重依赖）首次用到时才下，下完就进缓存
  *   - 导航请求：联网时取最新（一刷新就是新代码），断网回退缓存外壳
  *   - 同源静态资源：**先给缓存**（首屏 ~100ms 出来），同时在后台把新版本写进缓存
- *     v9~v34 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
+ *     v9~v35 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
  *     重新从网上拉一遍（国内每请求 ~400ms）→ 进应用要好几秒。要立刻换版本仍走
  *     「立即更新」按钮（它清缓存 + 让新 SW 接管），或等新 SW 装上后自动换。
  *   - 改代码后把 VERSION 加一，旧缓存会在 activate 时清掉
@@ -13,7 +13,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v34';
+const VERSION = 'v35';
 const CACHE = `vocab-${VERSION}`;
 
 // 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）
@@ -55,6 +55,7 @@ const DEFERRED = [
   './src/ui-import.js',
   './src/ui-word.js',
   './src/ui-settings.js',
+  './src/changelog.js',   // 更新日志数据（设置页按需加载）
   './src/xlsx.js',
   './src/phonetic.js'
 ];
@@ -71,6 +72,12 @@ self.addEventListener('install', (e) => {
 // 页面上的「立即更新」按钮会让新的 SW 立刻接管，然后页面自己 reload
 self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+  // 应用点「立即更新」时会让我们自己也清一遍（只清不是当前版本的那些，别把刚预缓存的删了）
+  if (e.data && e.data.type === 'CLEAN') {
+    e.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    );
+  }
 });
 
 self.addEventListener('activate', (e) => {

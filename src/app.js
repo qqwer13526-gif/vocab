@@ -19,6 +19,7 @@
  */
 
 import { renderHome } from './ui-home.js';
+import { showToast } from './toast.js';
 import { icon } from './icons.js';
 import { applyTheme, loadTheme, setAmbient, watchSystemTheme } from './theme.js';
 import { wirePressFeedback } from './press.js';
@@ -102,9 +103,21 @@ export const currentRoute = () => current;
 export function show(name, params = {}) {
   if (!VIEWS[name]) name = 'home';
   const view = $(VIEWS[name]);
+  const prev = current.name && current.name !== name ? $(VIEWS[current.name]) : null;
+  // 原子换页：新视图先"画好但不可见"，等渲染完再和旧页在同一帧里对调。
+  // 以前是"旧页立刻 hidden → 等新页异步渲染"，中间会空一帧（实测 ~8ms），看着就是抖一下。
+  // ⚠️ 用 visibility 而不是 display:none —— 有些界面要量 getBoundingClientRect（练习页的滑片），
+  //    display:none 会让量出来全是 0。
+  if (view) {
+    // 让新视图**参与布局但看不见**（.is-swapping 是"脱离文档流 + visibility:hidden"）：
+    // 渲染期间界面要量尺寸（练习页的折叠判断、键盘避让），display:none 会量出 0 —— 踩过。
+    view.hidden = false;
+    if (prev) view.classList.add('is-swapping');
+  }
   for (const [k, sel] of Object.entries(VIEWS)) {
     const v = $(sel);
-    if (v) v.hidden = k !== name;
+    if (!v) continue;
+    if (k !== name) v.hidden = true;
   }
   current = { name, params };
   document.body.dataset.view = name;
@@ -134,9 +147,16 @@ export function show(name, params = {}) {
     })
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
+      // 对调这一帧：撤掉"画好但不可见" → 显示新页 → 滚动归零 → 启动入场。
+      // 三件事必须在同一帧里做完，否则会看到滚动从旧位置滑回顶部（实测过 900 → 0 的夹跳）。
+      if (view) {
+        view.hidden = false;
+        if (prev && prev !== view) prev.hidden = true;
+        view.classList.remove('is-swapping');
+      }
+      window.scrollTo(0, 0);
       document.body.dataset.ready = '1';
-      // v34：换页时整页的卡片依次入场（底部导航切页时每一张卡都"落"进来）。
-      // 练习页例外：那张卡是拖拽面，动画会和拖拽抢 transform。
+      // v34：换页时整页卡片依次入场。练习页例外：那张卡是拖拽面，动画会和拖拽抢 transform。
       if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
       markFirstPaint();
     });
@@ -180,7 +200,12 @@ function markSW() {
   document.body.dataset.sw = navigator.serviceWorker && navigator.serviceWorker.controller ? 'ready' : 'pending';
 }
 
-/** 顶部那条"有新版本" */
+/**
+ * 顶部那条"有新版本"。
+ * ⚠️ 只该由**一处**信号驱动：version.json（no-store 取）报出的版本 ≠ 本机 APP_VERSION。
+ * 曾经 controllerchange 也来点亮它 —— 而更新成功后新 SW 会 clients.claim()，
+ * 正好又触发 controllerchange，于是"刚更新完横幅又弹回来"，用户以为没更新成功（踩过）。
+ */
 export function markUpdateReady(on, remote = null) {
   document.body.dataset.update = on ? 'ready' : 'no';
   if (remote) document.body.dataset.updateVersion = remote;
@@ -189,8 +214,83 @@ export function markUpdateReady(on, remote = null) {
   bar.hidden = !on;
   if (on) {
     const label = bar.querySelector('span');
-    if (label) label.textContent = remote ? `有新版本 ${remote}，更新后数据不会丢` : '有新版本了，更新后数据不会丢';
+    if (label) {
+      label.textContent = remote
+        ? `有新版本 ${remote}（当前 ${APP_VERSION}）· 更新后数据不会丢`
+        : '有新版本了 · 更新后数据不会丢';
+    }
   }
+}
+
+/* ---------------------------------------------------------------- 更新完成后的"确认" */
+
+const UPDATE_TO_KEY = 'vocab.updateTo';
+const UPDATE_TRIES_KEY = 'vocab.updateTries';
+
+function readSession(key) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(key, value) {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, String(value));
+  } catch {
+    /* 隐私模式下写不了就算了 */
+  }
+}
+
+/**
+ * 启动时收口"上一次点了立即更新"这件事：
+ *   版本对上了 → 祝贺一下（这就是"更新成功了"那个可见的确认）+ 确保横幅隐藏
+ *   版本没变   → 自动走一次硬路径；已经试过还不行就说明白，别让人反复点
+ */
+function settleUpdateAttempt() {
+  const want = readSession(UPDATE_TO_KEY);
+  if (!want) return;
+  if (want === APP_VERSION) {
+    writeSession(UPDATE_TO_KEY, null);
+    writeSession(UPDATE_TRIES_KEY, null);
+    markUpdateReady(false);
+    setTimeout(() => showToast(`已更新到 ${APP_VERSION}`, { kind: 'ok' }), 400);
+    return;
+  }
+  const tries = Number(readSession(UPDATE_TRIES_KEY) || 0);
+  if (tries < 1) {
+    writeSession(UPDATE_TRIES_KEY, String(tries + 1));
+    // 硬路径：注销 SW + 清缓存 + 带时间戳重开（绕开一切缓存）
+    hardReload(want);
+    return;
+  }
+  writeSession(UPDATE_TRIES_KEY, null);
+  markUpdateReady(true, want);
+  const bar = document.getElementById('update-bar');
+  const label = bar && bar.querySelector('span');
+  if (label) label.textContent = '更新没生效：请把这个 App 完全关掉（上滑划掉）再打开';
+}
+
+/** 最硬的一招：注销所有 SW、清掉所有缓存，然后带 ?v= 时间戳重新加载 */
+async function hardReload(want = null) {
+  try {
+    if (want) writeSession(UPDATE_TO_KEY, want);
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (typeof caches !== 'undefined') {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* 走到最后还是要在下面重开 */
+  }
+  const url = new URL(location.href);
+  url.searchParams.set('v', String(Date.now()));
+  location.replace(url.toString());
 }
 
 export const updateState = () => ({
@@ -259,17 +359,52 @@ export async function checkForUpdate({ force = false } = {}) {
  * 下次加载它只能从网络取，新的 HTML/JS 立刻就进来了。数据在 IndexedDB 里，不受影响。
  */
 export async function applyUpdate() {
+  const target = document.body.dataset.updateVersion || null;
+  if (target) writeSession(UPDATE_TO_KEY, target);
+  // ① 立刻给反馈（以前点了毫无变化，用户只能连点）
+  for (const sel of ['[data-testid="btn-update"]', '[data-testid="btn-update-now"]']) {
+    const b = document.querySelector(sel);
+    if (!b) continue;
+    b.disabled = true;
+    b.setAttribute('aria-busy', 'true');
+    b.textContent = '正在更新…';
+  }
+  document.body.dataset.updating = '1';
+
+  // ② 清"旧版本"的缓存（不是全删：全删会把新 SW 刚预缓存的也删掉，更新后首屏反而变慢）。
+  //    并且加 1.2s 超时竞速 —— iOS 上缓存操作挂住时，以前就永远走不到 reload（用户看到"没反应"）。
+  const clean = (async () => {
+    if (!navigator.onLine || typeof caches === 'undefined') return;
+    const keys = await caches.keys();
+    const stale = keys.filter((k) => !k.includes(APP_VERSION));
+    await Promise.all(stale.map((k) => caches.delete(k)));
+    // 让 SW 自己也清一遍（它最清楚哪些是自己人的）
+    if (swReg && swReg.active) swReg.active.postMessage({ type: 'CLEAN' });
+  })();
+  const timeout = new Promise((r) => setTimeout(r, 1200));
+
   try {
     if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    if (navigator.onLine && typeof caches !== 'undefined') {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-    if (swReg) await swReg.update();
+    if (swReg) swReg.update().catch(() => {});
   } catch {
-    /* 无论中间哪步失败，最后都要 reload */
+    /* 上面每步失败都不影响"最后一定要 reload" */
   }
+  await Promise.race([clean.catch(() => {}), timeout]);
+  // ③ 新 worker 装上就顺便等它接管（最多 2.5s），等不到也照样 reload
+  await Promise.race([waitForControllerChange(2500), timeout]);
   location.reload();
+}
+
+function waitForControllerChange(ms) {
+  return new Promise((resolve) => {
+    if (!navigator.serviceWorker) return resolve();
+    const done = () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', done);
+      resolve();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', done);
+    setTimeout(done, ms);
+  });
 }
 
 async function setupServiceWorker() {
@@ -297,19 +432,22 @@ async function setupServiceWorker() {
         document.body.dataset.swstate = e.target.state;
       });
     }
-    // 真的有个装好但没接管的新 SW 才算"有新版本"
-    if (reg.waiting && hadController) markUpdateReady(true);
+    // ⚠️ SW 的生命周期只用来写诊断（body.dataset.sw*），**不再**点亮横幅 ——
+    //    横幅的唯一依据是 version.json 对比（见 checkForUpdate）。
+    //    以前 controllerchange 也点亮它，而更新成功后新 SW 的 clients.claim() 正好触发它，
+    //    于是"刚更新完横幅又弹回来"（用户读作：点了没反应）。别再改回去。
+    document.body.dataset.swwaiting = reg.waiting ? '1' : '0';
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;
       if (!sw) return;
       sw.addEventListener('statechange', () => {
-        if (sw.state === 'installed' && hadControllerAtBoot) markUpdateReady(true);
+        document.body.dataset.swstate = sw.state;
+        if (sw.state === 'installed') document.body.dataset.swinstalled = hadControllerAtBoot ? 'update' : 'first';
       });
     });
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       markSW();
-      // 首次安装（之前没有 controller）不算"有新版本"
-      if (hadControllerAtBoot) markUpdateReady(true);
+      document.body.dataset.swclaimed = '1';
     });
     // 切回前台时查一次更新（节流），这样不用回 Safari 也能拿到新版
     document.addEventListener('visibilitychange', () => {
@@ -331,6 +469,13 @@ function wireUpdateButton() {
 
 function boot() {
   markSW();
+  // 换页时我们自己把滚动归零（原子换页那一帧做），别让浏览器再"恢复滚动位置"来搅局
+  try {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  } catch {
+    /* 老浏览器没有就算了 */
+  }
+  settleUpdateAttempt();
   applyTheme(loadTheme()); // 主题：内联脚本已在第一帧前写过 data-theme，这里做状态栏/持久化的收口
   watchSystemTheme();
   wirePressFeedback(); // 全局按压反馈：按下 0.96、松手轻微超调（减弱动效下自动不动）

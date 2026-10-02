@@ -187,6 +187,32 @@ try {
   ok('诊断里写了 service worker 有没有接管', /service worker：(已接管|未接管)/.test(bootLine), bootLine);
   ok('诊断里能报出上次启动的耗时或缓存条数',
      /上次启动 \d+ms/.test(bootLine) || /缓存 vocab-/.test(bootLine), bootLine);
+  // ---------------- 11. v35：更新日志 ----------------
+  {
+    const cl = await openApp({ hash: '#/settings', sel: '[data-testid="changelog"]' });
+    const box = cl.contentDocument.querySelector('[data-testid="changelog"]');
+    const ver = cl.contentDocument.querySelector('[data-testid="settings-version"]').textContent.trim();
+    const entries = () => [...box.querySelectorAll('.cl-entry')];
+    eq('更新日志默认展开 3 版', entries().length, 3);
+    const nowBadge = cl.contentDocument.querySelector('[data-testid="cl-current"]');
+    ok('当前版本那一条带「当前」标', !!nowBadge);
+    const nowEntry = nowBadge && nowBadge.closest('.cl-entry');
+    eq('「当前」标挂在正在用的版本上', nowEntry && nowEntry.querySelector('.cl-ver').textContent.trim(), ver);
+    ok('第一条就是最新版（倒序）', entries()[0].querySelector('.cl-ver').textContent.trim() === ver, entries()[0].querySelector('.cl-ver').textContent.trim());
+    ok('每条都有标题与至少一条说明',
+       entries().every((e) => e.querySelector('.cl-title').textContent.trim() && e.querySelectorAll('.cl-points li').length >= 1));
+    // 展开全部
+    const moreBtn = cl.contentDocument.querySelector('[data-testid="btn-changelog-more"]');
+    ok('有「展开全部」按钮', !!moreBtn, moreBtn ? moreBtn.textContent.trim() : '');
+    moreBtn && moreBtn.click();
+    await waitFor(() => entries().length > 3, { label: '展开全部生效' });
+    const all = entries().length;
+    ok('展开后能看到全部版本（15 版以上）', all >= 15, String(all));
+    moreBtn && moreBtn.click();
+    await waitFor(() => entries().length === 3, { label: '收起生效' });
+    eq('再点一次能收起', entries().length, 3);
+  }
+
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

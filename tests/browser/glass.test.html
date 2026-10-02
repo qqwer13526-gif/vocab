@@ -22,6 +22,13 @@ let db = null;
 const q = (frame, sel) => frame.contentDocument.querySelector(sel);
 const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
 const css = (frame, el, prop) => frame.contentWindow.getComputedStyle(el).getPropertyValue(prop).trim();
+/** 逐帧滚动跳变检查：任何相邻两帧的 scrollY 差值不该特别大（夹跳就是这种形态） */
+function check_scroll_clean(frames) {
+  let maxJump = 0;
+  for (let i = 1; i < frames.length; i++) maxJump = Math.max(maxJump, Math.abs(frames[i]['scroll'] - frames[i - 1]['scroll']));
+  ok('没有"被浏览器夹回顶部"的大跳变（单帧滚动变化 < 400px）', maxJump < 400, `最大 ${maxJump}px`);
+}
+
 const t = (frame, sel) => {
   const n = q(frame, sel);
   return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
@@ -86,6 +93,7 @@ try {
         testid: (this.dataset && this.dataset.testid) || '',
         cls: this.className || '',
         delay: (opts && opts.delay) || 0,
+        easing: (opts && opts.easing) || '',
         frames: (frames || []).map((f) => f.transform || '').join('|')
       });
       return orig.call(this, frames, opts);
@@ -107,7 +115,7 @@ try {
     // 整页入场是按文档顺序排的：这一页排在列表行前面的是「生疏/熟记」卡片，所以第一行不是 0 延迟
     const ds = rowAnims.map((a) => a.delay);
     ok('列表行的延迟按 46ms 递增', ds.every((d, i) => i === 0 || d > ds[i - 1]), ds.join(','));
-    ok('入场是从下方 9px 弹上来', rowAnims[0].frames.includes('translateY(9px)'), rowAnims[0].frames);
+    ok('入场是从下方 6px 弹上来', rowAnims[0].frames.includes('6px'), rowAnims[0].frames);
     eq('整页第一个入场的是延迟 0 的那张卡', anims.filter((a) => a.cls.includes('card') || a.cls.includes('row'))[0].delay, 0);
     // 「只给前 N 行」这条在 tests/motion.test.js 里精确验过（cap），这里不重复
   }
@@ -196,6 +204,72 @@ try {
   eq('浓度变量真的调高了', css(frame, q(frame, '#tabbar'), '--nav-tint'), '84%');
 
   ok('玻璃层不吃点击（::after 是装饰）', doc.querySelector('#tabbar a') !== null);
+
+  // ---------------- 6. 切页流畅：不空帧 / 滚动归零 / 入场总时长封顶 ----------------
+  {
+    // 把页面撑高，先滚到中段 —— 复现用户说的"整块内容往上一跳"
+    frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
+    // openApp 会重建 iframe → 重新装 animate 钩子（装早了记录永远是空的，踩过）
+    frame.contentWindow.eval(`(() => {
+      window.__anim = [];
+      const orig = Element.prototype.animate;
+      Element.prototype.animate = function (frames, opts) {
+        window.__anim.push({
+          cls: this.className || '',
+          delay: (opts && opts.delay) || 0,
+          easing: (opts && opts.easing) || '',
+          frames: (frames || []).map((f) => f.transform || '').join('|')
+        });
+        return orig.call(this, frames, opts);
+      };
+    })()`);
+    const d2 = frame.contentDocument;
+    const tall = d2.createElement('div');
+    tall.className = 'card';
+    tall.style.height = '1400px';
+    d2.querySelector('#app').append(tall);
+    frame.contentWindow.scrollTo(0, 900);
+    await new Promise((r) => setTimeout(r, 150));
+    const scrolled = frame.contentWindow.scrollY;
+    ok('测试前确实滚到了中段', scrolled > 400, String(scrolled));
+
+    // 逐帧记录：可见视图的子元素数 + scrollY（这是"晃动"的直接证据）
+    frame.contentWindow.eval(`(() => {
+      window.__frames = [];
+      const tick = () => {
+        const v = [...document.querySelectorAll('main > section, main > div')].find((n) => !n.hidden);
+        window.__frames.push({ t: Math.round(performance.now()), kids: v ? v.children.length : -1, scroll: Math.round(window.scrollY) });
+        if (window.__frames.length < 90) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    })()`);
+
+    clearLog();
+    frame.contentWindow.location.hash = '#/';
+    await waitFor(() => q(frame, '#view-home .card') !== null, { label: '切到首页' });
+    await new Promise((r) => setTimeout(r, 900));
+
+    const frames = JSON.parse(frame.contentWindow.eval('JSON.stringify(window.__frames || [])'));
+    // 只看"还在动"的那一段（前 40 帧）
+    const early = frames.slice(0, 40);
+    const blanks = early.filter((f) => f['kids'] === 0);
+    ok('切页过程中没有空白帧（旧页留到新页画好）', blanks.length === 0, `空白 ${blanks.length} 帧`);
+    // 内容出现的那一帧，滚动必须已经是 0（否则就是用户看到的"整块往上跳"）
+    const firstContent = early.find((f) => f['kids'] > 0 && f['scroll'] === 0);
+    ok('新页出现时滚动已经归零', !!firstContent, firstContent ? `t=${firstContent['t']}` : '没找到 scroll=0 的帧');
+    check_scroll_clean(early);
+    ok('切页后停在顶部', frame.contentWindow.scrollY === 0, String(frame.contentWindow.scrollY));
+
+    // 入场总时长：最后一张卡的 delay + duration 不该超过 ~340ms
+    const recs2 = animLog().filter((a) => a.cls.includes('row') || a.cls.includes('card'));
+    const last = recs2[recs2.length - 1];
+    if (last && wantAnim) {
+      const total = last.delay + 240;
+      ok('入场总时长 ≤ 340ms（以前 8 张卡要 620ms）', total <= 340, `最后一张 ${last.delay}+240=${total}ms`);
+      ok('位移从 6px 开始（不是 9px）', recs2[0].frames.includes('6px'), recs2[0].frames);
+      ok('入场曲线不过冲（不再是 1.25）', !recs2[0].easing || !recs2[0].easing.includes('1.25'), String(recs2[0].easing));
+    }
+  }
 
   // 渲染不能失败：app.js 的渲染错误都会走 console.error('[route] 渲染失败', …)。
   // 这条是 v34 加的 —— 它当天就抓到"氛围光插值把 rAF id 当函数调用 → 导入页整页空白"。

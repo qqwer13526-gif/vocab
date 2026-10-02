@@ -55,7 +55,9 @@ export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}
 
 const lastGen = new Map();
 const MAX_STAGGER = 12;   // 只给前 12 行做交错 —— 词条库有 191 行，全播会变成"等 3 秒"
-const STEP = 46;          // 每行延迟
+const STEP = 28;          // 每行延迟（v35：46 → 28，尾长砍掉一半）
+const ENTRY_MS = 240;     // 单张时长
+const ENTRY_TOTAL_MS = 320; // 整批总时长上限：卡片多就自动缩短步长，别让页面看起来"还在动"
 
 /**
  * 交错入场：行依次"弹上来"。
@@ -71,21 +73,27 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } 
   const played = lastGen.get(scope) === stamp;
   lastGen.set(scope, stamp);
   if (reduced || played) return;
-  rows.slice(0, cap).forEach((r, i) => {
+  const list = rows.slice(0, cap);
+  // 总时长封顶：卡片多的时候自动缩短步长（8 张 × 28ms + 240ms = 436ms 太拖，封到 ~320ms）
+  const useStep = list.length > 1 ? Math.min(step, Math.max(8, (ENTRY_TOTAL_MS - ENTRY_MS) / (list.length - 1))) : step;
+  list.forEach((r, i) => {
     if (!r.animate) return;
-    r.animate(
+    const anim = r.animate(
       [
         // ⚠️ 只用位移 + 透明度，**不要 scale**：缩放会让"点按区域"在动画期间变小，
         //    a11y 的"点按区域 ≥32×24"就是这么被抓出来的（真回归，不是测试太严）
-        { opacity: 0, transform: 'translateY(9px)' },
-        { opacity: 1, transform: 'translateY(0)' }
+        { opacity: 0, transform: 'translate3d(0, 6px, 0)' },
+        { opacity: 1, transform: 'translate3d(0, 0, 0)' }
       ], {
-        duration: 300,
-        delay: i * step,
-        easing: 'cubic-bezier(0.34, 1.25, 0.64, 1)', // 轻微过冲，和按压/药丸同一族
+        duration: ENTRY_MS,
+        delay: Math.round(i * useStep),
+        // 临界阻尼那种收尾：**不过冲**（过冲在整页入场里读作"晃"，那是按钮/药丸的曲线）
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
         fill: 'backwards'
       }
     );
+    // 跑完把动画撤掉，别让合成层一直挂着
+    anim.addEventListener?.('finish', () => anim.cancel());
   });
 }
 

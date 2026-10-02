@@ -47,6 +47,13 @@ function fakeRoot(children, cls = 'div', className = cls) {
   return node;
 }
 
+/** 整批里「最晚开始」的那个动画的参数 */
+function animationLast(nodes) {
+  return nodes
+    .flatMap((n) => n.anims)
+    .sort((a, b) => (b.opts.delay || 0) - (a.opts.delay || 0))[0];
+}
+
 const motion = await import('../src/motion.js');
 
 test('数字滚动：第一次直接落位（没有"从 0 滚上来"的假动作）', () => {
@@ -77,14 +84,18 @@ test('数字滚动：滚动过程中是单调递增、且中途不等于终点',
   assert.equal(b.textContent, '100');
 });
 
-test('交错入场：只给前 12 行做动画，且带递增延迟', () => {
+test('交错入场：只给前 12 行做动画，延迟递增，总时长封顶', () => {
   const rows = Array.from({ length: 20 }, fakeNode);
   motion.staggerIn(rows, { scope: 's1', step: 50 });
   const animated = rows.filter((r) => r.anims.length);
   assert.equal(animated.length, 12, '只动前 12 行');
-  assert.equal(rows[0].anims[0].opts.delay, 0);
-  assert.equal(rows[3].anims[0].opts.delay, 150);
+  assert.equal(rows[0].anims[0].opts.delay, 0, '第一行不延迟');
+  assert.ok(rows[3].anims[0].opts.delay > rows[2].anims[0].opts.delay, '延迟递增');
   assert.equal(rows[19].anims.length, 0, '第 20 行不动');
+  // v35：整批总时长封顶（最后一张的 delay + duration ≤ 340ms），卡片多就自动缩短步长
+  const last = animationLast(rows);
+  assert.ok(last.opts.delay + last.opts.duration <= 340, `最后一张 ${last.opts.delay}+${last.opts.duration}`);
+  assert.equal(last.opts.duration, 240, '单张 240ms');
 });
 
 test('交错入场：同一代里不重播（搜索逐字重渲染时不闪）', () => {
@@ -125,7 +136,7 @@ test('整页入场：取一层卡片（直接的 .card + 容器里的卡片）�
   assert.equal(animated.length, 4, '只动 cap 指定的前 4 个');
   assert.equal(page.all[0].anims.length, 0, 'word-head 不动');
   assert.equal(animated[0].anims[0].opts.delay, 0);
-  assert.equal(animated[2].anims[0].opts.delay, 80, '第三个延迟 2×40');
+  assert.ok(animated[2].anims[0].opts.delay >= animated[1].anims[0].opts.delay, '延迟递增');
   assert.equal(page.all[page.all.length - 1].anims.length, 0, 'cap 之外的卡片不动');
 });
 

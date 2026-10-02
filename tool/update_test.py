@@ -1,0 +1,176 @@
+"""更新链路测试（v35 新增）：模拟一次真实发版，走用户路径点一遍。
+
+为什么必须有这个：v34 之前"更新"这条路没有任何自动化覆盖，于是
+"更新成功后横幅又弹回来"（controllerchange 无条件点亮横幅）这种 bug 能一直活着 ——
+用户看到的表现就是"点了立即更新没反应"，反复点也没用。
+
+做法：把项目复制到临时目录 → 改那份拷贝的版本号（version.json / sw.js / src/version.js）
+      → 用本地服务器提供它 → 在浏览器里走「检查更新 → 立即更新」→ 检查最终落在哪个版本。
+
+断言：
+  ① 检查更新后顶部横幅出现（带新版本号）
+  ② 点「立即更新」后会重新加载，并且**落在新版本**上
+  ③ 重载后横幅必须消失 ← 就是 v34 那个 bug 的回归点
+  ④ 更新完成后有一条"已更新到 vX"的提示
+  ⑤ 慢网络（sw.js 延迟 800ms）也必须能更新成功
+
+跑法：python tool/update_test.py
+"""
+
+from __future__ import annotations
+
+import pathlib
+import shutil
+import sys
+import tempfile
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tool"))
+
+import serve  # noqa: E402
+import testserver  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
+
+PASS, FAIL = [], []
+
+
+def check(label: str, ok: bool, detail: str = "") -> None:
+    (PASS if ok else FAIL).append(label)
+    print(("[PASS] " if ok else "[FAIL] ") + label + (f"   {detail}" if detail else ""))
+
+
+def make_site(tmp: pathlib.Path) -> pathlib.Path:
+    site = tmp / "site"
+    shutil.copytree(ROOT, site, ignore=shutil.ignore_patterns(".git", "shots", "node_modules", "__pycache__"))
+    return site
+
+
+def current_version(site: pathlib.Path) -> str:
+    import json
+
+    return json.loads((site / "version.json").read_text(encoding="utf-8"))["version"]
+
+
+def publish(site: pathlib.Path, new: str) -> None:
+    """把磁盘上的站点"发成下一版"（改三处版本号 + 一处可见文案）。"""
+    import json
+
+    (site / "version.json").write_text(json.dumps({"version": new}) + "\n", encoding="utf-8")
+    for rel, pat in (("sw.js", "const VERSION = "), ("src/version.js", "APP_VERSION = ")):
+        p = site / rel
+        s = p.read_text(encoding="utf-8")
+        i = s.index(pat) + len(pat)
+        quote = s[i]
+        j = s.index(quote, i + 1)
+        p.write_text(s[:i] + quote + new + s[j:], encoding="utf-8")
+    # 一处肉眼可见的变化：设置页第一条注意事项（用来确认"真的换了代码"）
+    p = site / "src" / "ui-settings.js"
+    s = p.read_text(encoding="utf-8")
+    s = s.replace("千万别删主屏幕图标再重加", f"[{new}] 千万别删主屏幕图标再重加", 1)
+    p.write_text(s, encoding="utf-8")
+
+
+def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, label: str) -> None:
+    serve.ROOT = site
+    testserver.ROOT = site
+    httpd, base = testserver.start_free(5251)
+    base = base.rstrip("/") + "/"
+    try:
+        ctx = browser.new_context(viewport={"width": 390, "height": 844})
+        slow = {"on": False}
+
+        def handle(route):
+            if slow["on"] and route.request.url.endswith("/sw.js"):
+                time.sleep(0.8)
+            route.continue_()
+
+        ctx.route("**/*", handle)
+        page = ctx.new_page()
+        # 先正常打开两次，让 SW 装好并接管（模拟"用户平时打开"的状态）
+        page.goto(base, wait_until="load")
+        page.wait_for_timeout(2200)
+        page.goto(base, wait_until="load")
+        page.wait_for_function("() => !!navigator.serviceWorker.controller", timeout=15000)
+        page.wait_for_timeout(800)
+        check(f"{label}：起始版本是 {cur}", page.evaluate("() => document.body.dataset.appVersion") == cur)
+
+        publish(site, nxt)
+        slow["on"] = slow_sw
+        page.evaluate("() => { location.hash = '#/settings'; }")
+        page.wait_for_selector('[data-testid="btn-check-update"]', timeout=15000)
+        page.click('[data-testid="btn-check-update"]')
+
+        # ① 横幅出现
+        appeared = False
+        for _ in range(300):
+            if page.evaluate("() => document.body.dataset.update") == "ready":
+                appeared = True
+                break
+            page.wait_for_timeout(50)
+        check(f"{label}：检查更新后横幅出现", appeared)
+        bar_text = page.evaluate("() => (document.querySelector('#update-bar span') || {}).textContent || ''")
+        check(f"{label}：横幅文案带上新版本号与当前版本", nxt in bar_text and cur in bar_text, bar_text.strip())
+        check(f"{label}：设置页也出现了「立即更新」按钮",
+              page.evaluate("() => !document.querySelector('[data-testid=\\'btn-update-now\\']').hasAttribute('hidden')"))
+
+        # ② 点「立即更新」：要重新加载
+        loads = {"n": 0}
+        page.on("load", lambda _: loads.update(n=loads["n"] + 1))
+        t0 = time.time()
+        page.click('[data-testid="btn-update"]')
+        for _ in range(200):
+            page.wait_for_timeout(100)
+            if loads["n"]:
+                break
+        check(f"{label}：点了会重新加载（12s 内）", loads["n"] > 0, f"{time.time() - t0:.2f}s")
+        page.wait_for_timeout(2500)
+
+        final = page.evaluate(
+            """() => ({
+                 v: document.body.dataset.appVersion,
+                 bar: !document.getElementById('update-bar').hidden,
+                 barText: (document.querySelector('#update-bar span') || {}).textContent || '',
+                 toast: [...document.querySelectorAll('.toast, [data-testid="toast"]')].map((n) => n.textContent).join(' | '),
+                 bodyText: (document.querySelector('#view-settings') || document.body).innerText || ''
+               })"""
+        )
+        # ③ 落在新版本
+        check(f"{label}：更新后版本变成 {nxt}", final["v"] == nxt, f"实际 {final['v']}")
+        check(f"{label}：新代码确实生效（能看到发版标记）", f"[{nxt}]" in final["bodyText"])
+        # ④ 横幅必须消失（v34 的 bug 就在这）
+        check(f"{label}：更新后横幅消失（不再提示有新版本）", not final["bar"], final["barText"].strip())
+        # ⑤ 更新完成的提示
+        toast_ok = f"已更新到 {nxt}" in final["toast"] or f"已更新到 {nxt}" in final["bodyText"]
+        check(f"{label}：给了「已更新到 {nxt}」的确认", toast_ok, final["toast"][:80])
+        ctx.close()
+    finally:
+        httpd.shutdown()
+
+
+def main() -> int:
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="vocab-update-test-"))
+    site = make_site(tmp)
+    cur = current_version(site)
+    nxt = cur + "t"   # 一个测试专用版本号（跟真实版本号区分开）
+    print(f"临时站点：{site}\n本地版本 {cur} → 模拟发成 {nxt}\n")
+    with sync_playwright() as p:
+        b = p.chromium.launch(channel="msedge", headless=True)
+        run_case(b, site, cur, nxt, slow_sw=False, label="正常网络")
+        # 第二次：再造一份干净的站点，这次拖慢 sw.js
+        site2 = make_site(pathlib.Path(tempfile.mkdtemp(prefix="vocab-update-slow-")))
+        run_case(b, site2, cur, nxt, slow_sw=True, label="慢网络(sw.js +800ms)")
+        b.close()
+
+    print("\n" + "=" * 64)
+    if FAIL:
+        print(f"更新链路测试：{len(PASS)} 通过 / {len(FAIL)} 失败")
+        for f in FAIL:
+            print("  -", f)
+        return 1
+    print(f"RESULT: OK —— 更新链路 {len(PASS)} 项全通过（含「更新后横幅必须消失」这条回归）")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

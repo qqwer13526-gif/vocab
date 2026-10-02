@@ -252,6 +252,7 @@ body {
 }
 
 #app {
+  position: relative; /* .view.is-swapping 是绝对定位的，锚在它上面 */
   max-width: 720px;
   margin: 0 auto;
   /* 底部留白要把"键盘高度"算进去（--kb-inset 由 src/viewport.js 维护） */
@@ -259,6 +260,33 @@ body {
 }
 
 .view[hidden] { display: none; }
+/* 原子换页：新视图先"画好但不可见"。
+   ⚠️ 这里必须用 visibility 而不是 display:none —— 有些界面要量 getBoundingClientRect
+   （练习页的翻词滑片就是），display:none 会让量出来全是 0。 */
+.view.is-swapping {
+  /* 脱离文档流（旧页不会因为多了一个视图而跳动）+ 宽度照旧（量出来是对的）+ 看不见。
+     ⚠️ 不能只靠 [hidden]（display:none）：渲染期间界面要量尺寸，量出全是 0 会出真 bug。 */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  visibility: hidden;
+}
+
+/* ---------------------------------------------------------------- 更新日志（v35） */
+.changelog { display: grid; gap: 16px; }
+.cl-entry { display: grid; gap: 6px; }
+.cl-head { display: flex; align-items: baseline; gap: 8px; }
+.cl-ver { font-weight: 650; font-size: 14px; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.cl-title { font-size: 13px; color: var(--muted); flex: 1; min-width: 0; }
+.cl-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-now {
+  font-size: 11px; padding: 1px 7px; border-radius: var(--r-full); white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); font-weight: 600;
+}
+.cl-points { margin: 0; padding-left: 16px; display: grid; gap: 4px; }
+.cl-points li { font-size: 13px; color: var(--muted); line-height: 1.55; }
+.cl-more { margin-top: 14px; width: 100%; }
 
 .card {
   background: var(--card);
