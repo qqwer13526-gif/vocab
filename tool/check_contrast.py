@@ -122,6 +122,26 @@ LIGHT = flatten(tokens())
 DARK = flatten({**LIGHT, **tokens("dark")})
 FORCED = flatten({**LIGHT, **forced_tokens()})
 
+
+def rgb_to_hex(rgb) -> str:
+    return "#" + "".join(f"{max(0, min(255, round(v))):02x}" for v in rgb)
+
+
+def add_glass(tok: dict[str, str]) -> dict[str, str]:
+    """底栏玻璃底 = 卡片色按浓度合成到页面底色上（常规 72%、压着卡片 84%）。
+    这样"底栏文字压在玻璃上"也能进对比度审计 —— 玻璃最容易吃掉的就是这一处。"""
+    out = dict(tok)
+    card = hex2rgb(out["card"])
+    bg = hex2rgb(out["bg"])
+    for name, alpha in (("__glass72", 0.72), ("__glass84", 0.84)):
+        out[name] = rgb_to_hex(over(card, bg, alpha))
+    return out
+
+
+LIGHT = add_glass(LIGHT)
+DARK = add_glass(DARK)
+FORCED = add_glass(FORCED)
+
 # (前景, 背景, 类别, 说明)。类别决定门槛：text 4.5（提高对比度下 7.0）、ui 3.0、deco 1.1
 SEMANTIC = [
     ("fg", "bg", "text", "正文 / 页面底色"),
@@ -147,6 +167,12 @@ SEMANTIC = [
     ("accent", "bg", "ui", "焦点圈 / 页面底色（非文字）"),
     ("line", "card", "line", "描边 / 卡片（提高对比度下要 ≥3）"),
     ("bg", "fg", "text", "提高对比度下的主按钮：底色当字、前景色当底", "hc"),
+    # 底栏玻璃：常规浓度（72%）与压着卡片时（84%）都要达标
+    ("muted", "__glass72", "text", "底栏未选中文字 / 玻璃底（常规）"),
+    ("accent-text", "__glass72", "text", "底栏选中文字 / 玻璃底（常规）"),
+    ("muted", "__glass84", "text", "底栏未选中文字 / 玻璃底（压着卡片）"),
+    ("accent-text", "__glass84", "text", "底栏选中文字 / 玻璃底（压着卡片）"),
+    ("line", "__glass72", "line", "玻璃描边 / 玻璃底（提高对比度下要 ≥3）"),
 ]
 
 NEED = {"text": 4.5, "ui": 3.0, "deco": 1.1, "line": 1.1}

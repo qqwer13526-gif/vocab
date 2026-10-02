@@ -26,6 +26,7 @@ import {
   statsFor,
   undoDeleteLibCascade
 } from './store.js';
+import { countUp, staggerIn } from './motion.js';
 import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 
@@ -132,6 +133,8 @@ export async function renderHome() {
   );
 
   view.replaceChildren(pinned, list);
+  // 列表入场：只有"换界面/换范围"那一次会依次弹上来（搜索逐字重渲染不会重播）
+  staggerIn([...pinned.children, ...list.children], { scope: 'home' });
 
   // ---------------------------------------------------------------- 行内操作
 
@@ -139,10 +142,22 @@ export async function renderHome() {
    *  点名字 = 练这一组；右侧要么是 ⋯ 菜单（多个动作），要么是一个箭头（只有一个动作）。
    *  ◎ meta 给了就不画进度条（智能库那两行不画"掌握率"，那是没意义的数据）。 */
   function libRow({ testid, lib = null, smart = null, name, color, stats = null, badge = '', meta = '', metaTestid = '', onPractice, menu = null, trailing = null }) {
-    const metaText = meta || (
-      `共 ${stats.total} 词 · 待复习 ${stats.due} · 已掌握 ${stats.mastered}` +
-      (stats.unfamiliar ? ` · 生疏 ${stats.unfamiliar}` : '')
-    );
+    // 数字拆成独立的 span：练完一轮回到首页时它们会"滚"上去（v33 的码表滚动），而不是硬跳
+    const num = (value, suffix, keyPart) => {
+      const n = el('span', { dataset: { num: `home:${lib || smart || testid}:${keyPart}` } });
+      countUp(n, value, { key: n.dataset.num, suffix });
+      return n;
+    };
+    const metaNodes = meta
+      ? [meta]
+      : (stats
+          ? [
+              '共 ', num(stats.total, ' 词', 'total'),
+              ' · 待复习 ', num(stats.due, '', 'due'),
+              ' · 已掌握 ', num(stats.mastered, '', 'mastered'),
+              ...(stats.unfamiliar ? [' · 生疏 ', num(stats.unfamiliar, '', 'unfamiliar')] : [])
+            ]
+          : ['']);
     const ratio = (n) => (stats && stats.total ? Number((n / stats.total).toFixed(4)) : 0);
     const pMastered = ratio(stats ? stats.mastered : 0);
     const pUnfamiliar = ratio(stats ? stats.unfamiliar : 0);
@@ -191,7 +206,7 @@ export async function renderHome() {
             open();
           }
         }, badge ? [name, el('span', { className: 'smart-tag' }, badge)] : name),
-        el('div', { className: 'lib-meta', dataset: metaTestid ? { testid: metaTestid } : {} }, metaText),
+        el('div', { className: 'lib-meta', dataset: metaTestid ? { testid: metaTestid } : {} }, metaNodes),
         stats
           ? el('div', { className: 'lib-bar', dataset: { testid: 'lib-progress' } }, [
               // 用 scaleX 而不是 width：动 width 会触发布局、掉帧（GPU 上只有 transform/opacity 是免费的）

@@ -307,6 +307,23 @@
 - 卡片上原来那行「← 左滑算生疏 · 右滑算熟记 →」的提示**删掉**（v26）：拖动时浮出的红/绿角标仍然在，
   翻词也由滑片讲清楚；`熟记 → 60 天后再见` 这类规则说明一律不写在卡片上（见 §4.1）
 
+### 7.7 底栏液态玻璃 + 数字滚动 / 交错入场（v33）
+
+**底栏玻璃的活行为**（`src/glass.js` + `#tabbar` 的 `--nav-tint` / `--nav-hl`）：
+
+- 材质沿用 v21 量出来的那套（不改），只加两条活行为：高光随滚动位移、压着卡片时浓度 72%→84%
+- 采样纪律：读（`elementFromPoint`）写在同一个 rAF 里分先后；滚动中每 4 帧采一次，
+  **停下后用 120ms 防抖补采一次**（只靠滚动事件采样会漏掉"停在空隙里"那一帧）；采样点在胶囊上沿外 6px
+- 退回实底的条件：`@supports not (backdrop-filter)`、`prefers-reduced-transparency: reduce`、
+  `prefers-contrast: more`（最后一条原本就有）；文字压在玻璃上的对比度进 `check_contrast.py` 审计
+
+**数字滚动**（`src/motion.js` 的 `countUp`）：按 key 记住上一次的值，从旧值滚到新值（520ms，ease-out-cubic）；
+第一次渲染直接落位；`prefers-reduced-motion` 直接落位。用在首页每行的统计与词库页的生疏/熟记个数。
+
+**交错入场**（`staggerIn`）：每行 `translateY(9px) → 0` + 淡入，延迟 `i × 46ms`，**只前 12 行**；
+用引入的"范围标识 + 行数"记忆决定要不要播（搜索逐字重渲染不重播，换库/换范围才播）；
+**不使用 scale**（缩放会临时缩小点按区域，a11y 审计会红）。
+
 ### 7.6 主题、氛围光、按压反馈（v32）
 
 **主题三态**（`src/theme.js`）：`vocab.theme` = `auto | light | dark`。
@@ -525,6 +542,15 @@ SW 接管后 **0 KB / ~100ms**。版本检查**不挡首屏**（人为慢 5 秒�
 24. **朗读单词**（v31）：练习卡题面旁 + 词条页词头旁有喇叭（44×44、有 `aria-label`）；点它读**这个单词**
     （不读例句、不读中文）；口音（英式/美式，默认英式）与语速（慢/正常/快）跟着设置走，改完立刻生效；
     **中→英答完才出现喇叭**；自动朗读只在词可见时触发；`speechSynthesis` 不支持时按钮与设置块都不渲染
+25. **主题三态 + 氛围光 + 按压反馈**（v32）：设置 → 外观可选 跟随系统 / 浅色 / 深色（记在本机，切换不闪白，
+    `theme-color` 与 `color-scheme` 同步）；两处深色令牌逐项一致（`check_contrast` 比对）；
+    氛围光按当前词库色铺页面底（**只铺页面底、不铺进卡片** → 正文对比度不受影响，换库时颜色插值）；
+    所有 `<button>` 按下 0.96、松手轻微超调，`prefers-reduced-motion` 下完全不动
+26. **底栏液态玻璃 + 数字滚动 / 交错入场**（v33）：底栏保留 v21 的材质，新增"高光随滚动位移"与
+    "压着卡片时浓度 72%→84%"两条活行为；不支持 `backdrop-filter` / 减弱透明度 / 提高对比度时退回实底；
+    底栏文字压在玻璃上的对比度达标（两种浓度都进 `check_contrast.py`）；
+    首页与词库页的统计数字**滚动**而非硬跳；列表入场每行延迟 46ms、**只前 12 行**、只在换范围时播；
+    两条都尊重 `prefers-reduced-motion`
 
 
 
@@ -563,7 +589,9 @@ SW 接管后 **0 KB / ~100ms**。版本检查**不挡首屏**（人为慢 5 秒�
 
 | 2026-10-01 | 朗读单词（v31）：用**系统 TTS**（Web Speech API）而不是音频包 —— 零字节、离线可用、不拖慢启动。`src/speech.js`（设置 `vocab.speech` = on/accent/rate/auto，坏数据退默认；`speakWord()` 先 cancel 再 speak，音色按口音挑、退同语言；`unlockSpeech()` 做 iOS 解锁）；练习卡题面旁 + 词条页词头旁的喇叭（44×44）；**只读单词**；**中→英答完才给喇叭**（否则报答案）；自动朗读只在词可见时触发；不支持 TTS 时按钮与设置块都不渲染；设置页新增「发音」块（开关/口音/语速/自动/试听 + 静音键与音色提示） | `verify_all` **20 步**全绿（新增第 ⑯ 步 speech）；`node --test` **151 项**（新增 `tests/speech.test.js` 12 项：默认值/坏数据退默认/合并保存/只读单词/音色挑选与回退/空词不发声/解锁只做一次/不支持时降级）；`speech` 浏览器测试 **30 项**（点喇叭读对词与语言语速、改设置立刻生效、中→英答完才发声、关开关后练习页与词条页都不显示、不支持时 `speakWord` 返回 false） |
 
-| 2026-10-01 | 主题三态 + 氛围光 + 按压反馈（v32）：① **夜间模式从"只能跟随系统"补成手动三态**（设置 → 外观：跟随系统/浅色/深色，记 `vocab.theme`）—— 样式表走两条路（`@media` 带 `:root:not([data-theme='light'])`、加 `:root[data-theme='dark']`），**两处深色令牌逐项一致由 `check_contrast.py` 比对**（含 `prefers-contrast` 那两处）；`theme-color` 强制时改写/跟随系统时还原，`color-scheme` 跟着切；**不闪白**靠 `index.html` 头部内联脚本在第一帧前写 `data-theme`。② **氛围光**（`.ambient` + `setAmbient()`）：把当前词库色铺成页面底的大半径柔光，换库时颜色插值；**只铺页面底、不铺进卡片**（卡片不透明 → 正文对比度不受影响），深浅两套参数。③ **按压反馈**（`src/press.js`）：文档级委托 + WAAPI，按下 `scale(0.96)`、松手 `1.022 → 0.997 → 1` 超调；`prefers-reduced-motion` 下完全不产生动画 | `verify_all` **21 步**全绿（新增第 ⑰ 步 theme；`verify_sw` 把 theme/press 列入首屏必需清单并对齐 modulepreload）；`theme` 浏览器测试 **30 项**（三态切换改 token/theme-color/aria、深色 --bg 实测 `#0f1012`、预置 localStorage 后重开首帧就是深色、氛围光首页品牌色→词库页库色、按压动画含 scale 关键帧）；`a11y` **45 项 ×2**（常规/减弱动效各一遍，减弱下按压零动画）；`check_contrast` 新增**两条路一致性**比对全绿；新增 `tool/shot_theme.py`（强制主题截图 4 张） |
+| 2026-10-01 | 主题三态 + 氛围光 + 按压反馈（v32）：① **夜间模式从"只能跟随系统"补成手动三态**（设置 → 外观：跟随系统/浅色/深色，记 `vocab.theme`）—— 样式表走两条路（`@media` 带 `:root:not([data-theme='light'])`、加 `:root[data-theme='dark']`），**两处深色令牌逐项一致由 `check_contrast.py` 比对**（含 `prefers-contrast` 那两处）；`theme-color` 强制时改写/跟随系统时还原，`color-scheme` 跟着切；**不闪白**靠 `index.html` 头部内联脚本在第一帧前写 `data-theme`。② **氛围光**（`.ambient` + `setAmbient()`）：把当前词库色铺成页面底的大半径柔光，换库时颜色插值；**只铺页面底、不铺进卡片**（卡片不透明 → 正文对比度不受影响），深浅两套参数。③ **按压反馈**（`src/press.js`）：文档级委托 + WAAPI，按下 `scale(0.96)`、松手 `1.022 → 0.997 → 1` 超调；`prefers-reduced-motion` 下完全不产生动画 | `verify_all` **21 步**全绿（新增第 ⑰ 步 theme；`verify_sw` 把 theme/press 列入首屏必需清单并对齐 modulepreload）；`theme` 浏览器测试 **30 项**；`a11y` **45 项 ×2**（常规/减弱各一遍）；`check_contrast` 新增**两条路一致性**比对全绿；新增 `tool/shot_theme.py`（强制主题截图 4 张） |
+
+| 2026-10-01 | 底栏液态玻璃 + 数字滚动 + 交错入场（v33）：① 底栏**材质不动**（v21 逐帧量出来的），补上视频里那两条活行为 —— `src/glass.js` 随滚动写 `--nav-hl/-o`（高光从左走到右、越滚越亮）、按"底下压着什么"切 `--nav-tint` 72%→84%；采样点取在胶囊上沿外 6px（`elementFromPoint` 命中的最上层元素是胶囊自己，采中心只会采到自己）；滚动中每 4 帧采一次 + **停下后 120ms 防抖补采**（只靠滚动事件会漏掉停在空隙那帧）；`@supports not (backdrop-filter)` 与 `prefers-reduced-transparency` 退回实底。② `src/motion.js`：`countUp` 让首页/词库页统计数字**滚动**而非硬跳；`staggerIn` 让列表行按 46ms 交错弹入、**只前 12 行**、只在换范围时播（搜索逐字重渲染不重播）。③ 底栏文字压在玻璃上的对比度进审计（常规/浓玻璃两种浓度） | `verify_all` **22 步**全绿（新增第 ⑱ 步 glass）；`node --test` **159 项**（新增 `tests/motion.test.js` 8 项）；`glass` 浏览器测试 **17 项**（高光随滚动位移、两种浓度切换、`Element.prototype.animate` 钩子验交错延迟与"前 12 行"、减弱动效下不播）；a11y 顺带抓到一个**真回归**——入场动画用 `scale` 会让点按区域瞬时缩到 32px 以下，已改成纯位移+透明度；另修掉一个**时红时绿的亚像素抖动**（`.word-term` / `.lib-name` 高度被字体 swap 影响，正好卡在 32px 阈值上，现取 34px） |
 
 ## 11. 已知限制（写清楚，免得当作 bug）
 

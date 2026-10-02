@@ -41,6 +41,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑮ 手机基线：键盘不遮输入框 / 不缩放 / 不误触发下拉刷新", "mobile", [PY, "tool/browser_test.py", "tests/browser/mobile.test.html"], "ui"),
     ("⑯ 朗读单词（只读单词 / 口音语速 / 不漏答案 / 降级）", "speech", [PY, "tool/browser_test.py", "tests/browser/speech.test.html"], "ui"),
     ("⑰ 主题三态 / 氛围光 / 按压反馈", "theme", [PY, "tool/browser_test.py", "tests/browser/theme.test.html"], "ui"),
+    ("⑱ 液态玻璃底栏 / 数字滚动 / 交错入场", "glass", [PY, "tool/browser_test.py", "tests/browser/glass.test.html"], "ui"),
 ]
 
 CHECKLIST: list[tuple[str, list[str] | None]] = [
@@ -56,6 +57,7 @@ CHECKLIST: list[tuple[str, list[str] | None]] = [
     ("删词库：两步确认、只删库不删词（词留在总词库）、6 秒内可撤销", ["ui-lib-delete"]),
     ("朗读单词：只读单词、口音/语速跟着设置、中→英答完才给喇叭、不支持的系统不渲染按钮", ["speech"]),
     ("主题三态（跟随系统/浅色/深色）：token 与 theme-color 跟着换、不闪白、氛围光染库色、按压反馈尊重减弱动效", ["theme"]),
+    ("底栏玻璃：高光随滚动位移、压着卡片时变浓、不支持时退回实底；数字滚动与列表交错入场只在该播的时候播", ["glass"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

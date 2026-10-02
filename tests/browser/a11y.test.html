@@ -60,7 +60,7 @@ async function audit(label, frame) {
     if (r.width === 0 && r.height === 0) return false;
     return r.height < 32 || r.width < 24;
   });
-  ok(`${label}：点按区域不小于 32×24`, tiny.length === 0, tiny.map((n) => `${n.tagName.toLowerCase()}.${n.className}=${Math.round(tapRect(n).height)}`).join(' | '));
+  ok(`${label}：点按区域不小于 32×24`, tiny.length === 0, tiny.map((n) => `${n.tagName.toLowerCase()}.${n.className}=${tapRect(n).width.toFixed(1)}x${tapRect(n).height.toFixed(1)}`).join(' | '));
 
   const smallFont = [...doc.querySelectorAll('input, textarea, select')].filter((n) => {
     if (n.type === 'checkbox' || n.type === 'radio' || n.type === 'file' || !visible(n)) return false;

@@ -1,0 +1,90 @@
+/* 动效小工具（v33）：数字滚动 + 列表交错入场。
+ *
+ * 两件事都按"**只在需要的时候动**"来写：
+ *   - 数字滚动：记住上一次的值（按 key），从旧值滚到新值 —— 练完一轮回首页才看得见它在滚
+ *   - 交错入场：只在"换了个范围"（进词库、切筛选范围）时播一次；搜索逐字重渲染时不该每敲一下都重播
+ * 两者都尊重 prefers-reduced-motion（直接落位/直接显示，不留动画）。
+ */
+
+let reduced = false;
+try {
+  reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', (e) => { reduced = e.matches; });
+} catch {
+  reduced = false;
+}
+
+const lastValue = new Map();
+
+/**
+ * 数字滚动（码表感）：从上次这个 key 的值滚到 to。
+ * @param node 文本节点/元素
+ * @param to   目标数字
+ * @param opts.key  记忆用的键（同一处数字每次渲染传同一个 key）
+ * @param opts.suffix 后缀，例如 ' 词'
+ */
+export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}) {
+  if (!node) return;
+  const target = Number(to) || 0;
+  const from = lastValue.has(key) ? lastValue.get(key) : target;
+  lastValue.set(key, target);
+  const write = (v) => { node.textContent = `${Math.round(v)}${suffix}`; };
+  if (reduced || from === target) {
+    write(target);
+    return;
+  }
+  write(from); // 先把旧值写上去：别让这一格在等第一帧的时间里空着
+  const t0 = performance.now();
+  const tick = (now) => {
+    const p = Math.min(1, (now - t0) / duration);
+    const e = 1 - Math.pow(1 - p, 3); // ease-out-cubic：滚得很快、收得很稳
+    write(from + (target - from) * e);
+    if (p < 1) requestAnimationFrame(tick);
+    else write(target);
+  };
+  requestAnimationFrame(tick);
+}
+
+const lastScope = new Map();
+const MAX_STAGGER = 12;   // 只给前 12 行做交错 —— 词条库有 191 行，全播会变成"等 3 秒"
+const STEP = 46;          // 每行延迟
+
+/**
+ * 列表交错入场：行依次"弹上来"。
+ * @param nodes 行元素数组
+ * @param opts.scope 范围标识（**别把搜索词算进去**，否则每敲一个字都重播）
+ * @param opts.step  每行延迟 ms
+ */
+export function staggerIn(nodes, { scope = '', step = STEP } = {}) {
+  const rows = [...(nodes || [])].filter(Boolean);
+  if (!rows.length) return;
+  const same = lastScope.get(scope) === rows.length;
+  lastScope.set(scope, rows.length);
+  if (reduced) return;
+  // 同一个范围、同样行数（比如只是数字变了）→ 不重播
+  if (same) return;
+  rows.slice(0, MAX_STAGGER).forEach((r, i) => {
+    if (!r.animate) return;
+    r.animate(
+      [
+        // ⚠️ 只用位移 + 透明度，**不要 scale**：缩放会让"点按区域"在动画期间变小，
+        //    a11y 的"点按区域 ≥32×24"就是这么被抓出来的（真回归，不是测试太严）
+        { opacity: 0, transform: 'translateY(9px)' },
+        { opacity: 1, transform: 'translateY(0)' }
+      ], {
+        duration: 300,
+        delay: i * step,
+        easing: 'cubic-bezier(0.34, 1.25, 0.64, 1)', // 轻微过冲，和按压/药丸同一族
+        fill: 'backwards'
+      }
+    );
+  });
+}
+
+/** 换页/换范围时清掉记忆，让下次进场重新播（比如从别的界面回来） */
+export function resetMotion(scope = null) {
+  if (scope === null) { lastScope.clear(); lastValue.clear(); }
+  else { lastScope.delete(scope); }
+}
+
+export const _internal = { lastValue, lastScope };

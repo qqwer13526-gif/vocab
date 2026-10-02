@@ -22,6 +22,7 @@ import { renderHome } from './ui-home.js';
 import { icon } from './icons.js';
 import { applyTheme, loadTheme, setAmbient, watchSystemTheme } from './theme.js';
 import { wirePressFeedback } from './press.js';
+import { wireNavGlass } from './glass.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
 
@@ -327,6 +328,7 @@ function boot() {
   applyTheme(loadTheme()); // 主题：内联脚本已在第一帧前写过 data-theme，这里做状态栏/持久化的收口
   watchSystemTheme();
   wirePressFeedback(); // 全局按压反馈：按下 0.96、松手轻微超调（减弱动效下自动不动）
+  wireNavGlass(); // 底部胶囊的"液态"行为：高光随滚动位移 + 压着卡片时玻璃更浓
   setAmbient(undefined, { immediate: true }); // 氛围光先落品牌色，进词库页/练习页会被换成库色
   // 底部导航的图标只写在 icons.js 一处，这里按 data-nav 注入（HTML 里保持纯文字）
   const TAB_ICONS = { home: 'layers', import: 'upload', settings: 'settings' };

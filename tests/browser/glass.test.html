@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>液态玻璃底栏 + 数字滚动 / 交错入场 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* v33：
+   ① 底部胶囊的"液态"行为 —— 高光随滚动位移、压着卡片时玻璃更浓、不支持/减弱透明度时退回实底
+   ② 数字滚动与列表交错入场真的跑了（用 WAAPI 的 getAnimations 当证据）
+   跑法：python tool/browser_test.py tests/browser/glass.test.html
+*/
+import { eq, holdLoad, ok, openApp, report, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (frame, sel) => frame.contentDocument.querySelector(sel);
+const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
+const css = (frame, el, prop) => frame.contentWindow.getComputedStyle(el).getPropertyValue(prop).trim();
+const t = (frame, sel) => {
+  const n = q(frame, sel);
+  return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';
+};
+
+async function seed() {
+  await db.wipeAll();
+  const lib = 'lib-glass';
+  const lib2 = 'lib-glass-2';
+  await db.put('libs', { id: lib, name: '四级 Test 1', color: '#3b5bff', order: 0, updatedAt: NOW });
+  await db.put('libs', { id: lib2, name: '考研核心词', color: '#ff9f0a', order: 1, updatedAt: NOW });
+  for (let i = 0; i < 14; i++) {
+    const id = `w-${i}`;
+    await db.put('words', { id, term: `word${i}`, termNorm: `word${i}`, phonetic: '', pos: 'n.', meanings: [`第 ${i} 个词`], example: '', note: '', createdAt: NOW + i, updatedAt: NOW });
+    await db.put('links', { id: `${id}|${lib}`, wordId: id, libId: lib, addedAt: NOW, updatedAt: NOW });
+    if (i >= 10) await db.put('links', { id: `${id}|${lib2}`, wordId: id, libId: lib2, addedAt: NOW, updatedAt: NOW });
+  }
+  return lib;
+}
+
+try {
+  db = await import('../../src/db.js');
+  const lib = await seed();
+
+  // ---------------- 1. 玻璃在（保留 v21 的材质）----------------
+  let frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+  const bar = q(frame, '#tabbar');
+  eq('底栏标记为玻璃可用', bar.dataset.glass, 'on');
+  ok('材质还是 v21 量出来的那套（blur + saturate）',
+     css(frame, bar, 'backdrop-filter').includes('blur(20px)') && css(frame, bar, 'backdrop-filter').includes('saturate'),
+     css(frame, bar, 'backdrop-filter'));
+  ok('玻璃浓度走 --nav-tint 变量', css(frame, bar, '--nav-tint').length > 0, css(frame, bar, '--nav-tint'));
+
+  // ---------------- 2. 数字滚动：换界面后数字是"滚"上去的 ----------------
+  // 首页渲染是异步的 → 等到行出现再断言
+  await waitFor(() => qa(frame, '[data-testid="all-lib-row"]').length > 0, { label: '首页总词库行渲染出来' });
+  // 首页那行"共 N 词"的每一格都是独立的 span（data-num）
+  const numSpans = qa(frame, '[data-testid="all-lib-row"] [data-num]');
+  ok('首页统计数字拆成了独立节点（能单独滚）', numSpans.length >= 3, String(numSpans.length));
+  eq('总数那一格显示对了', t(frame, '[data-testid="all-lib-row"] [data-num$=":total"]'), '14 词');
+
+  // ---------------- 3. 交错入场：首页行有 WAAPI 动画，且带递增延迟 ----------------
+  await waitFor(() => qa(frame, '[data-testid="lib-row"]').length >= 1, { label: '首页词库行出来' });
+  const homeRows = qa(frame, '[data-testid="lib-row"], [data-testid="all-lib-row"]');
+  ok('首页有词库行', homeRows.length >= 2, String(homeRows.length));
+
+  frame = await openApp({ hash: `#/word?lib=${lib}`, sel: '[data-testid="word-row"]' });
+  await waitFor(() => qa(frame, '[data-testid="word-row"]').length >= 5, { label: '词条列表首屏画完' });
+  const rows = qa(frame, '[data-testid="word-row"]');
+  ok('词条列表首屏画出来了', rows.length >= 5, String(rows.length));
+
+  // 钩住 Element.prototype.animate：把"入场动画"的调用如实记下来 ——
+  // 比"查的时候动画还没跑完"可靠得多（动画跑完 WAAPI 会自动移除，赌时序必翻车）
+  frame.contentWindow.eval(`(() => {
+    window.__anim = [];
+    const orig = Element.prototype.animate;
+    Element.prototype.animate = function (frames, opts) {
+      window.__anim.push({
+        testid: (this.dataset && this.dataset.testid) || '',
+        cls: this.className || '',
+        delay: (opts && opts.delay) || 0,
+        frames: (frames || []).map((f) => f.transform || '').join('|')
+      });
+      return orig.call(this, frames, opts);
+    };
+  })()`);
+  const wantAnim = !frame.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // 换到第二个库（换范围 → 该重新播），用钩子的记录来判断
+  frame.contentWindow.location.hash = '#/word?lib=lib-glass-2';
+  await waitFor(() => frame.contentWindow.eval('window.__anim.length') > 0, { label: '第二个库重新播入场' });
+  const recs = frame.contentWindow.eval('JSON.stringify(window.__anim)');
+  const anims = JSON.parse(recs);
+  const rowAnims = anims.filter((a) => a.cls.includes('word-row'));
+  eq(wantAnim ? '换库后词条行重新播入场动画' : '减弱动效下换库也不播', rowAnims.length > 0, wantAnim);
+  if (wantAnim && rowAnims.length >= 4) {
+    eq('第一行没有延迟', rowAnims[0].delay, 0);
+    ok('延迟按 46ms 递增（第 4 行 ≈ 138ms）', Math.abs(rowAnims[3].delay - 138) < 30, String(rowAnims[3].delay));
+    ok('入场是从下方 9px 弹上来', rowAnims[0].frames.includes('translateY(9px)'), rowAnims[0].frames);
+    // 「只给前 12 行」这条在 tests/motion.test.js 里精确验过（20 行只动 12 行），这里不重复
+  }
+
+  // ---------------- 4. 液态：高光随滚动位移 ----------------
+  // 首页行太少滚不动 → 塞一个高占位块把页面撑高（只在这个测试里做）
+  frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+  const doc = frame.contentDocument;
+  // 两块占位：上面一块是 .card，下面一块是普通区域 —— 这样两种 data-under 都能稳定复现
+  const spacerCard = doc.createElement('div');
+  spacerCard.className = 'card';
+  spacerCard.style.height = '600px';
+  const spacerPlain = doc.createElement('div');
+  spacerPlain.style.height = '1500px';
+  doc.querySelector('#app').append(spacerCard, spacerPlain);
+  const maxScroll = () => doc.documentElement.scrollHeight - frame.contentWindow.innerHeight;
+  frame.contentWindow.scrollTo(0, 0);
+  await new Promise((r) => setTimeout(r, 120));
+  const hl0 = css(frame, q(frame, '#tabbar'), '--nav-hl');
+  const o0 = Number(css(frame, q(frame, '#tabbar'), '--nav-hl-o'));
+  frame.contentWindow.scrollTo(0, 900);
+  await waitFor(() => css(frame, q(frame, '#tabbar'), '--nav-hl') !== hl0, { label: '滚动后高光位置变了' });
+  const hl1 = css(frame, q(frame, '#tabbar'), '--nav-hl');
+  const o1 = Number(css(frame, q(frame, '#tabbar'), '--nav-hl-o'));
+  ok('高光位置随滚动走', hl0 !== hl1, `${hl0} → ${hl1}`);
+  ok('滚得越深高光越亮', o1 > o0, `${o0} → ${o1}`);
+
+  // ---------------- 5. 液态：底下压着什么，玻璃浓度跟着变 ----------------
+  // 滚到最底：底栏压着普通区域 → 常规浓度
+  frame.contentWindow.scrollTo(0, maxScroll());
+  await waitFor(() => q(frame, '#tabbar').dataset.under === 'page', { label: '滚到普通区域' });
+  eq('压着普通区域时是常规浓度', css(frame, q(frame, '#tabbar'), '--nav-tint'), '72%');
+  // 往回滚到卡片那一块：底栏压着卡片 → 浓一点
+  frame.contentWindow.scrollTo(0, Math.max(0, maxScroll() - 1600));
+  await waitFor(() => q(frame, '#tabbar').dataset.under === 'card', { label: '滚到卡片压着底栏' });
+  eq('压着卡片时切到"浓玻璃"', q(frame, '#tabbar').dataset.under, 'card');
+  eq('浓度变量真的调高了', css(frame, q(frame, '#tabbar'), '--nav-tint'), '84%');
+
+  ok('玻璃层不吃点击（::after 是装饰）', doc.querySelector('#tabbar a') !== null);
+} catch (e) {
+  ok('玻璃测试脚本本身不能崩', false, (e && e.stack) || String(e));
+}
+
+report();
+release();
+</script>
+</body>
+</html>

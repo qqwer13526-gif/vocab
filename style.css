@@ -282,8 +282,12 @@ body {
   display: flex;
   padding: 6px;
   border-radius: var(--r-full);
-  /* 材质用"卡片色"而不是"页面底色"：视频里胶囊比页面亮（250 vs 242） */
-  background: color-mix(in srgb, var(--card) 72%, transparent);
+  /* 材质用"卡片色"而不是"页面底色"：视频里胶囊比页面亮（250 vs 242）
+     ⚠️ 这两行是 v21 按视频逐帧量出来的，别随手改；v33 只在此基础上加"液态"那两条活行为：
+        --nav-tint  玻璃浓度（压着卡片时会调高，见 [data-under='card']）
+        --nav-hl/-o 边缘高光的位置与亮度（随滚动走，由 src/glass.js 写） */
+  --nav-tint: 72%;
+  background: color-mix(in srgb, var(--card) var(--nav-tint), transparent);
   backdrop-filter: blur(20px) saturate(180%);
   /* 第二层是玻璃上沿那道细亮边（视频里能看到），不是普通投影 */
   box-shadow: var(--shadow-2), inset 0 1px 0 rgb(255 255 255 / 45%);
@@ -291,6 +295,29 @@ body {
 }
 /* 键盘弹出时把底部导航收起来（否则它会浮在键盘上面） */
 body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; pointer-events: none; }
+
+/* ---- 液态玻璃的两条活行为（v33）----
+   ① 边缘高光随滚动位移：一道横向柔光，位置/亮度由 src/glass.js 写 --nav-hl / --nav-hl-o
+   ② 压着卡片时玻璃更浓一点（卡片是亮的，玻璃太透会让上面 12px 的白字和卡片糊在一起） */
+#tabbar::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(60px 26px at var(--nav-hl, 50%) 0%, rgb(255 255 255 / 90%), transparent 72%);
+  opacity: var(--nav-hl-o, 0);
+  transition: opacity 160ms linear;
+}
+#tabbar[data-under='card'] { --nav-tint: 84%; }
+/* 不支持 backdrop-filter / 要求减弱透明度 → 退回实底（宁可不好看，也不能糊） */
+@supports not (backdrop-filter: blur(2px)) {
+  #tabbar { background: var(--card); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #tabbar { background: var(--card); backdrop-filter: none; }
+  #tabbar::after { display: none; }
+}
 
 /* 选中指示器：一颗白药丸，切换时"滑"到目标格 —— 同一时刻只有一个东西在动。
    --nav-i / --nav-count 由 app.js 按当前界面写进来。
@@ -442,7 +469,9 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 .lib-name {
   display: flex;
   align-items: center;
-  min-height: 32px;
+  /* 34 而不是贴着 a11y 的 32 线：这个高度是字体度量算出来的，而词头字体是 swap 加载的，
+     回退字体下会算成 31.96 —— 正好卡在阈值上（实测时红时绿）。给个安全余量，顺带点按区域更大。 */
+  min-height: 34px;
   max-width: 100%;
   padding: 0;
   border: 0;
@@ -955,10 +984,12 @@ body[data-view='practice'] #tabbar { display: none; }
 .word-row-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
 /* 单词本身是按钮（点了去改词条），其余空白处点了是"从这个词开始练" */
 .word-term {
-  /* 它是"去编辑"的按钮，必须够大：无障碍审计要求点按区 ≥32×24 */
+  /* 它是"去编辑"的按钮，必须够大：无障碍审计要求点按区 ≥32×24。
+     取 34 而不是 32：这个高度由字体度量算出，而词头字体是 swap 加载的，回退字体下会算成
+     31.96 —— 贴着 32 会让审计时红时绿（真踩到过），留 2px 余量兼当放大点按区。 */
   display: flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 34px;
   padding: 0;
   border: 0;
   background: none;

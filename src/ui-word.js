@@ -12,6 +12,7 @@ import { normTerm } from './judge.js';
 import { countMissing, fillPhonetics } from './phonetic.js';
 import { LEVELS, LEVEL_LABEL } from './srs.js';
 import { isSmartId, smartDef, smartWordIds } from './smart.js';
+import { countUp, staggerIn } from './motion.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { setAmbient } from './theme.js';
 import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
@@ -201,8 +202,12 @@ async function renderList(view, params, data) {
   /** 一次只画一屏多一点（60 行）；滚到底自动接着画 —— 几百个词也不会一次建上千个节点 */
   function appendBatch() {
     const slice = current.slice(rendered, rendered + PAGE_SIZE);
-    for (const w of slice) list.append(rowFor(w));
+    const batch = slice.map((w) => rowFor(w));
+    for (const r of batch) list.append(r);
+    const first = rendered === 0;
     rendered += slice.length;
+    // 只有**首屏那一批**做交错入场：翻页/继续加载时再播一次会显得很吵
+    if (first) staggerIn(batch, { scope: `word:${libId || (smart && smart.id) || 'all'}` });
 
     if (sentinel) {
       observer?.unobserve(sentinel);
@@ -324,7 +329,13 @@ async function renderList(view, params, data) {
           e.stopPropagation();
           go();
         }
-      }, [label, el('span', { className: 'lib-meta builtin-count', dataset: { testid: `builtin-count-${level}` } }, `${n} 个词`)])
+      }, [label, el('span', { className: 'lib-meta builtin-count', dataset: { testid: `builtin-count-${level}` } },
+      (() => {
+        // 生疏/熟记的个数也走码表滚动：练完回来能看到它滚
+        const s = el('span', {});
+        countUp(s, n, { key: `word:builtin:${libId || 'all'}:${level}`, suffix: ' 个词' });
+        return s;
+      })())])
     ]);
   }
 
