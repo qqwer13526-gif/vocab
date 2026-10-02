@@ -151,25 +151,39 @@ export function show(name, params = {}) {
     })
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
-      // v37：把"一帧里的活"拆成两步 ——
-      // ① 先把滚动归零，再启动入场：staggerPage 要按"新页在顶部的样子"判断哪些卡片在屏内。
-      //    两步都在同一个同步块里，所以用户看不到旧页被滚上去（同一帧只画最终状态）。
-      // ② 入场动画在**还看不见的时候**就跑起来（.is-swapping 是 opacity:0，内容是画好的；
-      //    fill:backwards 让卡片停在起点）→ 建层/绘制的成本摊到渲染期间，不挤在对调那一帧
-      window.scrollTo(0, 0);
-      if (name !== 'practice') staggerPage(view, { scope: `page:${name}`, delay: navDelayMs });
-      navDelayMs = 0;
-      perfMark('entry');
-      // ③ 对调这一帧只做：撤掉不可见、藏旧页
-      if (view) {
-        view.hidden = false;
-        if (prev && prev !== view) prev.hidden = true;
-        view.classList.remove('is-swapping');
-        view.inert = false;
-      }
-      perfMark('swap');
+      // 这一帧要做的三件事（顺序有意义）：
+      //   ① 滚动归零 —— staggerPage 要按"新页在顶部的样子"判断哪些卡片在屏内
+      //   ② 起入场 —— 此时新页还不可见（.is-swapping = 脱离文档流 + opacity:0），
+      //      所以建层/绘制的成本摊在渲染期间，不挤在对调那一帧
+      //   ③ 对调 —— 撤掉不可见、藏旧页（同一帧只画最终状态，用户看不到中间态）
+      const commitView = () => {
+        window.scrollTo(0, 0);
+        if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
+        perfMark('entry');
+        if (view) {
+          view.hidden = false;
+          if (prev && prev !== view) prev.hidden = true;
+          view.classList.remove('is-swapping');
+          view.inert = false;
+        }
+        perfMark('swap');
+        navDelayMs = 0;
+      };
+
       document.body.dataset.ready = '1';
       markFirstPaint();
+
+      // ⚠️ 历史导航（返回/前进/边缘滑动）要等系统过渡结束再对调，否则入场会在 iOS 的快照后面跑完
+      //    （用户就看不到"依次重排"）。
+      //    ⚠️ 但延迟的必须是**整页对调**，不能只延迟动画：动画用 fill:backwards，
+      //    延迟期间会保持第一帧（opacity:0）→ 用户看到"新界面一出现，卡片全是隐形、过一会儿才一个个冒出来"。
+      //    延迟对调就没这问题：过渡期间继续显示旧页，过渡结束后新页带着入场一起出现。
+      if (navDelayMs > 0) {
+        const wait = navDelayMs;
+        setTimeout(commitView, wait);
+      } else {
+        commitView();
+      }
     });
 }
 

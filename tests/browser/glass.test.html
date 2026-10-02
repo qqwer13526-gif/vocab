@@ -333,19 +333,40 @@ try {
     await new Promise((r) => setTimeout(r, 200));
     const byTap = JSON.parse(f.contentWindow.eval('JSON.stringify(window.__anim || [])'));
     f.contentWindow.eval('window.__anim = []');
+    // 装个探针：记录"新页真正可见"的时刻（= 对调发生的时刻）
+    f.contentWindow.eval(`(() => {
+      window.__commitAt = 0;
+      const t0 = performance.now();
+      const tick = () => {
+        const home = document.getElementById('view-home');
+        if (home && !home.hidden && getComputedStyle(home).opacity !== '0') {
+          window.__commitAt = Math.round(performance.now() - t0);
+          return;
+        }
+        if (performance.now() - t0 < 3000) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    })()`);
     // 再用历史返回（模拟滑动返回）：浏览器前进/后退会触发 popstate
     f.contentWindow.history.back();
     await waitFor(() => q(f, '#view-home') && !q(f, '#view-home').hidden, { label: '历史返回到首页' });
     await new Promise((r) => setTimeout(r, 700));
     const byHistory = JSON.parse(f.contentWindow.eval('JSON.stringify(window.__anim || [])'));
+    const historyCommitDelay = f.contentWindow.eval('window.__commitAt || 0');
     const wantAnim = !f.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (wantAnim) {
       ok('点导航切页：入场立刻开始（delay 0）',
          byTap.length > 0 && Math.min(...byTap.map((a) => a.delay)) === 0,
          byTap.map((a) => a.delay).join(','));
-      ok('历史返回（滑动返回）：入场等系统过渡结束再播（delay ≥ 300ms）',
-         byHistory.length > 0 && Math.min(...byHistory.map((a) => a.delay)) >= 300,
+      // v43：延迟的是"对调整页"，不是动画本身 ——
+      // 动画的 delay 必须是 0，否则 fill:backwards 会让卡片在延迟期间保持 opacity:0
+      // （用户看到的正是"新界面一出现，卡片全隐形、过一会儿才一个个冒出来"）
+      // 阶梯延迟本来就有 0/90/180…，要看的是**基准**延迟为 0（没有额外那 340ms）
+      ok('历史返回：入场动画本身没有延迟（不再有"先隐形再出现"）',
+         byHistory.length > 0 && Math.min(...byHistory.map((a) => a.delay)) === 0,
          byHistory.length ? byHistory.map((a) => a.delay).join(',') : '（没记录到动画）');
+      ok('历史返回：确实等了一会儿才对调（把延迟放在了对调上）',
+         historyCommitDelay >= 300, `${historyCommitDelay}ms`);
     } else {
       ok('减弱动效下两种导航都不播', byTap.length === 0 && byHistory.length === 0);
     }
