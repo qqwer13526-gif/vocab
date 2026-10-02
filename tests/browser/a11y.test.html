@@ -152,6 +152,21 @@ try {
   ok('输入框聚焦时有可见的焦点圈（≥2px 实线）',
      sStyle.outlineStyle === 'solid' && parseFloat(sStyle.outlineWidth) >= 2,
      `outline=${sStyle.outlineStyle} ${sStyle.outlineWidth}`);
+  // v38：入场动画进行中，点按区域仍然要达标（07 那种起始 scale(.94) 会临时缩小控件）
+  {
+    const f3 = await openApp({ hash: '#/word', sel: '[data-testid="word-row"]' });
+    const tinyDuring = await f3.contentWindow.eval(`(() => {
+      const nodes = [...document.querySelectorAll('button, a[href]')].filter((n) => n.offsetParent !== null);
+      const bad = [];
+      for (const n of nodes) {
+        const r = n.getBoundingClientRect();
+        if (r.width && (r.height < 32 || r.width < 24)) bad.push((n.className || n.tagName) + '=' + r.width.toFixed(1) + 'x' + r.height.toFixed(1));
+      }
+      return bad;
+    })()`);
+    ok('入场动画进行中点按区域仍 ≥32×24', tinyDuring.length === 0, tinyDuring.slice(0, 3).join(' | '));
+  }
+
   // v32：全局按压反馈必须尊重 prefers-reduced-motion
   {
     // 挑一个**真的 <button>**：底部导航是 <a>，它有自己的药丸动效，本来就不吃按压反馈

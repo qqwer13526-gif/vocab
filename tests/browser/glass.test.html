@@ -114,8 +114,9 @@ try {
   if (wantAnim && rowAnims.length >= 2) {
     // 整页入场是按文档顺序排的：这一页排在列表行前面的是「生疏/熟记」卡片，所以第一行不是 0 延迟
     const ds = rowAnims.map((a) => a.delay);
-    ok('列表行的延迟按 46ms 递增', ds.every((d, i) => i === 0 || d > ds[i - 1]), ds.join(','));
-    ok('入场是从下方 6px 弹上来', rowAnims[0].frames.includes('6px'), rowAnims[0].frames);
+    ok('列表行的延迟递增（步长 90ms，看得出重拍）',
+     ds.every((d, i) => i === 0 || d > ds[i - 1]) && ds[1] - ds[0] >= 60, ds.join(','));
+    ok('入场从下方 26px 起（照 UI 仓库 07 的位移）', rowAnims[0].frames.includes('26px'), rowAnims[0].frames);
     eq('整页第一个入场的是延迟 0 的那张卡', anims.filter((a) => a.cls.includes('card') || a.cls.includes('row'))[0].delay, 0);
     // 「只给前 N 行」这条在 tests/motion.test.js 里精确验过（cap），这里不重复
   }
@@ -264,9 +265,12 @@ try {
     const recs2 = animLog().filter((a) => a.cls.includes('row') || a.cls.includes('card'));
     const last = recs2[recs2.length - 1];
     if (last && wantAnim) {
-      const total = last.delay + 240;
-      ok('入场总时长 ≤ 340ms（以前 8 张卡要 620ms）', total <= 340, `最后一张 ${last.delay}+240=${total}ms`);
-      ok('位移从 6px 开始（不是 9px）', recs2[0].frames.includes('6px'), recs2[0].frames);
+      // v38：照 UI 仓库 07 —— 步长 90ms、起点 26px + scale(.94)、约 8% 过冲（"看得出延迟重拍"）
+      const total = last.delay + 480;
+      ok('整批控制在 1s 内（6 张 × 90ms + 480ms）', total <= 1000, `最后一张 ${last.delay}+480=${total}ms`);
+      ok('位移从 26px 开始（07 的起点）', recs2[0].frames.includes('26px'), recs2[0].frames);
+      ok('不做 scale（否则点按区域会被缩小，a11y 审计会红）', recs2[0].frames.includes('scale(1)'), recs2[0].frames);
+      ok('有过冲关键帧（弹簧感，不是线性收尾）', /-\d/.test(recs2[0].frames), recs2[0].frames);
       ok('入场曲线不过冲（不再是 1.25）', !recs2[0].easing || !recs2[0].easing.includes('1.25'), String(recs2[0].easing));
     }
   }

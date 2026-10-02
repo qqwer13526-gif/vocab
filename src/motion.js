@@ -71,10 +71,16 @@ export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}
 }
 
 const lastGen = new Map();
-const MAX_STAGGER = 12;   // 只给前 12 行做交错 —— 词条库有 191 行，全播会变成"等 3 秒"
-const STEP = 28;          // 每行延迟（v35：46 → 28，尾长砍掉一半）
-const ENTRY_MS = 240;     // 单张时长
-const ENTRY_TOTAL_MS = 320; // 整批总时长上限：卡片多就自动缩短步长，别让页面看起来"还在动"
+/* 入场节奏（v38）：照 UI 仓库 07「物理弹簧交错流」来 ——
+ * 那张卡是 stagger 100ms + translateY(26px) + scale(.94) + 弹簧(stiffness 190 / damping 17, ζ≈0.62)。
+ * 之前这里是 28ms 一步、整批封顶 320ms、还去掉了过冲 —— 结果"延迟重拍"完全看不出来（用户反馈）。
+ * 现在：步长 90ms、整批上限放宽到 900ms（只有卡片特别多时才压缩步长）、保留约 8% 的过冲。
+ * 弹道用多段关键帧近似，仍然跑在合成器上（不回到每帧 rAF 写 style 那条老路）。 */
+const MAX_STAGGER = 12;
+const STEP = 90;            // 每张延迟（07 是 100ms；90ms 在"看得出重拍"和"别太慢"之间）
+const PAGE_CAP = 6;         // 一页最多给前 6 张做交错，其余直接到位
+const ENTRY_MS = 480;       // 单张时长（07 的 settle ≈ 470ms）
+const ENTRY_TOTAL_MS = 960; // 整批上限：6 张 × 90ms + 480ms = 930ms，所以 90ms 的步长保得住
 
 /**
  * 交错入场：行依次"弹上来"。
@@ -83,7 +89,7 @@ const ENTRY_TOTAL_MS = 320; // 整批总时长上限：卡片多就自动缩短�
  * @param opts.step  每行延迟 ms
  * @param opts.cap   最多播几行（默认 12）
  */
-export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } = {}) {
+export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, offset = 26, scale = 1 } = {}) {
   const rows = [...(nodes || [])].filter(Boolean);
   if (!rows.length) return;
   // 帧率浮层里的归因开关：关掉"入场动画"这一项
@@ -93,27 +99,39 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } 
   lastGen.set(scope, stamp);
   if (reduced || played) return;
   const list = rows.slice(0, cap);
-  // 总时长封顶：卡片多的时候自动缩短步长（8 张 × 28ms + 240ms = 436ms 太拖，封到 ~320ms）
-  const useStep = list.length > 1 ? Math.min(step, Math.max(8, (ENTRY_TOTAL_MS - ENTRY_MS) / (list.length - 1))) : step;
+  // 整批上限只做"兜底"：卡片特别多时才缩短步长（正常情况下 90ms 一步是有意为之）
+  const useStep = list.length > 1 ? Math.min(step, Math.max(24, (ENTRY_TOTAL_MS - ENTRY_MS) / (list.length - 1))) : step;
   list.forEach((r, i) => {
     if (!r.animate) return;
-    const anim = r.animate(
-      [
-        // ⚠️ 只用位移 + 透明度，**不要 scale**：缩放会让"点按区域"在动画期间变小，
-        //    a11y 的"点按区域 ≥32×24"就是这么被抓出来的（真回归，不是测试太严）
-        { opacity: 0, transform: 'translate3d(0, 6px, 0)' },
-        { opacity: 1, transform: 'translate3d(0, 0, 0)' }
-      ], {
-        duration: ENTRY_MS,
-        delay: Math.round(i * useStep),
-        // 临界阻尼那种收尾：**不过冲**（过冲在整页入场里读作"晃"，那是按钮/药丸的曲线）
-        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-        fill: 'backwards'
-      }
-    );
+    const anim = r.animate(entryFrames(offset, scale), {
+      duration: ENTRY_MS,
+      delay: Math.round(i * useStep),
+      // 每段之间用 ease-out；过冲由关键帧本身给出（近似 07 那条 ζ≈0.62 的弹簧）
+      easing: 'ease-out',
+      fill: 'backwards'
+    });
     // 跑完把动画撤掉，别让合成层一直挂着
     anim.addEventListener?.('finish', () => anim.cancel());
   });
+}
+
+/**
+ * 入场关键帧：近似 UI 仓库 07 那条弹簧（stiffness 190 / damping 17 → ζ≈0.62，过冲 ≈8.5%）。
+ * 用一个关键帧序列代替每帧 rAF，好处是整段跑在合成器上（手机上不掉帧）。
+ */
+export function entryFrames(offset = 26, scale = 1) {
+  const over = offset * 0.085; // 过冲峰值 ≈ 8.5%
+  // ⚠️ scale 默认就是 1（**不做缩放**）：07 的起点是 scale(.94)，但那会把卡片里的控件一起缩小，
+  //    实测 34px 的按钮 × 0.94 = 31.96、32px 的标签 × 0.94 = 30.1 → 全部掉出"点按区域 ≥32×24"，
+  //    真机上还意味着"刚出现的卡片一瞬间不好点"。要开 scale 的话，先把所有小控件的最小高度提到 36px。
+  const s0 = `scale(${scale})`;
+  return [
+    { opacity: 0, transform: `translate3d(0, ${offset}px, 0) ${s0}`, offset: 0 },
+    { opacity: 1, transform: `translate3d(0, 0, 0) ${s0}`, offset: 0.35 },
+    { opacity: 1, transform: `translate3d(0, ${(-over).toFixed(2)}px, 0) ${s0}`, offset: 0.62 },
+    { opacity: 1, transform: `translate3d(0, ${(over * 0.27).toFixed(2)}px, 0) ${s0}`, offset: 0.82 },
+    { opacity: 1, transform: `translate3d(0, 0, 0) ${s0}`, offset: 1 }
+  ];
 }
 
 /**
@@ -121,7 +139,7 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } 
  * 只取一层：直接的 .card，以及容器（section.pinned / section.libs / .word-list）里的卡片。
  * 练习页不调用它 —— 那张卡片是拖拽面，动画会跟拖拽抢 transform。
  */
-export function staggerPage(root, { scope = 'page', step = STEP, cap = 8 } = {}) {
+export function staggerPage(root, { scope = 'page', step = STEP, cap = PAGE_CAP, offset = 26, scale = 1 } = {}) {
   if (!root || reduced) return;
   const blocks = [];
   for (const child of root.children || []) {
@@ -131,7 +149,7 @@ export function staggerPage(root, { scope = 'page', step = STEP, cap = 8 } = {})
       if (inner.classList.contains('card') || inner.classList.contains('newlib-row')) blocks.push(inner);
     }
   }
-  staggerIn(blocks, { scope, step, cap });
+  staggerIn(blocks, { scope, step, cap, offset, scale });
 }
 
 /** 换页/换范围时清掉记忆，让下次进场重新播（一般不用手动调：换页会自动 +1 代） */

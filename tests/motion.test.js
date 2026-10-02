@@ -84,18 +84,35 @@ test('数字滚动：滚动过程中是单调递增、且中途不等于终点',
   assert.equal(b.textContent, '100');
 });
 
-test('交错入场：只给前 12 行做动画，延迟递增，总时长封顶', () => {
+test('交错入场：默认步长 90ms、单张 480ms（照 UI 仓库 07）', () => {
+  const rows = Array.from({ length: 3 }, fakeNode);
+  motion.staggerIn(rows, { scope: 's1' });
+  assert.equal(rows[0].anims[0].opts.delay, 0, '第一张不延迟');
+  assert.equal(rows[1].anims[0].opts.delay, 90, '第二张 90ms');
+  assert.equal(rows[2].anims[0].opts.delay, 180, '第三张 180ms');
+  assert.equal(rows[0].anims[0].opts.duration, 480, '单张 480ms');
+  const frames = rows[0].anims[0].frames;
+  assert.ok(frames[0].transform.includes('26px'), '起点 translateY(26px)（07 的位移）');
+  assert.ok(frames[0].transform.includes('scale(1)'), '不做 scale（会缩小点按区域，a11y 审计不允许）');
+  assert.ok(frames.some((f) => /-\d/.test(f.transform) && f.transform.includes('translate3d')), '有向上的过冲关键帧');
+  assert.equal(frames.length, 5, '5 段关键帧近似弹簧');
+});
+
+test('交错入场：只给前 cap 张做动画（默认 12）', () => {
   const rows = Array.from({ length: 20 }, fakeNode);
-  motion.staggerIn(rows, { scope: 's1', step: 50 });
-  const animated = rows.filter((r) => r.anims.length);
-  assert.equal(animated.length, 12, '只动前 12 行');
-  assert.equal(rows[0].anims[0].opts.delay, 0, '第一行不延迟');
-  assert.ok(rows[3].anims[0].opts.delay > rows[2].anims[0].opts.delay, '延迟递增');
+  motion.staggerIn(rows, { scope: 's1b' });
+  assert.equal(rows.filter((r) => r.anims.length).length, 12, '只动前 12 行');
   assert.equal(rows[19].anims.length, 0, '第 20 行不动');
-  // v35：整批总时长封顶（最后一张的 delay + duration ≤ 340ms），卡片多就自动缩短步长
-  const last = animationLast(rows);
-  assert.ok(last.opts.delay + last.opts.duration <= 340, `最后一张 ${last.opts.delay}+${last.opts.duration}`);
-  assert.equal(last.opts.duration, 240, '单张 240ms');
+});
+
+test('整页入场：最多 6 张，步长 90ms（一页卡片多也不会拖太久）', () => {
+  const page = fakeRoot(Array.from({ length: 10 }, () => fakeEl('div', 'card')));
+  motion.bumpMotionGen();
+  motion.staggerPage(page, { scope: 'page:many' });
+  const animated = page.all.filter((n) => n.anims.length);
+  assert.equal(animated.length, 6, '只给前 6 张');
+  assert.equal(animated[5].anims[0].opts.delay, 450, '第 6 张 5×90ms');
+  assert.ok(animated[5].anims[0].opts.delay + animated[5].anims[0].opts.duration <= 1000, '整批 ≈930ms');
 });
 
 test('交错入场：同一代里不重播（搜索逐字重渲染时不闪）', () => {
@@ -131,7 +148,7 @@ test('整页入场：取一层卡片（直接的 .card + 容器里的卡片）�
     fakeEl('div', 'card')
   ]);
   motion.bumpMotionGen(); // 新的一代（否则会被上一轮同代记忆正确地挡掉）
-  motion.staggerPage(page, { scope: 'page:settings', step: 40, cap: 4 });
+  motion.staggerPage(page, { scope: 'page:settings', step: 40, cap: 4, offset: 26 });
   const animated = page.all.filter((n) => n.anims.length);
   assert.equal(animated.length, 4, '只动 cap 指定的前 4 个');
   assert.equal(page.all[0].anims.length, 0, 'word-head 不动');
