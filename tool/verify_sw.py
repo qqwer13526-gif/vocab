@@ -98,6 +98,17 @@ def check() -> int:
         reps.check("src 下每个模块都在清单里（预缓存或按需）", not not_listed, f"漏了：{not_listed}")
 
         # 首屏那几个必须在**预缓存**里（在按需里就等于首屏要等网络）
+        # manifest 的 background_color / theme_color 决定独立 App 窗口四周与状态栏的底色。
+        # 涂白 = 深色主题下过渡时"四周一闪白边"（用户报过），这里钉住。
+        mf = json.loads((ROOT / "manifest.webmanifest").read_text(encoding="utf-8"))
+        for key in ("background_color", "theme_color"):
+            val = str(mf.get(key, "")).lower()
+            reps.check(
+                f"manifest 的 {key} 不是白色（独立 App 窗口四周露的就是它）",
+                val not in ("#fff", "#ffffff", "white"),
+                val,
+            )
+
         first_screen = ["./index.html", "./style.css", "./src/app.js", "./src/ui-home.js",
                         "./src/store.js", "./src/db.js", "./src/srs.js", "./src/judge.js",
                         "./src/theme.js", "./src/press.js", "./src/glass.js", "./src/motion.js"]

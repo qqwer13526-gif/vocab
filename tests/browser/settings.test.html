@@ -245,6 +245,29 @@ try {
     ok('已删掉"深色令牌/对比度脚本"这类开发者说明', !d.querySelector('[data-testid="theme-note"]'));
   }
 
+  // ---------------- 13. v41：?edge=1 白边定位浮层（工具本身要有内容，别是空的）----------------
+  {
+    // harness 的 openApp 只接受 hash（拼在 index.html 后面），所以这里自己造一个带 ?edge=1 的 frame
+    const f = document.createElement('iframe');
+    f.className = 'app-frame';
+    f.style.cssText = 'width:390px;height:844px;border:0;display:block';
+    const loaded = new Promise((r) => f.addEventListener('load', r, { once: true }));
+    f.src = '../../index.html?edge=1';
+    document.body.append(f);
+    await loaded;
+    await waitFor(() => f.contentDocument.querySelector('[data-testid="edge-probe"]'), { label: 'edge 浮层' });
+    await waitFor(() => t(f, '[data-testid="edge-report"]').includes('manifest'), { label: '诊断文本写出来了' });
+    const text = t(f, '[data-testid="edge-report"]');
+    ok('浮层里有版本/显示模式/manifest 信息',
+       text.includes('版本') && text.includes('显示模式') && text.includes('manifest'), text.slice(0, 80));
+    ok('浮层覆盖了要排查的几层（html/body/#app/界面）',
+       text.includes('html 根画布') && text.includes('#app 容器') && text.includes('主题'), text.slice(0, 120));
+    ok('有「复制诊断」按钮', !!q(f, '[data-testid="edge-copy"]'));
+    // 涂色生效：根画布被涂成洋红
+    const htmlBg = f.contentWindow.getComputedStyle(f.contentDocument.documentElement).backgroundColor;
+    eq('根画布被涂成洋红（用于辨认露白的是哪一层）', htmlBg, 'rgb(255, 0, 255)');
+  }
+
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

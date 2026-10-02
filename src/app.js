@@ -559,6 +559,14 @@ function boot() {
     /* 老浏览器没有就算了 */
   }
   settleUpdateAttempt();
+  // ?edge=1 才加载"白边定位"（真机排查过渡时露白用）
+  try {
+    if (new URLSearchParams(location.search).has('edge')) {
+      import('./edge.js').then((m) => m.startEdgeProbe()).catch(() => {});
+    }
+  } catch {
+    /* 无所谓 */
+  }
   // ?perf=1 才加载帧率浮层（真机排查切页卡顿用）
   try {
     if (new URLSearchParams(location.search).has('perf')) {
