@@ -133,7 +133,21 @@ def run_case(browser, site: pathlib.Path, cur: str, nxt: str, *, slow_sw: bool, 
             page.wait_for_timeout(100)
             if loads["n"]:
                 break
-        check(f"{label}：点了会重新加载（12s 内）", loads["n"] > 0, f"{time.time() - t0:.2f}s")
+        # 阶段计时（页面在 reload 之前把它写进 body.dataset.updPhases）
+        try:
+            phases = page.evaluate("() => sessionStorage.getItem('vocab.updPhases') || document.body.dataset.updPhases || ''")
+        except Exception:
+            phases = ''
+        print(f"    阶段计时：{phases}")
+        try:
+            boot = page.evaluate("() => localStorage.getItem('vocab.lastBoot') || ''")
+        except Exception:
+            boot = ''
+        print(f"    重载后的启动诊断：{boot}")
+        took = time.time() - t0
+        check(f"{label}：点了会重新加载", loads["n"] > 0, f"{took:.2f}s")
+        # v39：有 SW 的那条路以前白等 ~1.2s（最多 3.7s）→ 用户读作"桌面端要等半天"。这里钉住 2.5s。
+        check(f"{label}：重载发生在 2.5s 内（不许再白等）", loads["n"] and took <= 2.5, f"{took:.2f}s")
         page.wait_for_timeout(2500)
 
         final = page.evaluate(

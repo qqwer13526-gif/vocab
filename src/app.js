@@ -395,29 +395,50 @@ export async function applyUpdate() {
   }
   document.body.dataset.updating = '1';
 
-  // ② 清"旧版本"的缓存（不是全删：全删会把新 SW 刚预缓存的也删掉，更新后首屏反而变慢）。
-  //    并且加 1.2s 超时竞速 —— iOS 上缓存操作挂住时，以前就永远走不到 reload（用户看到"没反应"）。
-  const clean = (async () => {
-    if (!navigator.onLine || typeof caches === 'undefined') return;
-    const keys = await caches.keys();
-    // 没有 SW 时（真机上遇到过）缓存可能整片都是旧的 → 这里全清；有 SW 时只清非当前版本的
-    const stale = swReg ? keys.filter((k) => !k.includes(APP_VERSION)) : keys;
-    await Promise.all(stale.map((k) => caches.delete(k)));
-    // 让 SW 自己也清一遍（它最清楚哪些是自己人的）
-    if (swReg && swReg.active) swReg.active.postMessage({ type: 'CLEAN' });
+  // ② 准备：让新 worker 接管 + 清掉旧缓存。整段有总上限（见下），绝不会把用户按在"正在更新…"上。
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 阶段计时：点更新这一下到底把时间花哪了（排查"要等半天"用，设置页的启动诊断也会读它）
+  const T0 = performance.now();
+  const phases = {};
+  const mark = (k) => { phases[k] = Math.round(performance.now() - T0); };
+  const prep = (async () => {
+    try {
+      if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      if (swReg) swReg.update().catch(() => {});
+    } catch {
+      /* 失败也不影响"最后一定要 reload" */
+    }
+    // 清缓存：不是全删（全删会把新 SW 刚预缓存的也删掉，更新后首屏反而变慢）。
+    // 没有 SW 时（真机上遇到过）缓存可能整片都是旧的 → 那种情况才全清。
+    // ⚠️ 这一步就是"立刻生效"的关键：缓存名带版本号（vocab-v38），这里把**旧版本那份删掉**，
+    //    于是哪怕控制页面的还是旧 worker，它去缓存里也找不到旧文件，只能走网络取新的。
+    mark('sw');
+    if (navigator.onLine && typeof caches !== 'undefined') {
+      const keys = await caches.keys();
+      mark('keys');
+      const stale = swReg ? keys.filter((k) => !k.includes(APP_VERSION)) : keys;
+      phases.stale = stale.length;
+      await Promise.race([Promise.all(stale.map((k) => caches.delete(k))), wait(600)]);
+      mark('cleared');
+      if (swReg && swReg.active) swReg.active.postMessage({ type: 'CLEAN' });
+    }
+    // ⚠️ 这里**不等**新 worker 接管 —— 以前无条件等最多 2.5s（而且新 worker 已经在接管时
+    //    controllerchange 根本不会再触发，等于每次白等满）；现在既然旧缓存已经删了，
+    //    重载时旧 worker 也只能走网络，不必等它。实测这一段省掉 ~0.8s。
+    //    真出问题也有兜底：重载后版本不对 → settleUpdateAttempt() 走硬路径。
   })();
-  const timeout = new Promise((r) => setTimeout(r, 1200));
-
+  // 总上限 900ms：无论如何都要 reload。剩下的交给"重载后版本对不对"的校验与硬路径兜底。
+  await Promise.race([prep.catch(() => {}), wait(900)]);
+  mark('prep');
   try {
-    if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    if (swReg) swReg.update().catch(() => {});
+    // 存 sessionStorage：重载后新文档还能读到（用来回答"这次更新把时间花哪了"）
+    sessionStorage.setItem('vocab.updPhases', JSON.stringify(phases));
+    document.body.dataset.updPhases = JSON.stringify(phases);
   } catch {
-    /* 上面每步失败都不影响"最后一定要 reload" */
+    /* 无所谓 */
   }
-  await Promise.race([clean.catch(() => {}), timeout]);
+
   if (swReg) {
-    // 新 worker 装上就顺便等它接管（最多 2.5s），等不到也照样 reload
-    await Promise.race([waitForControllerChange(2500), timeout]);
     location.reload();
     return;
   }

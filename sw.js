@@ -1,11 +1,11 @@
 /* 背单词 App 的 service worker。
  *
- * 策略（v38 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
+ * 策略（v39 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
  *   - 安装时只预缓存 ASSETS（**首屏必需的那一小撮**）→ 第一次打开要下的东西少一半
  *   - DEFERRED 里那些（练习/导入/词条/设置界面及其重依赖）首次用到时才下，下完就进缓存
  *   - 导航请求：联网时取最新（一刷新就是新代码），断网回退缓存外壳
  *   - 同源静态资源：**先给缓存**（首屏 ~100ms 出来），同时在后台把新版本写进缓存
- *     v9~v38 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
+ *     v9~v39 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
  *     重新从网上拉一遍（国内每请求 ~400ms）→ 进应用要好几秒。要立刻换版本仍走
  *     「立即更新」按钮（它清缓存 + 让新 SW 接管），或等新 SW 装上后自动换。
  *   - 改代码后把 VERSION 加一，旧缓存会在 activate 时清掉
@@ -13,7 +13,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v38';
+const VERSION = 'v39';
 const CACHE = `vocab-${VERSION}`;
 
 // 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）
@@ -86,6 +86,11 @@ self.addEventListener('activate', (e) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+      // Navigation Preload：让浏览器在"唤起 worker"的同时就把导航请求发出去，
+      // worker 直接用现成的响应 —— 省掉一个来回（国内到 Pages 每跳 ~400ms）。
+      // 这就是"有 SW 时重载比没 SW 慢"的原因（实测 1.17s vs 0.42s）。不支持就自动退回下面的逻辑。
+      .then(() => (self.registration.navigationPreload ? self.registration.navigationPreload.enable() : undefined))
+      .catch(() => {})
   );
 });
 
@@ -97,11 +102,22 @@ self.addEventListener('fetch', (e) => {
   // 版本探测文件永远交给网络（应用用 no-store + ?t= 取它，缓存住就发现不了新版本）
   if (url.pathname.endsWith('/version.json')) return;
 
-  // 页面导航：联网时取最新（开发时不会吃陈旧外壳），断网时回退到缓存里的外壳
+  // 页面导航：联网时取最新（开发时不会吃陈旧外壳），断网时回退到缓存里的外壳。
+  // ⚠️ 实测：SW 接管导航时那一段「等响应 ≈750ms」主要是 **service worker 冷启动**
+  //    （浏览器必须先启动 worker 才能回答这次请求）—— 平台行为，JS 改不掉。
+  //    v39 试过改成 cache-first + 后台更新想省掉网络那一段：本地量不出收益（localhost 网络≈0），
+  //    却把"预缓存全部资源"的离线不变量弄红了 → 撤回。真要省那一段，等有真机数据再说。
   if (req.mode === 'navigate') {
     e.respondWith(
       (async () => {
         try {
+          // 优先用 Navigation Preload 已经发出去的请求（真机上能省一个来回）
+          const preload = e.preloadResponse ? await e.preloadResponse : null;
+          if (preload && preload.ok) {
+            const c = await caches.open(CACHE);
+            c.put('./index.html', preload.clone());
+            return preload;
+          }
           const res = await fetch(req);
           if (res && res.ok) {
             const c = await caches.open(CACHE);

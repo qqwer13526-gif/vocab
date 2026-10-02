@@ -77,6 +77,13 @@ export async function renderSettings() {
   }, '强制重新加载');
 
   const swState = el('div', { className: 'settings-note', dataset: { testid: 'sw-state' } }, '');
+  // 上次点「立即更新」把时间花哪了（sessionStorage 里由 app.js 写）
+  let updPhases = null;
+  try {
+    updPhases = JSON.parse(sessionStorage.getItem('vocab.updPhases') || 'null');
+  } catch {
+    updPhases = null;
+  }
   const paintSwState = () => { swState.textContent = `service worker：${swLine()}`; };
   paintSwState();
 
@@ -85,6 +92,10 @@ export async function renderSettings() {
     el('div', { className: 'settings-big', dataset: { testid: 'settings-version' } }, APP_VERSION),
     el('div', { className: 'settings-note' }, '更新不会动你的数据（词库和学习进度都在本机存储里，不在代码里）。'),
     swState,
+    updPhases
+      ? el('div', { className: 'settings-note', dataset: { testid: 'update-phases' } },
+          `上次更新耗时：${updPhases.prep}ms（准备 ${updPhases.sw}ms · 列缓存 ${updPhases.keys}ms · 清 ${updPhases.stale} 份 ${updPhases.cleared - (updPhases.keys || 0)}ms）＋重新加载`)
+      : null,
       el('div', { className: 'row-2' }, [
         btnCheck,
         // 这颗按钮**常驻**（发现新版本时去掉 hidden）：以前只在「已经有 waiting worker」时才渲染，
