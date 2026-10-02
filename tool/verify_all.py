@@ -43,6 +43,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑰ 主题三态 / 氛围光 / 按压反馈", "theme", [PY, "tool/browser_test.py", "tests/browser/theme.test.html"], "ui"),
     ("⑱ 液态玻璃底栏 / 数字滚动 / 交错入场 / 切页流畅", "glass", [PY, "tool/browser_test.py", "tests/browser/glass.test.html"], "ui"),
     ("⑲ 更新链路（模拟发版：检查 → 立即更新 → 落到新版本 → 横幅消失）", "update", [PY, "tool/update_test.py"], "ui"),
+    ("⑳ 切页卡顿（CPU 降速 4× 下逐帧量最难帧）", "jank", [PY, "tool/jank_test.py"], "perf"),
 ]
 
 CHECKLIST: list[tuple[str, list[str] | None]] = [
@@ -62,6 +63,8 @@ CHECKLIST: list[tuple[str, list[str] | None]] = [
     ("切页流畅：不空帧、内容出现时滚动已归零、入场总时长 ≤340ms", ["glass"]),
     ("更新链路：横幅出现 → 点立即更新 → 重载到新版本 → **横幅消失** + 「已更新到 vX」提示（含慢网络）", ["update"]),
     ("设置页：更新日志默认 3 版、当前版有标、可展开全部，且第一条必须等于当前版本", ["settings"]),
+    ("设置页美化：3 组结构、主题色板（选中只有一块）、iOS 开关仍是原生 checkbox 且 46×28、统计行不被 flex 挤掉空格", ["settings"]),
+    ("切页卡顿：4× 降速下逐帧量最长帧，守住粗粒度回归（真机数字以 ?perf=1 浮层为准）", ["jank"]),
     ("iPhone 真机安装（Safari → 添加到主屏幕 → 离线可用）", None),
 ]
 

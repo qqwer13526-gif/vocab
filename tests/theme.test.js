@@ -27,14 +27,28 @@ function fakeMeta(media, content) {
   return { media, content, getAttribute: (n) => (n === 'media' ? media : content), setAttribute: (n, v) => { if (n === 'media') media = v; else content = v; }, removeAttribute: (n) => { if (n === 'media') media = null; }, hasAttribute: (n) => n === 'media' && media !== null };
 }
 
-const ambientEl = { style: { props: {}, setProperty(k, v) { this.props[k] = v; } } };
+function fakeLayer(cls) {
+  const el = {
+    cls,
+    style: { props: {}, transition: '', setProperty(k, v) { this.props[k] = v; } },
+    classList: {
+      _on: false,
+      add(c) { if (c === 'is-on') this._on = true; },
+      remove(c) { if (c === 'is-on') this._on = false; },
+      contains(c) { return c === 'is-on' ? this._on : false; }
+    },
+    isConnected: true
+  };
+  return el;
+}
+const ambientLayers = [fakeLayer('ambient'), fakeLayer('ambient ambient-2')];
 const metas = [fakeMeta('(prefers-color-scheme: light)', '#ffffff'), fakeMeta('(prefers-color-scheme: dark)', '#0f1012')];
 const root = { dataset: {}, style: {} };
 globalThis.document = {
   documentElement: root,
   body: { dataset: {} },
-  querySelector: (sel) => (sel === '.ambient' ? ambientEl : null),
-  querySelectorAll: (sel) => (sel.includes('theme-color') ? metas : [])
+  querySelector: (sel) => (sel === '.ambient' ? ambientLayers[0] : null),
+  querySelectorAll: (sel) => (sel.includes('theme-color') ? metas : sel.includes('ambient') ? ambientLayers : [])
 };
 
 const theme = await import('../src/theme.js');
@@ -71,18 +85,19 @@ test('氛围光：连续两次换色不能抛（曾经把整页打成空白）',
   assert.ok(rafQueue.size <= 1, `不该堆着多段插值，实际 ${rafQueue.size}`);
 });
 
-test('氛围光：颜色插值真的在写 --ambient-color，并且最终落到目标色', () => {
+test('氛围光：换色是"两层交叉淡入"（新层染上颜色并点亮，旧层熄灭）', () => {
   theme.setAmbient('#000000', { immediate: true });
+  const before = ambientLayers.map((l) => l.classList.contains('is-on'));
   theme.setAmbient('#ffffff');
-  const ids = [...rafQueue.keys()];
-  assert.ok(ids.length >= 1, '应该排了一帧');
-  // 手动推进到结束（dur=420，performance.now 固定为 0 → 传 1000 表示已到点）
-  for (const id of ids) { const cb = rafQueue.get(id); rafQueue.delete(id); cb(1000); }
-  assert.equal(ambientEl.style.props['--ambient-color'], 'rgb(255 255 255)');
+  const after = ambientLayers.map((l) => l.classList.contains('is-on'));
+  assert.notDeepEqual(before, after, '点亮的层应该换了一层');
+  const lit = ambientLayers[after.indexOf(true)];
+  assert.equal(lit.style.props['--ambient-color'], 'rgb(255 255 255)', '被点亮那层拿新颜色');
+  assert.equal(typeof lit.style.transition !== 'undefined', true);
 });
 
-test('氛围光：ima 直接落位（首帧/reduced-motion 用）', () => {
+test('氛围光：immediate 直接落位（首帧 / 换主题用），两层都染上同一个色', () => {
   theme.setAmbient('#ff9f0a', { immediate: true });
-  assert.equal(ambientEl.style.props['--ambient-color'], 'rgb(255 159 10)');
+  for (const l of ambientLayers) assert.equal(l.style.props['--ambient-color'], 'rgb(255 159 10)');
   assert.deepEqual(theme.currentAmbient(), [255, 159, 10]);
 });

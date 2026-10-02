@@ -77,8 +77,6 @@ export function watchSystemTheme() {
 /* ---------------------------------------------------------------- 氛围光 */
 
 const AMBIENT_DEFAULT = '#3b5bff';
-let ambient = null;
-let ambientRaf = 0;
 let ambientNow = null;
 
 function hexToRgb(hex) {
@@ -94,41 +92,40 @@ function hexToRgb(hex) {
  * @param opts.immediate 首次绘制或 reduced-motion 时直接落位
  */
 export function setAmbient(color, { immediate = false } = {}) {
-  if (!ambient) ambient = document.querySelector('.ambient');
-  if (!ambient) return;
-  const to = hexToRgb(color || AMBIENT_DEFAULT);
-  const from = ambientNow || to;
-  ambientNow = to;
-  stopAmbientAnim();
-  const apply = (rgb) => ambient.style.setProperty('--ambient-color', `rgb(${rgb.map(Math.round).join(' ')})`);
-  if (immediate || from.join() === to.join()) {
-    apply(to);
+  const layers = ambientLayers();
+  if (!layers.length) return;
+  const rgb = hexToRgb(color || AMBIENT_DEFAULT);
+  const same = ambientNow && ambientNow.join() === rgb.join();
+  ambientNow = rgb;
+  const css = `rgb(${rgb.map(Math.round).join(' ')})`;
+
+  if (immediate || same) {
+    const cur = layers.find((l) => l.classList.contains('is-on')) || layers[0];
+    for (const l of layers) l.style.setProperty('--ambient-color', css);
+    if (immediate) {
+      for (const l of layers) l.style.transition = 'none';
+      cur.classList.add('is-on');
+      requestAnimationFrame(() => { for (const l of layers) l.style.transition = ''; });
+    }
     return;
   }
-  // 颜色插值（ease-out-cubic，420ms）：换库/换页时"流"过去，不硬切
-  const t0 = performance.now();
-  const dur = 420;
-  const tick = (now) => {
-    const p = Math.min(1, (now - t0) / dur);
-    const e = 1 - Math.pow(1 - p, 3);
-    apply(from.map((v, i) => v + (to[i] - v) * e));
-    if (p < 1) ambientRaf = requestAnimationFrame(tick);
-    else ambientRaf = 0;
-  };
-  ambientRaf = requestAnimationFrame(tick);
+
+  // 交叉淡入：给"另一层"染上新颜色、点亮它、把旧层淡出 —— **每帧零 JS**，全交给合成器。
+  // （v37 的性能修复点：以前每帧写 CSS 变量 + 全屏 mix-blend-mode，手机上很贵）
+  const cur = layers.find((l) => l.classList.contains('is-on')) || layers[0];
+  const idx = layers.indexOf(cur);
+  const next = layers[(idx + 1) % layers.length] || cur;
+  next.style.setProperty('--ambient-color', css);
+  next.classList.add('is-on');
+  if (next !== cur) cur.classList.remove('is-on');
 }
 
-/**
- * 停掉上一段颜色插值。
- * ⚠️ 以前这里写的是 `stopAmbient && stopAmbient()`，而 stopAmbient 存的是 rAF **id（数字）**
- *    —— 上一次插值还没跑完就再调一次 setAmbient（连点两个词库、快速切页）会抛
- *    TypeError，直接把那次渲染打断、页面空白。测试逮到过一次，别改回去。
- */
-function stopAmbientAnim() {
-  if (ambientRaf) {
-    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(ambientRaf);
-    ambientRaf = 0;
+let ambientCache = null;
+function ambientLayers() {
+  if (!ambientCache || !ambientCache.length || !ambientCache[0].isConnected) {
+    ambientCache = [...document.querySelectorAll('.ambient')];
   }
+  return ambientCache;
 }
 
 export function currentAmbient() {

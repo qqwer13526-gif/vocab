@@ -29,7 +29,11 @@ const qa = (frame, sel) => [...frame.contentDocument.querySelectorAll(sel)];
 const css = (frame, name) => frame.contentWindow.getComputedStyle(frame.contentDocument.documentElement).getPropertyValue(name).trim();
 /** computed 的 rgb() 是空格写法（rgb(59 91 255)），统一成逗号写法再比 */
 const norm = (v) => String(v).trim().replace(/rgb\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\)/g, 'rgb($1,$2,$3)');
-const ambientOf = (f) => norm(q(f, '[data-testid="ambient"]').style.getPropertyValue('--ambient-color'));
+// v37：氛围光是两层交叉淡入 —— 颜色写在"被点亮"的那一层上
+const ambientOf = (f) => {
+  const on = f.contentDocument.querySelector('.ambient.is-on') || q(f, '[data-testid="ambient"]');
+  return norm(on.style.getPropertyValue('--ambient-color'));
+};
 const t = (frame, sel) => {
   const n = q(frame, sel);
   return n ? n.textContent.replace(/\s+/g, ' ').trim() : '';

@@ -185,6 +185,7 @@ export async function renderSettings() {
   const spSupported = speechSupported();
   const spOn = el('input', {
     type: 'checkbox',
+    className: 'sw-input',
     dataset: { testid: 'speech-on' },
     checked: spCfg.on,
     onchange: (e) => {
@@ -206,6 +207,7 @@ export async function renderSettings() {
   }, Object.entries(RATE_LABELS).map(([v, label]) => el('option', { value: v, selected: Number(v) === spCfg.rate }, label)));
   const spAuto = el('input', {
     type: 'checkbox',
+    className: 'sw-input',
     dataset: { testid: 'speech-auto' },
     checked: spCfg.auto,
     onchange: (e) => saveSpeechSettings({ auto: e.currentTarget.checked })
@@ -232,7 +234,7 @@ export async function renderSettings() {
           }
         }, '试听'),
         spStatus,
-        el('div', { className: 'settings-note' }, '用的是设备自带的朗读（不下载音频、离线也能响）。iPhone 上侧边静音键可能会压掉它；音色在「设置 → 辅助功能 → 朗读内容」里可下载更好的。')
+        el('div', { className: 'settings-note' }, '用设备自带的朗读：不下载音频、离线也能响。iPhone 的侧边静音键可能压掉它。')
       ])
     : null;
 
@@ -240,10 +242,10 @@ export async function renderSettings() {
   // 夜间模式以前只有"跟随系统"（@media prefers-color-scheme）；这里补手动三态。
   // 强制深色时同时改 theme-color（状态栏/地址栏配色）与 color-scheme（表单控件/滚动条）。
   const themeCard = el('div', { className: 'card settings-card' }, [
-    el('div', { className: 'field-label' }, '外观'),
-    el('div', { className: 'seg-box theme-switch', dataset: { testid: 'theme-switch' }, role: 'group', 'aria-label': '外观主题' },
+    el('div', { className: 'theme-switch', dataset: { testid: 'theme-switch' }, role: 'group', 'aria-label': '外观主题' },
       THEMES.map((t) =>
         el('button', {
+          className: 'theme-swatch',
           type: 'button',
           dataset: { testid: `btn-theme-${t}`, theme: t },
           'aria-pressed': String(t === loadTheme()),
@@ -253,11 +255,13 @@ export async function renderSettings() {
               b.setAttribute('aria-pressed', String(b.dataset.theme === t));
             }
           }
-        }, THEME_LABEL[t])
+        }, [
+          // 预览色板用的是"那一档主题的实际底色"，不随当前主题变（否则浅色档在深色下看不出来）
+          el('span', { className: 'sw-preview', 'aria-hidden': 'true' }),
+          el('span', { className: 'sw-caption' }, THEME_LABEL[t])
+        ])
       )
-    ),
-    el('div', { className: 'settings-note', dataset: { testid: 'theme-note' } },
-      '强制深色用的是同一套深色令牌（和「跟随系统」逐项一致，对比度脚本会比对）。切换不闪白、不动你的数据。')
+    )
   ]);
 
   // ---------------------------------------------------------------- 更新日志（v35）
@@ -306,10 +310,11 @@ export async function renderSettings() {
   const dataCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '本机数据'),
     el('div', { className: 'settings-list', dataset: { testid: 'storage-summary' } }, [
-      el('div', {}, `词条 ${info.words} 个${info.wordsAll > info.words ? `（另有 ${info.wordsAll - info.words} 个已删除）` : ''}`),
-      el('div', {}, `词库 ${info.libs} 个 · 归属 ${info.links} 条`),
-      el('div', {}, `学习记录 ${info.prog} 条`),
-      el('div', {}, `占用约 ${formatBytes(info.usage)}${info.quota ? `（可用 ${formatBytes(info.quota)}）` : ''}`)
+      el('div', { className: 'stat' }, ['词条 ', el('b', {}, String(info.words)), ' 个',
+        info.wordsAll > info.words ? `（另有 ${info.wordsAll - info.words} 个已删除）` : '']),
+      el('div', { className: 'stat' }, ['词库 ', el('b', {}, String(info.libs)), ' 个 · 归属 ', el('b', {}, String(info.links)), ' 条']),
+      el('div', { className: 'stat' }, ['学习记录 ', el('b', {}, String(info.prog)), ' 条']),
+      el('div', { className: 'stat stat-sub' }, `占用约 ${formatBytes(info.usage)}${info.quota ? `（可用 ${formatBytes(info.quota)}）` : ''}`)
     ]),
     persistLine,
     btnPersist,
@@ -322,6 +327,7 @@ export async function renderSettings() {
   // 练习页左上角会把"模式 / touch-action / 各类事件计数 / 当前位移"直接摆在屏幕上。
   const dbgBox = el('input', {
     type: 'checkbox',
+    className: 'sw-input',
     dataset: { testid: 'debug-toggle' },
     checked: localStorage.getItem('vocab.debug') === '1',
     onchange: (e) => {
@@ -439,6 +445,14 @@ export async function renderSettings() {
     ])
   ]);
 
+  // ---------------------------------------------------------------- 分组（v37 美化）
+  /** 一组：小标题 + 若干卡片。设置页从"8 张卡平铺"收成 3 组（外观 / 数据 / 关于） */
+  const group = (title, ...cards) =>
+    el('section', { className: 'settings-group' }, [
+      el('h3', { className: 'settings-group-title' }, title),
+      ...[].concat(...cards).filter(Boolean)
+    ]);
+
   // ⚠️ replaceChildren(null) 会在页面上真的渲染出字符串 "null"（踩过的老坑）→ 先 filter(Boolean)
   view.replaceChildren(
     ...[
@@ -446,14 +460,9 @@ export async function renderSettings() {
         el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
         el('h2', { className: 'page-title' }, '设置')
       ]),
-      updateCard,
-      changelogCard,
-      themeCard,
-      dataCard,
-      speechCard,
-      backupCard,
-      debugCard,
-      notes,
+      group('外观', themeCard, speechCard),
+      group('数据', dataCard, backupCard),
+      group('关于', updateCard, changelogCard, debugCard, notes),
       status
     ].filter(Boolean)
   );

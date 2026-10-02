@@ -33,6 +33,11 @@ const lastValue = new Map();
  */
 export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}) {
   if (!node) return;
+  // 帧率浮层里的归因开关：关掉"数字滚动"这一项（只用来测量，正常使用不会设这个标记）
+  if (typeof document !== 'undefined' && document.documentElement.dataset.perfNoCount) {
+    node.textContent = `${Math.round(Number(to) || 0)}${suffix}`;
+    return;
+  }
   const target = Number(to) || 0;
   const from = lastValue.has(key) ? lastValue.get(key) : target;
   lastValue.set(key, target);
@@ -43,12 +48,24 @@ export function countUp(node, to, { key = '', suffix = '', duration = 520 } = {}
   }
   write(from); // 先把旧值写上去：别让这一格在等第一帧的时间里空着
   const t0 = performance.now();
+  // 写 textContent 会触发布局，而它又和"切页入场"同时跑 → 最多 ~14 次/秒（肉眼一样顺）
+  const MIN_GAP = 70;
+  let lastWrite = -1e9;
+  let shown = Math.round(from);
   const tick = (now) => {
     const p = Math.min(1, (now - t0) / duration);
     const e = 1 - Math.pow(1 - p, 3); // ease-out-cubic：滚得很快、收得很稳
-    write(from + (target - from) * e);
-    if (p < 1) requestAnimationFrame(tick);
-    else write(target);
+    if (p >= 1) {
+      write(target);
+      return;
+    }
+    const v = Math.round(from + (target - from) * e);
+    if (v !== shown && now - lastWrite >= MIN_GAP) {
+      write(v);
+      shown = v;
+      lastWrite = now;
+    }
+    requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }
@@ -69,6 +86,8 @@ const ENTRY_TOTAL_MS = 320; // 整批总时长上限：卡片多就自动缩短�
 export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER } = {}) {
   const rows = [...(nodes || [])].filter(Boolean);
   if (!rows.length) return;
+  // 帧率浮层里的归因开关：关掉"入场动画"这一项
+  if (typeof document !== 'undefined' && document.documentElement.dataset.perfNoEntry) return;
   const stamp = String(gen);
   const played = lastGen.get(scope) === stamp;
   lastGen.set(scope, stamp);

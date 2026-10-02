@@ -213,6 +213,38 @@ try {
     eq('再点一次能收起', entries().length, 3);
   }
 
+  // ---------------- 12. v37：美化后的结构（三组 / 色板 / 开关 / 数字）
+  {
+    const f = await openApp({ hash: '#/settings', sel: '[data-testid="theme-switch"]' });
+    const d = f.contentDocument;
+    const titles = [...d.querySelectorAll('.settings-group-title')].map((n) => n.textContent.trim());
+    eq('设置页收成 3 组', titles.length, 3);
+    eq('三组是 外观 / 数据 / 关于', titles.join(','), '外观,数据,关于');
+    // 主题：三块预览色板（不是文字按钮）
+    const swatches = [...d.querySelectorAll('[data-testid="theme-switch"] .theme-swatch')];
+    eq('主题是 3 块色板', swatches.length, 3);
+    ok('每块色板都有预览块 + 文案',
+       swatches.every((b) => b.querySelector('.sw-preview') && b.querySelector('.sw-caption').textContent.trim()),
+       swatches.map((b) => b.querySelector('.sw-caption').textContent.trim()).join(','));
+    ok('选中的那块有 aria-pressed=true 且只有一块',
+       swatches.filter((b) => b.getAttribute('aria-pressed') === 'true').length === 1);
+    // 开关：原生 checkbox + sw-input（语义不变，外观是开关）
+    const switches = [...d.querySelectorAll('input.sw-input')];
+    ok('发音/调试的开关都套了 sw-input', switches.length >= 3, String(switches.length));
+    ok('它们仍然是原生 checkbox（.checked 可用）', switches.every((s) => s.type === 'checkbox'));
+    ok('开关尺寸是 46×28（不是被压成 18px）',
+       switches.every((s) => Math.round(s.getBoundingClientRect().width) === 46 && Math.round(s.getBoundingClientRect().height) === 28),
+       switches.map((s) => `${Math.round(s.getBoundingClientRect().width)}×${Math.round(s.getBoundingClientRect().height)}`).join(','));
+    // 数字排版：统计行是 block（flex 会吃掉空格，变成"词条13个"）
+    const stat = d.querySelector('[data-testid="storage-summary"] .stat');
+    ok('统计行用 block 排版（保住空格）', stat && f.contentWindow.getComputedStyle(stat).display === 'block',
+       stat ? f.contentWindow.getComputedStyle(stat).display : 'no-stat');
+    ok('统计里的数字被强调成 <b>', !!d.querySelector('[data-testid="storage-summary"] .stat b'));
+    ok('文案仍是"词条 N 个"（测试依赖它）', t(f, '[data-testid="storage-summary"]').includes('词条 '));
+    // 开发者口吻的说明已经删掉
+    ok('已删掉"深色令牌/对比度脚本"这类开发者说明', !d.querySelector('[data-testid="theme-note"]'));
+  }
+
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

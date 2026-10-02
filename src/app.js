@@ -109,10 +109,14 @@ export function show(name, params = {}) {
   // ⚠️ 用 visibility 而不是 display:none —— 有些界面要量 getBoundingClientRect（练习页的滑片），
   //    display:none 会让量出来全是 0。
   if (view) {
-    // 让新视图**参与布局但看不见**（.is-swapping 是"脱离文档流 + visibility:hidden"）：
+    // 让新视图**参与布局但看不见**（.is-swapping = 脱离文档流 + opacity:0）：
     // 渲染期间界面要量尺寸（练习页的折叠判断、键盘避让），display:none 会量出 0 —— 踩过。
+    // ⚠️ 用 opacity 而不是 visibility：visibility:hidden 的内容不绘制，整页绘制会全砸在对调那一帧。
     view.hidden = false;
-    if (prev) view.classList.add('is-swapping');
+    if (prev) {
+      view.classList.add('is-swapping');
+      view.inert = true; // 不可见期间别让键盘焦点跑进去
+    }
   }
   for (const [k, sel] of Object.entries(VIEWS)) {
     const v = $(sel);
@@ -147,17 +151,21 @@ export function show(name, params = {}) {
     })
     .catch((err) => console.error('[route] 渲染失败', name, err))
     .finally(() => {
-      // 对调这一帧：撤掉"画好但不可见" → 显示新页 → 滚动归零 → 启动入场。
-      // 三件事必须在同一帧里做完，否则会看到滚动从旧位置滑回顶部（实测过 900 → 0 的夹跳）。
+      // v37：把"一帧里的活"拆成两步 ——
+      // ① 入场动画在**还看不见的时候**就先跑起来（.is-swapping 现在是 opacity:0，内容是画好的；
+      //    fill:backwards 让卡片停在起点）→ 建层/绘制的成本摊到渲染期间，不挤在对调那一帧
+      if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
+      perfMark('entry');
+      // ② 对调这一帧只做：撤掉不可见、藏旧页、滚动归零（实测过 900 → 0 的夹跳，必须显式归零）
       if (view) {
         view.hidden = false;
         if (prev && prev !== view) prev.hidden = true;
         view.classList.remove('is-swapping');
+        view.inert = false;
       }
       window.scrollTo(0, 0);
+      perfMark('swap');
       document.body.dataset.ready = '1';
-      // v34：换页时整页卡片依次入场。练习页例外：那张卡是拖拽面，动画会和拖拽抢 transform。
-      if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
       markFirstPaint();
     });
 }
@@ -190,6 +198,13 @@ registerLazy('word', () => import('./ui-word.js').then((m) => m.renderWord));
 registerLazy('settings', () => import('./ui-settings.js').then((m) => m.renderSettings));
 
 // ---------------------------------------------------------------- service worker 与"更新"
+
+/* 帧率浮层（?perf=1）的钩子：只有你主动打开时才 import src/perf.js，
+   正常使用一个字节都不加载。perfMark 是给"切页两个阶段"打点用的。 */
+let perfHook = null;
+function perfMark(name) {
+  if (perfHook) perfHook(name);
+}
 
 let swReg = null;
 let lastCheck = 0;
@@ -503,6 +518,19 @@ function boot() {
     /* 老浏览器没有就算了 */
   }
   settleUpdateAttempt();
+  // ?perf=1 才加载帧率浮层（真机排查切页卡顿用）
+  try {
+    if (new URLSearchParams(location.search).has('perf')) {
+      import('./perf.js')
+        .then((m) => {
+          m.startPerfHud();
+          perfHook = m.perfMark;
+        })
+        .catch(() => {});
+    }
+  } catch {
+    /* 无所谓 */
+  }
   // ?v=xxx 只是用来破缓存的，进页面后把地址栏恢复干净
   try {
     const u = new URL(location.href);

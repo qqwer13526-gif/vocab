@@ -121,7 +121,7 @@
     /* 氛围光：深底上可以更亮、半径更大（见 .ambient） */
     --ambient-a: 0.30;
     --ambient-r: 78%;
-    --ambient-blend: plus-lighter;
+    /* v37：不用混合模式了（全屏混合在 iOS 上要多一个合成 pass） */
   }
 }
 :root[data-theme='dark'] {
@@ -141,7 +141,7 @@
   --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
   --ambient-a: 0.30;
   --ambient-r: 78%;
-  --ambient-blend: plus-lighter;
+  /* v37：不用混合模式了（全屏混合在 iOS 上要多一个合成 pass） */
 }
 /* 强制浅色时，别让系统深色把 token 抢走 */
 :root[data-theme='light'] { color-scheme: light; }
@@ -164,12 +164,20 @@
   pointer-events: none;
   background: radial-gradient(
     var(--ambient-r) 56% at 50% -8%,
-    color-mix(in srgb, var(--ambient-color) 78%, transparent) 0%,
-    color-mix(in srgb, var(--ambient-color) 26%, transparent) 40%,
+    color-mix(in srgb, var(--ambient-color) calc(78% * var(--ambient-a) * 6), transparent) 0%,
+    color-mix(in srgb, var(--ambient-color) calc(26% * var(--ambient-a) * 6), transparent) 40%,
     transparent 74%
   );
-  opacity: var(--ambient-a);
-  mix-blend-mode: var(--ambient-blend);
+  /* ⚠️ 性能（v37）：
+     ① 强度不再用 opacity 表达 —— opacity 要留给"换库时的交叉淡入"（合成器属性，主线程零成本）
+     ② 去掉 mix-blend-mode：全屏混合在 iOS 上要多一个合成 pass，每帧重绘整屏
+     ③ 颜色插值不再每帧写 CSS 变量（那是主线程活），改成两层淡入淡出 */
+  opacity: 0;
+  transition: opacity 420ms linear;
+}
+.ambient.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .ambient { transition: none; }
 }
 
 /* ---------------------------------------------------------------- 移动端基线
@@ -265,13 +273,114 @@ body {
    （练习页的翻词滑片就是），display:none 会让量出来全是 0。 */
 .view.is-swapping {
   /* 脱离文档流（旧页不会因为多了一个视图而跳动）+ 宽度照旧（量出来是对的）+ 看不见。
-     ⚠️ 不能只靠 [hidden]（display:none）：渲染期间界面要量尺寸，量出全是 0 会出真 bug。 */
+     ⚠️ 不能只靠 [hidden]（display:none）：渲染期间界面要量尺寸，量出全是 0 会出真 bug。
+     ⚠️ 用 opacity 而不是 visibility（v37）：visibility:hidden 的内容不绘制 →
+        整页绘制会全砸在"对调那一帧"上，手机上就是那一下卡顿。 */
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
+
+/* ---------------------------------------------------------------- 帧率浮层（v37，?perf=1）
+ * 只在你主动打开 ?perf=1 时才会被创建；样式常驻也就几百字节，换来"真机上能量出卡顿"。
+ */
+.perf-hud {
+  position: fixed; z-index: 60; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px;
+  width: 236px; padding: 8px 10px; border-radius: 12px;
+  background: rgb(0 0 0 / 82%); color: #fff; font-size: 12px; line-height: 1.5;
+  font-variant-numeric: tabular-nums; box-shadow: var(--shadow-2);
+}
+.perf-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.perf-row b { font-weight: 650; }
+.perf-title { font-weight: 650; margin-bottom: 4px; }
+.perf-title button { background: none; border: 0; color: #fff; font-size: 16px; line-height: 1; padding: 0 4px; }
+.perf-toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin: 6px 0; }
+.perf-toggles label { display: flex; align-items: center; gap: 4px; }
+.perf-hud button[data-perf='reset'], .perf-hud button[data-perf='copy'] {
+  flex: 1; margin-top: 4px; padding: 4px 6px; border-radius: 8px; border: 1px solid rgb(255 255 255 / 30%);
+  background: rgb(255 255 255 / 10%); color: #fff; font-size: 12px;
+}
+
+/* ================================================================ 设置页（v37 美化）
+ * 从"8 张卡平铺"收成 3 组（外观 / 数据 / 关于）；组内每行 = 左标签 + 右值/控件；
+ * 主题换成三块小预览色板；开关换成 iOS 那种。所有 testid 与文案都没动。
+ */
+.settings-group { display: block; margin-bottom: 26px; }
+.settings-group-title {
+  margin: 0 4px 10px; font-size: 13px; font-weight: 600; color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.settings-group > .card + .card { margin-top: 10px; }
+
+/* 卡内第一行不要再顶着标签：field-label 就是这一组的"卡标题" */
+.settings-card .field-label { margin-bottom: 10px; }
+
+/* 行式列表：左标签、右值；行高 44，分隔线只出现在行与行之间 */
+.settings-list { display: grid; gap: 0; }
+.settings-list > div {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 40px; border-top: 1px solid var(--line);
+}
+.settings-list > div:first-child { border-top: 0; }
+
+/* 数字排版：等宽数字 + 大一号；次要信息降一档 */
+.stat { font-size: 15px; color: var(--fg); }
+/* 统计行：**不要 flex**（flex 会吃掉文本节点之间的空格，变成"词条13个"），也不要分隔线 */
+.settings-list > div.stat { display: block; min-height: 32px; border-top: 0; }
+.stat b { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.stat-sub { font-size: 12px; color: var(--muted); min-height: 28px; }
+
+/* 主题：三块小预览色板（预览用的是"那一档主题的真实底色"，不随当前主题变） */
+.theme-switch { display: flex; gap: 12px; }
+.theme-swatch {
+  flex: 1; display: grid; gap: 6px; justify-items: center;
+  padding: 8px 6px 6px; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--card); color: var(--muted); font-size: 12px;
+}
+.theme-swatch .sw-preview {
+  width: 100%; height: 30px; border-radius: 8px; border: 1px solid var(--line);
+  display: block;
+}
+.theme-swatch[data-theme='light'] .sw-preview { background: linear-gradient(#fff, #f2f2f7); }
+.theme-swatch[data-theme='dark'] .sw-preview { background: linear-gradient(#1c2024, #0f1012); }
+.theme-swatch[data-theme='auto'] .sw-preview { background: linear-gradient(135deg, #fff 0 50%, #0f1012 50% 100%); }
+.theme-swatch .sw-caption { line-height: 1; }
+.theme-swatch[aria-pressed='true'] {
+  border-color: transparent; box-shadow: 0 0 0 2px var(--accent);
+  color: var(--fg); font-weight: 600;
+}
+
+/* 开关：iOS 那种（作用在原生 checkbox 上，语义/testid/.checked 全不变）
+   ⚠️ 特异性要压过 `.lib-check-label input { width:18px; height:18px }`，
+   否则开关会被压回 18px 的小方框（这个踩过）。 */
+.lib-check-label input.sw-input,
+.settings-card input.sw-input {
+  flex: none; appearance: none; -webkit-appearance: none; margin: 0;
+  width: 46px !important; height: 28px !important; border-radius: var(--r-full); border: 0;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  position: relative; transition: background var(--dur-ui, 180ms) var(--ease-out-quint);
+}
+.lib-check-label input.sw-input::after,
+.settings-card input.sw-input::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px;
+  border-radius: 50%; background: #fff; box-shadow: var(--shadow-1);
+  transition: transform var(--dur-ui, 180ms) var(--ease-spring-soft);
+}
+.lib-check-label input.sw-input:checked,
+.settings-card input.sw-input:checked { background: var(--accent); }
+.lib-check-label input.sw-input:checked::after,
+.settings-card input.sw-input:checked::after { transform: translateX(18px); }
+@media (prefers-reduced-motion: reduce) {
+  .lib-check-label input.sw-input, .lib-check-label input.sw-input::after { transition: none; }
+}
+
+/* 设置页里的说明：最多一行、更安静 */
+.settings-card .settings-note { font-size: 12px; color: var(--muted); line-height: 1.55; }
+.settings-notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.settings-notes li { font-size: 12px; color: var(--muted); line-height: 1.55; }
 
 /* ---------------------------------------------------------------- 更新日志（v35） */
 .changelog { display: grid; gap: 16px; }
@@ -364,6 +473,10 @@ body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; po
   transition: transform var(--dur-ui) var(--ease-nav);
   pointer-events: none;
 }
+
+/* 数字：等宽数字 + 布局隔离 —— 滚动数字时不牵动同排元素重排 */
+[data-num], .lib-meta, .settings-big { font-variant-numeric: tabular-nums; }
+[data-num] { contain: layout; }
 
 #tabbar a {
   position: relative;   /* 压在药丸上面 */
