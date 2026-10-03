@@ -30,6 +30,8 @@ let hud = null;
 let rafId = 0;
 let last = 0;
 let currentSwap = null;
+let currentFrom = '#/';
+let currentFromPrev = '#/';
 
 /** 换页窗口的长度：整套入场最长 ~930ms，取 1s 覆盖得住 */
 const SWAP_WINDOW_MS = 1000;
@@ -37,10 +39,12 @@ const SWAP_WINDOW_MS = 1000;
 /** 阶段标记：app.js 在"开始换页"时调 perfMark('entry') */
 export function perfMark(name) {
   if (!hud) return;
+  // 记【从哪页到哪页】：entry 这一刻 hash 已经是新页了，所以要用上一次记下的那个
+  if (name === 'entry') { currentFromPrev = currentFrom; currentFrom = location.hash || '#/'; }
   // ⚠️ 触发后**不要**等一个"结束"标记：v37 之后"起入场"和"对调"在同一个同步块里，
   //    两次标记之间一帧都跑不到 → 按标记配对测量会永远是 0（浮层显示"—"，踩过）。
   //    改成开一个时间窗，窗内最慢的一帧就是"这一次切页最卡的一帧"。
-  if (name === 'entry') currentSwap = { at: performance.now(), worst: 0, frames: 0 };
+  if (name === 'entry') currentSwap = { at: performance.now(), worst: 0, frames: 0, from: currentFromPrev };
 }
 
 function tick(now) {
@@ -62,6 +66,7 @@ function tick(now) {
     currentSwap.worst = Math.max(currentSwap.worst, Math.round(dt));
     currentSwap.frames++;
     if (now - currentSwap.at >= SWAP_WINDOW_MS) {
+      currentSwap.to = location.hash || '#/';
       state.swaps.push(currentSwap);
       if (state.swaps.length > 20) state.swaps.shift();
       currentSwap = null;
@@ -96,6 +101,7 @@ function paint() {
   set('[data-perf="drops"]', `${state.frames.filter((f) => f > FRAME_BUDGET).length}/${state.frames.length}`);
   set('[data-perf="longtask"]', state.longtasks.length ? `${Math.max(...state.longtasks)}ms` : '—');
   set('[data-perf="pauses"]', state.pauses.length ? `${state.pauses.length} 次（最长 ${Math.max(...state.pauses)}ms，不计入）` : '0');
+  set('[data-perf="count"]', `${state.swaps.length} 次${state.swaps.length ? `（最近 ${state.swaps[state.swaps.length - 1].from} → ${state.swaps[state.swaps.length - 1].to}）` : '：先切一次页'}`);
   const v = verdict(w);
   const badge = hud.querySelector('[data-perf="verdict"]');
   if (badge) {
@@ -125,6 +131,7 @@ export function startPerfHud() {
       <div class="perf-hero-num"><b data-perf="worstswap">—</b><span class="perf-badge" data-perf="verdict" data-kind="idle">还没测到</span></div>
       <div class="perf-hero-hint">低于 20ms 很顺 · 超过 32ms 就是肉眼可见的顿</div>
     </div>
+    <div class="perf-row"><span>切页次数</span><b data-perf="count">0 次：先切一次页</b></div>
     <div class="perf-row"><span>最近一次切页</span><b data-perf="lastswap">—</b></div>
     <div class="perf-row"><span>最近 200 帧最长</span><b data-perf="worst">—</b></div>
     <div class="perf-row"><span>掉帧（&gt;32ms）</span><b data-perf="drops">—</b></div>
@@ -163,6 +170,8 @@ export function startPerfHud() {
       系统挂起最长: state.pauses.length ? Math.max(...state.pauses) : null,
       最近一次切页: state.swaps.length ? state.swaps[state.swaps.length - 1].worst : null,
       切页次数: state.swaps.length,
+      每次切页: state.swaps.map((s) => ({ 从: s.from, 到: s.to, 最慢帧: s.worst })),
+      当前页面: location.hash || '#/',
       最近200帧最长: Math.round(Math.max(0, ...state.frames)),
       掉帧数: state.frames.filter((f) => f > FRAME_BUDGET).length,
       长任务: state.longtasks,
@@ -204,6 +213,10 @@ export function startPerfHud() {
   document.addEventListener('visibilitychange', resetClock);
   window.addEventListener('pageshow', resetClock);
   window.addEventListener('focus', resetClock);
+
+  // 钩子挂到 window 上：app.js 的 perfMark 通过它转发（两条启动路径都能接上）
+  window.__perfMark = perfMark;
+  currentFrom = location.hash || '#/';   // 首屏就是某个页面时，别让第一次切换的 from 记成 #/
 
   apply(state.toggles);
   last = 0;

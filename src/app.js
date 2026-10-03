@@ -210,9 +210,11 @@ registerLazy('settings', () => import('./ui-settings.js').then((m) => m.renderSe
 
 /* 帧率浮层（?perf=1）的钩子：只有你主动打开时才 import src/perf.js，
    正常使用一个字节都不加载。perfMark 是给"切页两个阶段"打点用的。 */
-let perfHook = null;
+/* ⚠️ 别只在自己 import 时赋值：从设置里的开关启动浮层时也要能接上，
+   否则 perfMark 全被丢掉、浮层永远显示"切页次数 0"（用户就碰到过，而且那份对照数据因此无效 ✗）。
+   所以让 perf.js 自己在启动时挂到 window 上，这里只做转发。 */
 function perfMark(name) {
-  if (perfHook) perfHook(name);
+  if (typeof window !== 'undefined' && window.__perfMark) window.__perfMark(name);
 }
 
 /* 历史导航（返回/前进/边缘滑动）**不再特殊处理**（v44）。
@@ -597,10 +599,7 @@ function boot() {
     // 认两种：网址参数，或设置里的开关（手机上不用手打 ?perf=1）
     if (new URLSearchParams(location.search).has('perf') || localStorage.getItem('vocab.perf') === '1') {
       import('./perf.js')
-        .then((m) => {
-          m.startPerfHud();
-          perfHook = m.perfMark;
-        })
+        .then((m) => m.startPerfHud())
         .catch(() => {});
     }
   } catch {
