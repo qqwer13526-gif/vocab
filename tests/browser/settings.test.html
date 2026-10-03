@@ -299,6 +299,29 @@ try {
     }
   }
 
+  // ---------------- 16. v49：浮层开关要能跨重载保住（否则"全勾掉再测"会变成全开）----------------
+  {
+    const f = await openApp({ hash: '#/settings', sel: '[data-testid="perf-toggle"]' });
+    click(q(f, '[data-testid="perf-toggle"]'));
+    await waitFor(() => q(f, '[data-testid="perf-hud"]'), { label: '浮层出现' });
+    // 勾掉"入场动画"
+    const box = q(f, '[data-perf="t-entry"]');
+    ok('默认是开着的', box.checked === true);
+    click(box);
+    await waitFor(() => (q(f, '[data-perf="mode"]') || {}).textContent?.includes('入场动画'), { label: '状态行更新' });
+    eq('状态行显示已关的项目', q(f, '[data-perf="mode"]').textContent, '已关：入场动画');
+    ok('根元素带上了 perfNoEntry（真的关掉了）', f.contentDocument.documentElement.dataset.perfNoEntry === '1');
+    // 重载（模拟"强制重新加载"）
+    const f2 = await openApp({ hash: '#/settings', sel: '[data-testid="perf-toggle"]' });
+    await waitFor(() => q(f2, '[data-perf="t-entry"]'), { label: '浮层（重载后）' });
+    ok('重载后复选框仍是关的（不再骗人）', q(f2, '[data-perf="t-entry"]').checked === false);
+    eq('重载后状态行仍然是"已关：入场动画"', q(f2, '[data-perf="mode"]').textContent, '已关：入场动画');
+    ok('重载后效果仍然是关的', f2.contentDocument.documentElement.dataset.perfNoEntry === '1');
+    // 收拾干净
+    localStorage.removeItem('vocab.perfToggles');
+    localStorage.removeItem('vocab.perf');
+  }
+
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

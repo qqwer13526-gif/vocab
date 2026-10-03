@@ -18,12 +18,26 @@ const FRAME_BUDGET = 32; // 超过它 = 掉帧（60Hz 两帧）
    不计入"最长帧" —— 否则一次过渡的暂停会被算成 485ms 这种巨帧（用户就见过，而且四个开关都改不动它）。 */
 const MAX_REAL_FRAME = 200;
 
+const TOGGLE_KEY = 'vocab.perfToggles';
+
+/** 读回上次的开关状态 —— ⚠️ 必须持久化：用户为了拿到新版本做一次"强制重新加载"，
+    开关就会全部回到默认的"勾上"，于是"全勾掉再测"的结论其实是全开（真发生过 ✗） */
+function loadToggles() {
+  const def = { ambient: true, entry: true, glass: true, count: true };
+  try {
+    const raw = localStorage.getItem(TOGGLE_KEY);
+    return raw ? { ...def, ...JSON.parse(raw) } : def;
+  } catch {
+    return def;
+  }
+}
+
 const state = {
   frames: [],
   swaps: [],
   longtasks: [],
   pauses: [],
-  toggles: { ambient: true, entry: true, glass: true, count: true }
+  toggles: loadToggles()
 };
 
 let hud = null;
@@ -52,7 +66,7 @@ function tick(now) {
   last = now;
   // 暂停（系统挂起 rAF）不计入帧统计
   if (raw > MAX_REAL_FRAME) {
-    state.pauses.push(Math.round(raw));
+    state.pauses.push({ ms: Math.round(raw), at: Math.round(performance.now()), page: location.hash || '#/' });
     if (state.pauses.length > 20) state.pauses.shift();
     currentSwap = null;      // 这一窗口作废（中间被挂起了，数不可信）
     paint();
@@ -100,7 +114,11 @@ function paint() {
   set('[data-perf="worst"]', `${Math.round(Math.max(0, ...state.frames))}ms`);
   set('[data-perf="drops"]', `${state.frames.filter((f) => f > FRAME_BUDGET).length}/${state.frames.length}`);
   set('[data-perf="longtask"]', state.longtasks.length ? `${Math.max(...state.longtasks)}ms` : '—');
-  set('[data-perf="pauses"]', state.pauses.length ? `${state.pauses.length} 次（最长 ${Math.max(...state.pauses)}ms，不计入）` : '0');
+  set('[data-perf="pauses"]', state.pauses.length
+    ? `${state.pauses.length} 次（最长 ${Math.max(...state.pauses.map((p) => p.ms))}ms，不计入）`
+    : '0');
+  const off = Object.entries(state.toggles).filter(([, v]) => !v).map(([k]) => ({ ambient: '氛围光', entry: '入场动画', glass: '底栏玻璃', count: '数字滚动' })[k]);
+  set('[data-perf="mode"]', off.length ? `已关：${off.join('、')}` : '全开');
   set('[data-perf="count"]', `${state.swaps.length} 次${state.swaps.length ? `（最近 ${state.swaps[state.swaps.length - 1].from} → ${state.swaps[state.swaps.length - 1].to}）` : '：先切一次页'}`);
   const v = verdict(w);
   const badge = hud.querySelector('[data-perf="verdict"]');
@@ -126,6 +144,7 @@ export function startPerfHud() {
   hud.dataset.testid = 'perf-hud';
   hud.innerHTML = `
     <div class="perf-row perf-title"><span>帧率浮层</span><button type="button" data-perf="close" aria-label="关闭">×</button></div>
+    <div class="perf-row perf-mode"><span>当前状态</span><b data-perf="mode">全开</b></div>
     <div class="perf-hero">
       <div class="perf-hero-label">切页最卡的一帧</div>
       <div class="perf-hero-num"><b data-perf="worstswap">—</b><span class="perf-badge" data-perf="verdict" data-kind="idle">还没测到</span></div>
@@ -151,9 +170,13 @@ export function startPerfHud() {
   document.body.append(hud);
 
   for (const [key, sel] of [['ambient', 't-ambient'], ['entry', 't-entry'], ['glass', 't-glass'], ['count', 't-count']]) {
-    hud.querySelector(`[data-perf="${sel}"]`).addEventListener('change', (e) => {
+    const box = hud.querySelector(`[data-perf="${sel}"]`);
+    box.checked = !!state.toggles[key];   // 复选框状态以持久化的状态为准（别让"勾着但实际关着"骗人）
+    box.addEventListener('change', (e) => {
       state.toggles[key] = e.currentTarget.checked;
+      try { localStorage.setItem(TOGGLE_KEY, JSON.stringify(state.toggles)); } catch { /* 无所谓 */ }
       apply(state.toggles);
+      paint();
     });
   }
   hud.querySelector('[data-perf="reset"]').addEventListener('click', () => {
@@ -167,7 +190,8 @@ export function startPerfHud() {
     const payload = {
       切页最卡的一帧: worstSwap() || null,
       系统挂起次数: state.pauses.length,
-      系统挂起最长: state.pauses.length ? Math.max(...state.pauses) : null,
+      系统挂起最长: state.pauses.length ? Math.max(...state.pauses.map((p) => p.ms)) : null,
+      系统挂起明细: state.pauses.map((p) => `${p.ms}ms@${p.page}`),
       最近一次切页: state.swaps.length ? state.swaps[state.swaps.length - 1].worst : null,
       切页次数: state.swaps.length,
       每次切页: state.swaps.map((s) => ({ 从: s.from, 到: s.to, 最慢帧: s.worst })),
