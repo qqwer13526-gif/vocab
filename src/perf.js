@@ -1,26 +1,24 @@
-/* 帧率浮层（v37）：给"手机上到底哪里卡"提供一把能量出来的尺子。
+/* 帧率浮层（v45：改成"能直接看懂"的版本）
  *
- * 为什么要有它：切页卡顿在无头浏览器里测不出来（没有真实 GPU 合成路径，
- * backdrop-filter / 混合模式 / 建层的开销都不出现）。按 mobile-native 的纪律 ——
- * 手机才是唯一裁判。所以做一把尺子放进 App，让你在真机上读数、并且当场做归因实验。
+ * 打开方式（两种都行）：
+ *   - 设置 → 调试 → 「帧率浮层」开关
+ *   - 网址后加 ?perf=1
  *
- * 打开方式：网址后加 ?perf=1（或 ?debug=1 时顺带开）
- * 它只在你主动打开时才 import —— 正常使用时一个字节都不加载。
+ * 它回答一个问题：**切页那一下到底卡不卡、卡在哪个环节**。
+ * 关键两个数：
+ *   「切页最卡的一帧」= 从换页开始到卡片全部落定，其中最慢的一帧（这就是"顿一下"的量）
+ *   「最近一次切页」  = 刚才那一次切页最慢的一帧
+ * 判定：16.7ms 是 60Hz 一帧的预算 —— 低于它就顺；超过 32ms（两帧）就是肉眼可见的顿。
  *
- * 浮层给的东西：
- *   - 最长帧 / >32ms 的帧数 / 最近 200 帧的分布（60Hz 下一帧 16.7ms，120Hz 下 8.3ms）
- *   - 最近 20 次切页各自的最长帧（就是"两个界面切换那一下"）
- *   - 四个开关：氛围光 / 入场动画 / 底栏玻璃 / 数字滚动 —— 逐项关掉看哪个让最长帧掉下来
- *   - 「复制数据」：把 JSON 复制出来发我，最后一刀按数据定
+ * 下面四个开关用来**归因**：关掉某一项再切页，看「最近一次切页」掉不掉 —— 掉下来的就是它。
  */
 
-const FRAME_BUDGET = 32; // 超过它就当作"掉帧"（60Hz 两帧）
+const FRAME_BUDGET = 32; // 超过它 = 掉帧（60Hz 两帧）
 
 const state = {
   frames: [],
   swaps: [],
   longtasks: [],
-  marks: [],
   toggles: { ambient: true, entry: true, glass: true, count: true }
 };
 
@@ -29,17 +27,16 @@ let rafId = 0;
 let last = 0;
 let currentSwap = null;
 
-/** 阶段标记：app.js / theme.js 调，用来把帧和"刚发生了什么"对上 */
+/** 换页窗口的长度：整套入场最长 ~930ms，取 1s 覆盖得住 */
+const SWAP_WINDOW_MS = 1000;
+
+/** 阶段标记：app.js 在"开始换页"时调 perfMark('entry') */
 export function perfMark(name) {
   if (!hud) return;
-  state.marks.push({ t: Math.round(performance.now()), name });
-  if (state.marks.length > 60) state.marks.shift();
-  if (name === 'entry') currentSwap = { t: Math.round(performance.now()), worst: 0, frames: 0 };
-  if (name === 'swap' && currentSwap) {
-    state.swaps.push(currentSwap);
-    if (state.swaps.length > 20) state.swaps.shift();
-    currentSwap = null;
-  }
+  // ⚠️ 触发后**不要**等一个"结束"标记：v37 之后"起入场"和"对调"在同一个同步块里，
+  //    两次标记之间一帧都跑不到 → 按标记配对测量会永远是 0（浮层显示"—"，踩过）。
+  //    改成开一个时间窗，窗内最慢的一帧就是"这一次切页最卡的一帧"。
+  if (name === 'entry') currentSwap = { at: performance.now(), worst: 0, frames: 0 };
 }
 
 function tick(now) {
@@ -50,42 +47,51 @@ function tick(now) {
   if (currentSwap) {
     currentSwap.worst = Math.max(currentSwap.worst, Math.round(dt));
     currentSwap.frames++;
+    if (now - currentSwap.at >= SWAP_WINDOW_MS) {
+      state.swaps.push(currentSwap);
+      if (state.swaps.length > 20) state.swaps.shift();
+      currentSwap = null;
+    }
   }
   paint();
   rafId = requestAnimationFrame(tick);
 }
 
-function stats() {
-  const f = state.frames;
-  if (!f.length) return { worst: 0, drops: 0, avg: 0, n: 0 };
-  const worst = Math.round(Math.max(...f));
-  const drops = f.filter((x) => x > FRAME_BUDGET).length;
-  const avg = Math.round((f.reduce((a, b) => a + b, 0) / f.length) * 10) / 10;
-  return { worst, drops, avg, n: f.length };
+function worstSwap() {
+  return state.swaps.length ? Math.max(...state.swaps.map((s) => s.worst)) : 0;
+}
+
+function verdict(ms) {
+  if (!ms) return { text: '还没测到', cls: 'idle' };
+  if (ms <= 20) return { text: '很顺', cls: 'good' };
+  if (ms <= FRAME_BUDGET) return { text: '一般（掉 1 帧）', cls: 'mid' };
+  return { text: '卡（掉 2 帧以上）', cls: 'bad' };
 }
 
 function paint() {
   if (!hud) return;
-  const s = stats();
-  const swapWorst = state.swaps.length ? Math.max(...state.swaps.map((x) => x.worst)) : 0;
-  const now = state.swaps.length ? state.swaps[state.swaps.length - 1].worst : 0;
+  const w = worstSwap();
+  const lastSwap = state.swaps.length ? state.swaps[state.swaps.length - 1].worst : 0;
   const set = (sel, text) => {
     const n = hud.querySelector(sel);
     if (n && n.textContent !== text) n.textContent = text;
   };
-  set('[data-perf="worst"]', `${s.worst}ms`);
-  set('[data-perf="drops"]', `${s.drops}/${s.n}`);
-  set('[data-perf="avg"]', `${s.avg}ms`);
-  set('[data-perf="lastswap"]', `${now}ms`);
-  set('[data-perf="worstswap"]', `${swapWorst}ms`);
+  set('[data-perf="worstswap"]', w ? `${w}ms` : '—');
+  set('[data-perf="lastswap"]', lastSwap ? `${lastSwap}ms` : '—');
+  set('[data-perf="worst"]', `${Math.round(Math.max(0, ...state.frames))}ms`);
+  set('[data-perf="drops"]', `${state.frames.filter((f) => f > FRAME_BUDGET).length}/${state.frames.length}`);
   set('[data-perf="longtask"]', state.longtasks.length ? `${Math.max(...state.longtasks)}ms` : '—');
+  const v = verdict(w);
+  const badge = hud.querySelector('[data-perf="verdict"]');
+  if (badge) {
+    badge.textContent = v.text;
+    badge.dataset.kind = v.cls;
+  }
 }
 
-/** 四个归因开关：关掉某一项后重新切页，看"最近一次切页最长帧"掉不掉 */
 function apply(toggles) {
   const root = document.documentElement;
-  const amb = document.querySelectorAll('.ambient');
-  for (const a of amb) a.style.display = toggles.ambient ? '' : 'none';
+  for (const a of document.querySelectorAll('.ambient')) a.style.display = toggles.ambient ? '' : 'none';
   root.dataset.perfNoEntry = toggles.entry ? '' : '1';
   const bar = document.getElementById('tabbar');
   if (bar) bar.style.backdropFilter = toggles.glass ? '' : 'none';
@@ -93,25 +99,31 @@ function apply(toggles) {
 }
 
 export function startPerfHud() {
-  if (hud) return;
+  if (hud) return hud;
   hud = document.createElement('div');
   hud.className = 'perf-hud';
   hud.dataset.testid = 'perf-hud';
   hud.innerHTML = `
-    <div class="perf-row perf-title">帧率浮层（?perf=1）<button type="button" data-perf="close" aria-label="关闭">×</button></div>
-    <div class="perf-row"><span>最长帧</span><b data-perf="worst">—</b></div>
-    <div class="perf-row"><span>掉帧(&gt;32ms)</span><b data-perf="drops">—</b></div>
-    <div class="perf-row"><span>平均帧</span><b data-perf="avg">—</b></div>
+    <div class="perf-row perf-title"><span>帧率浮层</span><button type="button" data-perf="close" aria-label="关闭">×</button></div>
+    <div class="perf-hero">
+      <div class="perf-hero-label">切页最卡的一帧</div>
+      <div class="perf-hero-num"><b data-perf="worstswap">—</b><span class="perf-badge" data-perf="verdict" data-kind="idle">还没测到</span></div>
+      <div class="perf-hero-hint">低于 20ms 很顺 · 超过 32ms 就是肉眼可见的顿</div>
+    </div>
     <div class="perf-row"><span>最近一次切页</span><b data-perf="lastswap">—</b></div>
-    <div class="perf-row"><span>切页最差</span><b data-perf="worstswap">—</b></div>
-    <div class="perf-row"><span>longtask</span><b data-perf="longtask">—</b></div>
+    <div class="perf-row"><span>最近 200 帧最长</span><b data-perf="worst">—</b></div>
+    <div class="perf-row"><span>掉帧（&gt;32ms）</span><b data-perf="drops">—</b></div>
+    <div class="perf-row"><span>长任务 longtask</span><b data-perf="longtask">—</b></div>
     <div class="perf-row perf-toggles">
       <label><input type="checkbox" checked data-perf="t-ambient">氛围光</label>
       <label><input type="checkbox" checked data-perf="t-entry">入场动画</label>
       <label><input type="checkbox" checked data-perf="t-glass">底栏玻璃</label>
       <label><input type="checkbox" checked data-perf="t-count">数字滚动</label>
     </div>
-    <div class="perf-row"><button type="button" data-perf="reset">重置</button><button type="button" data-perf="copy">复制数据</button></div>
+    <div class="perf-row perf-btns">
+      <button type="button" data-perf="reset">清除重测</button>
+      <button type="button" data-perf="copy">复制数据</button>
+    </div>
   `;
   document.body.append(hud);
 
@@ -129,23 +141,24 @@ export function startPerfHud() {
   });
   hud.querySelector('[data-perf="copy"]').addEventListener('click', async (e) => {
     const payload = {
-      最长帧: stats().worst,
-      平均帧: stats().avg,
-      掉帧数: stats().drops,
-      最近一次切页最长帧: state.swaps.length ? state.swaps[state.swaps.length - 1].worst : null,
-      切页最长帧: state.swaps.length ? Math.max(...state.swaps.map((x) => x.worst)) : null,
+      切页最卡的一帧: worstSwap() || null,
+      最近一次切页: state.swaps.length ? state.swaps[state.swaps.length - 1].worst : null,
       切页次数: state.swaps.length,
-      longtask: state.longtasks,
+      最近200帧最长: Math.round(Math.max(0, ...state.frames)),
+      掉帧数: state.frames.filter((f) => f > FRAME_BUDGET).length,
+      长任务: state.longtasks,
       开关: state.toggles,
-      设备像素比: window.devicePixelRatio,
-      视口: `${window.innerWidth}×${window.innerHeight}`
+      版本: document.body.dataset.appVersion || '?',
+      显示模式: matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+      设备像素比: devicePixelRatio,
+      视口: `${innerWidth}×${innerHeight}`
     };
     const text = JSON.stringify(payload, null, 1);
     try {
       await navigator.clipboard.writeText(text);
       e.currentTarget.textContent = '已复制 ✅';
     } catch {
-      window.prompt('复制下面这段发给我：', text);
+      window.prompt('复制下面这段发我：', text);
     }
     setTimeout(() => { e.currentTarget.textContent = '复制数据'; }, 1500);
   });
@@ -153,6 +166,7 @@ export function startPerfHud() {
     hud.remove();
     hud = null;
     cancelAnimationFrame(rafId);
+    try { localStorage.removeItem('vocab.perf'); } catch { /* 无所谓 */ }
   });
 
   try {
@@ -172,4 +186,6 @@ export function startPerfHud() {
   return hud;
 }
 
-export const _internal = { state, stats };
+export const _internal = { state, verdict, worstSwap };
+// 给排查脚本用：能看到每次切页窗口的最慢帧清单（真机排查也可以从这里复制）
+if (typeof window !== 'undefined') window.__perfState = state;

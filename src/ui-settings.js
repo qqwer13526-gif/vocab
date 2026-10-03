@@ -346,11 +346,33 @@ export async function renderSettings() {
       else localStorage.removeItem('vocab.debug');
     }
   });
+  // 帧率浮层开关（v45）：手机上排查"切页顿一下"用，不用改网址
+  const perfBox = el('input', {
+    type: 'checkbox',
+    className: 'sw-input',
+    dataset: { testid: 'perf-toggle' },
+    checked: localStorage.getItem('vocab.perf') === '1',
+    onchange: async (e) => {
+      if (e.currentTarget.checked) {
+        localStorage.setItem('vocab.perf', '1');
+        const m = await import('./perf.js');
+        m.startPerfHud();
+      } else {
+        localStorage.removeItem('vocab.perf');
+        document.querySelector('[data-testid="perf-hud"]')?.remove();
+      }
+    }
+  });
+
   const debugCard = el('div', { className: 'card settings-card' }, [
     el('div', { className: 'field-label' }, '调试'),
     el('label', { className: 'settings-note', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
       dbgBox,
       el('span', {}, '练习页显示「滑动调试浮层」（手机上排查拖不动的问题用）')
+    ]),
+    el('label', { className: 'settings-note', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+      perfBox,
+      el('span', {}, '显示「帧率浮层」（手机上量切页卡不卡；关掉就彻底移除）')
     ])
   ]);
 

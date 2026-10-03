@@ -172,6 +172,9 @@ export function show(name, params = {}) {
       commitView();
       document.body.dataset.ready = '1';
       markFirstPaint();
+  // 首屏画完之后再预热（别和首屏抢带宽/主线程）
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(warmLazyViews, { timeout: 3000 });
+  else setTimeout(warmLazyViews, 1500);
     });
 }
 
@@ -546,6 +549,32 @@ function wireUpdateButton() {
   btn?.addEventListener('click', () => applyUpdate());
 }
 
+/**
+ * 预热"按需加载"的四个界面（v45）。
+ * 为什么：这几个界面是 lazy import 的，第一次切过去要**下载 + 解析模块** ——
+ * 手机上那一段就是"切页顿一下"。首屏画完之后在空闲时把它们拉进来，
+ * 并按本文件的约定塞进 RENDER，之后 show() 直接用，不再走 LAZY。
+ */
+function warmLazyViews() {
+  try {
+    if (navigator.connection && navigator.connection.saveData) return; // 省流模式：不偷跑流量
+  } catch {
+    /* 拿不到 connection 就照常预热 */
+  }
+  for (const name of ['settings', 'import', 'word', 'practice']) {
+    if (RENDER[name] || !LAZY[name]) continue;
+    Promise.resolve()
+      .then(() => LAZY[name]())
+      .then((fn) => {
+        if (fn) RENDER[name] = fn;
+        document.body.dataset.warmed = (document.body.dataset.warmed || '') + name + ',';
+      })
+      .catch(() => {
+        /* 预热失败无所谓，真要用时还会再 import 一次 */
+      });
+  }
+}
+
 function boot() {
   markSW();
   // 换页时我们自己把滚动归零（原子换页那一帧做），别让浏览器再"恢复滚动位置"来搅局
@@ -565,7 +594,8 @@ function boot() {
   }
   // ?perf=1 才加载帧率浮层（真机排查切页卡顿用）
   try {
-    if (new URLSearchParams(location.search).has('perf')) {
+    // 认两种：网址参数，或设置里的开关（手机上不用手打 ?perf=1）
+    if (new URLSearchParams(location.search).has('perf') || localStorage.getItem('vocab.perf') === '1') {
       import('./perf.js')
         .then((m) => {
           m.startPerfHud();

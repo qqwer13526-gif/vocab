@@ -268,6 +268,37 @@ try {
     eq('根画布被涂成洋红（用于辨认露白的是哪一层）', htmlBg, 'rgb(255, 0, 255)');
   }
 
+  // ---------------- 14. v45：帧率浮层（设置里有开关、浮层里两个关键数 + 中文判定）----------------
+  {
+    const f = await openApp({ hash: '#/settings', sel: '[data-testid="perf-toggle"]' });
+    ok('设置 → 调试 里有「帧率浮层」开关', !!q(f, '[data-testid="perf-toggle"]'));
+    click(q(f, '[data-testid="perf-toggle"]'));
+    await waitFor(() => q(f, '[data-testid="perf-hud"]'), { label: '浮层出现' });
+    const hud = q(f, '[data-testid="perf-hud"]');
+    const text = hud.textContent;
+    ok('浮层把「切页最卡的一帧」放在最显眼处', text.includes('切页最卡的一帧'), text.slice(0, 60));
+    ok('浮层有中文判定（还没测到 / 很顺 / 一般 / 卡）',
+       /还没测到|很顺|一般|卡/.test(text), text.slice(0, 80));
+    ok('浮层有「最近一次切页」这个数', text.includes('最近一次切页'));
+    ok('浮层有四个归因开关 + 清除重测',
+       text.includes('入场动画') && text.includes('底栏玻璃') && text.includes('清除重测'));
+    ok('开关会写进 localStorage（下次打开还在）', localStorage.getItem('vocab.perf') === '1');
+    // 关掉要彻底移除
+    click(q(f, '[data-testid="perf-toggle"]'));
+    await waitFor(() => !q(f, '[data-testid="perf-hud"]'), { label: '浮层被移除' });
+    eq('关掉后 localStorage 也清掉', localStorage.getItem('vocab.perf'), null);
+  }
+
+  // ---------------- 15. v45：按需界面会被"空闲预热"（第一次切过去不再现下载+解析模块）----------------
+  {
+    const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+    await waitFor(() => (f.contentDocument.body.dataset.warmed || '').includes('settings'), { label: '预热完成' });
+    const warmed = f.contentDocument.body.dataset.warmed || '';
+    for (const name of ['settings', 'import', 'word', 'practice']) {
+      ok(`空闲时预热了 ${name}`, warmed.includes(name), warmed);
+    }
+  }
+
 } catch (e) {
   ok('设置页测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

@@ -286,20 +286,37 @@ body {
   opacity: 0;
   pointer-events: none;
 }
+/* 试过把上面改成 opacity: 0.01（想让浏览器"提前把新页画好"，把绘制成本从揭示那一帧挪走）——
+   本地测不出收益（33~50ms 不变），所以没上线。留着这条记录，免得以后又试一遍。
+   目前已知：开着入场动画时本地每次切换 4~8ms（没有掉帧）；手机上若仍觉得顿，
+   优先怀疑 iOS 那一侧（系统滑动过渡/合成），用 ?perf=1 的浮层读数来判断。 */
 
 /* ---------------------------------------------------------------- 帧率浮层（v37，?perf=1）
  * 只在你主动打开 ?perf=1 时才会被创建；样式常驻也就几百字节，换来"真机上能量出卡顿"。
  */
 .perf-hud {
   position: fixed; z-index: 60; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px;
-  width: 236px; padding: 8px 10px; border-radius: 12px;
-  background: rgb(0 0 0 / 82%); color: #fff; font-size: 12px; line-height: 1.5;
+  width: 250px; padding: 10px 12px; border-radius: 14px;
+  background: rgb(0 0 0 / 94%); color: #fff; font-size: 12px; line-height: 1.5;
+  border: 1px solid rgb(255 255 255 / 14%);
   font-variant-numeric: tabular-nums; box-shadow: var(--shadow-2);
 }
 .perf-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .perf-row b { font-weight: 650; }
 .perf-title { font-weight: 650; margin-bottom: 4px; }
 .perf-title button { background: none; border: 0; color: #fff; font-size: 16px; line-height: 1; padding: 0 4px; }
+/* 主数字：一眼就能读懂那一格 */
+.perf-hero { margin: 2px 0 8px; }
+.perf-hero-label { font-size: 12px; color: #cfd3da; }
+.perf-hero-num { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 2px; }
+.perf-hero-num b { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+.perf-hero-hint { font-size: 11px; color: #a9aeb6; }
+.perf-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.perf-badge[data-kind='good'] { background: #16a34a; color: #fff; }
+.perf-badge[data-kind='mid'] { background: #d97706; color: #fff; }
+.perf-badge[data-kind='bad'] { background: #dc2626; color: #fff; }
+.perf-badge[data-kind='idle'] { background: rgb(255 255 255 / 18%); color: #e6e8eb; }
+.perf-btns { gap: 8px; }
 .perf-toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin: 6px 0; }
 .perf-toggles label { display: flex; align-items: center; gap: 4px; }
 .perf-hud button[data-perf='reset'], .perf-hud button[data-perf='copy'] {
