@@ -157,6 +157,10 @@ export function show(name, params = {}) {
       //      所以建层/绘制的成本摊在渲染期间，不挤在对调那一帧
       //   ③ 对调 —— 撤掉不可见、藏旧页（同一帧只画最终状态，用户看不到中间态）
       const commitView = () => {
+        // 历史导航（返回/前进/边缘滑动）不播入场：那段时间页面被系统冻住，播了也看不到，
+        // 反而会停在第一帧（一片空白）。原生 App 返回时也不重播。详见文件上方 routeIsHistory 的注释。
+        const skipEntry = routeIsHistory;
+        routeIsHistory = false;
         // 切页窗口内先关掉底栏模糊（见 style.css 里 body[data-switching] 那条注释）
         try {
           document.body.dataset.switching = '1';
@@ -166,7 +170,7 @@ export function show(name, params = {}) {
           /* 无所谓 */
         }
         window.scrollTo(0, 0);
-        if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
+        if (name !== 'practice' && !skipEntry) staggerPage(view, { scope: `page:${name}` });
         perfMark('entry');
         if (view) {
           view.hidden = false;
@@ -201,7 +205,15 @@ function parseHash() {
 
 export function route() {
   const { name, params } = parseHash();
-  popstateSeen = false; // 只为诊断留着（body.dataset 里能看到这次是历史导航还是点导航）
+  // 这次是"历史导航"（返回/前进/边缘滑动）还是"点导航"？
+  routeIsHistory = popstateSeen && history.length === histLen;
+  popstateSeen = false;
+  histLen = history.length;
+  try {
+    document.body.dataset.lastNav = routeIsHistory ? 'history' : 'tap'; // 诊断/测试用
+  } catch {
+    /* 无所谓 */
+  }
   bumpMotionGen(); // v34：换页 = 新一代 → 整页卡片的交错入场会重新播
   show(name, params);
 }
@@ -225,13 +237,21 @@ function perfMark(name) {
   if (typeof window !== 'undefined' && window.__perfMark) window.__perfMark(name);
 }
 
-/* 历史导航（返回/前进/边缘滑动）**不再特殊处理**（v44）。
-   曾经试过两版：
+/* 历史导航（返回/前进/边缘滑动）的判据，以及它为什么要特殊对待（v50）。
+   判据：`popstate 触发` **且** `history.length 与上次相同`。
+   ⚠️ 只用 popstate 不行 —— Chromium 里程序化改 hash 也触发它（踩过：点导航也被当成返回）。
+   规范上 push 一个历史项会让 length +1，返回/前进不会。
+
+   为什么历史导航**不播入场**（这里是第三个方案，前两个都错）：
      ① 延迟入场动画 → fill:backwards 让卡片在延迟期间保持 opacity:0 → 新页一出现全是隐形 ✗
-     ② 延迟整页对调 → iOS 过渡结束时露出的是实时 DOM，那时它还是旧页 → 先看到旧页再跳 ✗
-   现在就是**立刻对调 + 立刻起入场**：实时 DOM 任何时刻都是对的；
-   整套入场约 930ms，系统过渡只吃掉前 ~300ms，剩下的依然看得见（不需要延迟）。 */
+     ② 延迟整页对调 → 过渡结束时露出的是实时 DOM，那时它还是旧页 → 先看到旧页再跳 ✗
+     ③ 不播入场（现在）—— 因为真机数据证明：**每一次边缘滑动都会把页面冻住约 485ms**
+        （系统挂起明细 4 条 485~489ms，而只切成功 1 次 → 连取消的滑动也各冻一次）
+        在冻结期间创建的动画，等冻结结束时间轴早已走完 → 用户只会看到"落定"或"一片空白"。
+        原生 App 从返回手势回来时也不会重播入场，所以这不播是符合直觉的行为 ✓ */
 let popstateSeen = false;
+let histLen = typeof history !== 'undefined' ? history.length : 0;
+let routeIsHistory = false;
 
 let swReg = null;
 let lastCheck = 0;
