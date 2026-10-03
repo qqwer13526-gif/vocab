@@ -446,11 +446,17 @@ body {
         --nav-hl/-o 边缘高光的位置与亮度（随滚动走，由 src/glass.js 写） */
   --nav-tint: 72%;
   background: color-mix(in srgb, var(--card) var(--nav-tint), transparent);
-  backdrop-filter: blur(20px) saturate(180%);
+  /* v48：20 → 12px。3× 屏幕上这层模糊要在 1170×2391 的面上重算，是最贵的一项；12px 观感差别很小 */
+  backdrop-filter: blur(12px) saturate(180%);
   /* 第二层是玻璃上沿那道细亮边（视频里能看到），不是普通投影 */
   box-shadow: var(--shadow-2), inset 0 1px 0 rgb(255 255 255 / 45%);
   transition: transform var(--dur-ui) var(--ease-out-quint), opacity var(--dur-ui) var(--ease-out-quint);
 }
+/* 切页那 0.45 秒里先摘掉底栏的模糊（v48）：
+   此刻底下的内容正在整体替换，模糊本来也"糊不住"，观感几乎无损；
+   但省掉的是 3× 屏幕上一次全宽模糊重算 —— 真机上滑动返回卡顿的头号嫌疑。 */
+body[data-switching] #tabbar { backdrop-filter: none; }
+
 /* 键盘弹出时把底部导航收起来（否则它会浮在键盘上面） */
 body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; pointer-events: none; }
 

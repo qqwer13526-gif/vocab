@@ -157,6 +157,14 @@ export function show(name, params = {}) {
       //      所以建层/绘制的成本摊在渲染期间，不挤在对调那一帧
       //   ③ 对调 —— 撤掉不可见、藏旧页（同一帧只画最终状态，用户看不到中间态）
       const commitView = () => {
+        // 切页窗口内先关掉底栏模糊（见 style.css 里 body[data-switching] 那条注释）
+        try {
+          document.body.dataset.switching = '1';
+          clearTimeout(commitView.__t);
+          commitView.__t = setTimeout(() => { delete document.body.dataset.switching; }, 450);
+        } catch {
+          /* 无所谓 */
+        }
         window.scrollTo(0, 0);
         if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
         perfMark('entry');

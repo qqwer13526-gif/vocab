@@ -65,8 +65,8 @@ try {
   let frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
   const bar = q(frame, '#tabbar');
   eq('底栏标记为玻璃可用', bar.dataset.glass, 'on');
-  ok('材质还是 v21 量出来的那套（blur + saturate）',
-     css(frame, bar, 'backdrop-filter').includes('blur(20px)') && css(frame, bar, 'backdrop-filter').includes('saturate'),
+  ok('底栏材质（v48：模糊半径 20 → 12px，减轻 3× 屏幕上的重算）',
+     css(frame, bar, 'backdrop-filter').includes('blur(12px)') && css(frame, bar, 'backdrop-filter').includes('saturate'),
      css(frame, bar, 'backdrop-filter'));
   ok('玻璃浓度走 --nav-tint 变量', css(frame, bar, '--nav-tint').length > 0, css(frame, bar, '--nav-tint'));
 
@@ -177,6 +177,31 @@ try {
     `JSON.stringify((document.querySelector('.prac-card')?.getAnimations?.() || []).map((a) => a.effect?.getKeyframes?.().map((k) => k.transform || '').join('|') || ''))`
   ));
   ok('练习卡片没有整页入场动画（拖拽面不能被抢）', pracAnim.filter((x) => x.includes('translateY(9px)')).length === 0, JSON.stringify(pracAnim));
+
+  // ---------------- 3c. 切页时先摘掉底栏模糊（v48：3× 屏幕上它最贵）----------------
+  {
+    const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
+    const bar = q(f, '#tabbar');
+    const blurNow = () => f.contentWindow.getComputedStyle(bar).backdropFilter;
+    ok('平时底栏是毛玻璃（12px）', blurNow().includes('blur(12px)'), blurNow());
+    // 切一次页，切页窗口内模糊应该是 none
+    f.contentWindow.location.hash = '#/settings';
+    const during = await f.contentWindow.eval(`(() => new Promise((resolve) => {
+      const bar = document.getElementById('tabbar');
+      const t0 = performance.now();
+      const tick = () => {
+        const cs = getComputedStyle(bar).backdropFilter;
+        if (document.body.dataset.switching === '1' || cs === 'none') return resolve(cs);
+        if (performance.now() - t0 > 800) return resolve('（没等到）');
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }))()`);
+    ok('切页窗口内底栏模糊被摘掉（省掉全宽模糊重算）', during === 'none', String(during));
+    // 450ms 后要恢复，不能一直关着
+    await new Promise((r) => setTimeout(r, 600));
+    ok('切页窗口过去后模糊恢复', blurNow().includes('blur(12px)'), blurNow());
+  }
 
   // ---------------- 4. 液态：高光随滚动位移 ----------------
   // 首页行太少滚不动 → 塞一个高占位块把页面撑高（只在这个测试里做）
