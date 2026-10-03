@@ -129,6 +129,44 @@ try {
     // 「只给前 N 行」这条在 tests/motion.test.js 里精确验过（cap），这里不重复
   }
 
+  // ---------------- 3a3. 入场期间被"冻住"→ 直接落定（v51 冻结看门狗）----------------
+  {
+    // ⚠️ 不用 openApp()：它会把所有 iframe 删掉重建，前面几节持有的 frame 会变成 null ✗
+    //（detached iframe 的 contentWindow 是 null → 后面某节 `frame.contentWindow.eval` 直接崩）
+    const f = document.createElement('iframe');
+    f.className = 'app-frame';
+    f.style.cssText = 'width:390px;height:844px;border:0;display:block';
+    const loaded = new Promise((r) => f.addEventListener('load', r, { once: true }));
+    f.src = '../../index.html#/settings';
+    document.body.append(f);
+    await loaded;
+    await waitFor(() => f.contentDocument.querySelector('[data-testid="theme-switch"]'), { label: '设置页（冻结用例）' });
+    // ⚠️ 必须等"视图真的可见"再模拟冻结 —— 首页的旧卡片一直留在 DOM 里（只是 hidden），
+    //    在"动画还没建好"的时候忙等，测出来的是假象（踩过 ✗）。
+    const ops = await f.contentWindow.eval(`(() => new Promise((resolve) => {
+      const t0 = performance.now();
+      location.hash = '#/';
+      const poll = () => {
+        const view = document.getElementById('view-home');
+        if (view && !view.hidden && view.children.length) {
+          const cards = [...view.querySelectorAll('.card')];
+          const block = performance.now();
+          while (performance.now() - block < 300) { /* 忙等：模拟 iOS 把页面冻住 */ }
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            resolve(cards.map((c) => +getComputedStyle(c).opacity));
+          }));
+          return;
+        }
+        if (performance.now() - t0 > 4000) return resolve([]);
+        requestAnimationFrame(poll);
+      };
+      poll();
+    }))()`);
+    ok('被冻住后卡片全部落定（没有停在起点的 opacity:0）',
+       ops.length > 0 && ops.every((o) => o > 0.9), `opacity: [${ops.join(',')}]`);
+    f.remove();
+  }
+
   // ---------------- 3b. 切页重播：底部导航换个页面，整页卡片依次落进来 ----------------
   // 去导入页：这一页的卡片也要入场（初次只有 1 张可见卡片，其余在 hidden 的 import-work 里）
   clearLog();
@@ -384,12 +422,10 @@ try {
       ok('点导航切页：入场立刻开始（delay 0）',
          byTap.length > 0 && Math.min(...byTap.map((a) => a.delay)) === 0,
          byTap.map((a) => a.delay).join(','));
-      // v50：历史导航**不播**入场 —— 真机数据（v49 浮层）显示每一次边缘滑动都会把页面冻住
-      // 约 485ms（明细 4 条 485~489ms，而只切成功 1 次 → 连取消的滑动也各冻一次）。
-      // 在冻结期间创建的动画，等冻结结束时间轴早已走完，用户只会看到"落定"或"一片空白"。
-      // 原生 App 从返回手势回来时也不重播入场，所以不播才是符合直觉的。
-      ok('历史返回：**不播**入场（冻住的那 485ms 里播了也看不见）',
-         byHistory.length === 0, `${byHistory.length} 条动画`);
+      // v51：返回也会播入场 —— 只有"实测到冻结"时才落定（点返回不冻结，入场完全看得见）。
+      // v50 曾按"历史导航"一律跳过，结果把"点返回"也砍了 ✗（用户当场发现）。
+      ok('历史返回（点返回按钮）：照样播入场（不再按导航类型一刀切）',
+         byHistory.length > 0, `${byHistory.length} 条动画`);
       eq('历史返回：判据认出这是历史导航', f.contentWindow.document.body.dataset.lastNav, 'history');
       eq('点导航：判据认出这是点导航（Chromium 里改 hash 也会触发 popstate，必须靠 history.length 区分）',
          pointNavKind, 'tap');

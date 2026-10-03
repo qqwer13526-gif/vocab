@@ -157,9 +157,9 @@ export function show(name, params = {}) {
       //      所以建层/绘制的成本摊在渲染期间，不挤在对调那一帧
       //   ③ 对调 —— 撤掉不可见、藏旧页（同一帧只画最终状态，用户看不到中间态）
       const commitView = () => {
-        // 历史导航（返回/前进/边缘滑动）不播入场：那段时间页面被系统冻住，播了也看不到，
-        // 反而会停在第一帧（一片空白）。原生 App 返回时也不重播。详见文件上方 routeIsHistory 的注释。
-        const skipEntry = routeIsHistory;
+        // v51：不再"按导航类型跳过入场"（v50 那样会把"点返回"也一起砍掉 ✗ ——
+        // 点返回并不冻结页面，入场完全看得见）。现在一律播，只由 motion.js 的冻结看门狗
+        // 在**实测到冻结**时把它们落定（见 motion.js 的 armSuspensionWatch）。
         routeIsHistory = false;
         // 切页窗口内先关掉底栏模糊（见 style.css 里 body[data-switching] 那条注释）
         try {
@@ -170,7 +170,7 @@ export function show(name, params = {}) {
           /* 无所谓 */
         }
         window.scrollTo(0, 0);
-        if (name !== 'practice' && !skipEntry) staggerPage(view, { scope: `page:${name}` });
+        if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
         perfMark('entry');
         if (view) {
           view.hidden = false;

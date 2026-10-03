@@ -99,8 +99,12 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, o
   lastGen.set(scope, stamp);
   if (reduced || played) return;
   const list = rows.slice(0, cap);
+  // 看门狗：入场期间页面要是被系统冻住（iOS 交互式返回、切后台都会），
+  // 这段动画的时间轴就已经作废了 —— 与其让用户看到"停在起点的空白"，不如直接落定。
+  armSuspensionWatch();
   // 整批上限只做"兜底"：卡片特别多时才缩短步长（正常情况下 90ms 一步是有意为之）
   const useStep = list.length > 1 ? Math.min(step, Math.max(24, (ENTRY_TOTAL_MS - ENTRY_MS) / (list.length - 1))) : step;
+  const running = [];
   list.forEach((r, i) => {
     if (!r.animate) return;
     const anim = r.animate(entryFrames(offset, scale), {
@@ -110,9 +114,11 @@ export function staggerIn(nodes, { scope = '', step = STEP, cap = MAX_STAGGER, o
       easing: 'ease-out',
       fill: 'backwards'
     });
+    running.push(anim);
     // 跑完把动画撤掉，别让合成层一直挂着
     anim.addEventListener?.('finish', () => anim.cancel());
   });
+  watchTargets = running;
 }
 
 /**
@@ -132,6 +138,45 @@ export function entryFrames(offset = 26, scale = 1) {
     { opacity: 1, transform: `translate3d(0, ${(over * 0.27).toFixed(2)}px, 0) ${s0}`, offset: 0.82 },
     { opacity: 1, transform: `translate3d(0, 0, 0) ${s0}`, offset: 1 }
   ];
+}
+
+/* ---------------- 冻结看门狗 ----------------
+ * 为什么需要：iOS 的交互式返回（边缘滑动）会把页面整段冻住（真机实测约 485ms），
+ * 这段时间里创建的入场动画，等冻结束时间轴早已走完 → 用户只看到"停在起点的空白"。
+ * 做法：入场开始后盯 rAF 间隔，一旦发现 > 200ms 的断层，就把当前这批动画直接 finish() 落定。
+ * 于是"点返回/点导航"（没有冻结）照样看得到完整入场 ✓，"滑动返回"（被冻住）则立刻落定 ✓
+ * —— 不猜手势，只看实测。
+ */
+const SUSPEND_GAP_MS = 200;
+const WATCH_MS = 1300;   // 覆盖整段入场（≈930ms）
+let watchTargets = [];
+let watchUntil = 0;
+let watchLast = 0;
+let watchRaf = 0;
+
+function armSuspensionWatch() {
+  if (typeof requestAnimationFrame !== 'function') return;
+  const now0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  watchUntil = now0 + WATCH_MS;
+  watchLast = 0;
+  if (watchRaf) return;
+  const tick = (now) => {
+    const t = now || (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (watchLast && t - watchLast > SUSPEND_GAP_MS) {
+      // 被冻住了：这批入场已经作废 → 直接落定，别留一片空白
+      for (const a of watchTargets) {
+        try { a.finish(); } catch { /* 已经结束就算了 */ }
+      }
+      watchTargets = [];
+    }
+    watchLast = t;
+    if (t < watchUntil) watchRaf = requestAnimationFrame(tick);
+    else {
+      watchRaf = 0;
+      watchTargets = [];
+    }
+  };
+  watchRaf = requestAnimationFrame(tick);
 }
 
 /**
