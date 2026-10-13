@@ -12,7 +12,7 @@
    做法：先把数据塞进 IndexedDB，再把真正的应用装进 iframe，等它渲染完，断言 DOM。
    跑法：python tool/browser_test.py tests/browser/ui-home.test.html
 */
-import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+import { click, eq, holdLoad, ok, openApp, report, type, wait, waitFor } from './harness.js';
 
 const release = holdLoad();
 const NOW = Date.now();
@@ -221,6 +221,80 @@ try {
   await waitFor(() => frame.contentDocument.querySelector('[data-testid="lib-row"]'), { label: '回到首页' });
   ok('首页不会渲染出多余的 "null" 文本', !frame.contentDocument.querySelector('#view-home').textContent.includes('null'),
      frame.contentDocument.querySelector('#view-home').textContent.slice(-80));
+  // ---------------- 6. v52：子词库（首页树：收起/展开、新建、移出、统计含子库）----------------
+  {
+    // 造一棵树：四级（父，1 个自己的词）+ Unit 1（子，2 个词）
+    await db.wipeAll();
+    await db.put('libs', { id: 'lib-t', name: '四级', color: '#3b5bff', order: 0, updatedAt: NOW });
+    await db.put('libs', { id: 'lib-t1', name: 'Unit 1', order: 0, parentId: 'lib-t', updatedAt: NOW });
+    for (const id of ['a1', 'a2', 'a3']) {
+      await db.put('words', { id, term: id.toUpperCase(), termNorm: id, meanings: ['释义'], createdAt: NOW, updatedAt: NOW });
+    }
+    await db.put('links', { id: 'a1|lib-t', wordId: 'a1', libId: 'lib-t', addedAt: NOW, updatedAt: NOW });
+    await db.put('links', { id: 'a2|lib-t1', wordId: 'a2', libId: 'lib-t1', addedAt: NOW, updatedAt: NOW });
+    await db.put('links', { id: 'a3|lib-t1', wordId: 'a3', libId: 'lib-t1', addedAt: NOW, updatedAt: NOW });
+
+    const f = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+    const libRow = (fr, id) => [...fr.contentDocument.querySelectorAll('[data-testid="lib-row"]')].find((r) => r.dataset.lib === id);
+    // ⚠️ 这个套件本身只定义了 rowOf/txt，没有 q/qa —— 别去蹭同名全局（会一直返回 null，表现为"等不到"✗）
+    const q = (fr, sel) => fr.contentDocument.querySelector(sel);
+    const qa = (fr, sel) => [...fr.contentDocument.querySelectorAll(sel)];
+    const parent = libRow(f, 'lib-t');
+    ok('父库行存在', !!parent);
+    const kid = () => libRow(f, 'lib-t1');
+    ok('子库行也在 DOM 里', !!kid());
+    ok('默认**收起**（子库那行是 hidden 的）', kid().hidden === true || !!kid().closest('[hidden]'));
+
+    // 父库的统计要含子库：a1 + a2 + a3 = 3
+    ok('父库的「共 N 词」包含子库的词', /共\s*3\s*词/.test(txt(parent.querySelector('.lib-meta'))), txt(parent.querySelector('.lib-meta')));
+
+    // 展开
+    const expand = parent.querySelector('[data-testid="lib-expand"]');
+    ok('有子库的父行才有展开箭头', !!expand);
+    if (!expand) {
+      // 功能还没做：干净地停在这里，别让后面的断言级联崩掉
+    } else {
+    eq('箭头默认 aria-expanded=false', expand.getAttribute('aria-expanded'), 'false');
+    click(expand);
+    await waitFor(() => kid().hidden === false && !kid().closest('[hidden]'), { label: '子库行展开' });
+    eq('展开后 aria-expanded=true', expand.getAttribute('aria-expanded'), 'true');
+    ok('子库行标记了属于哪个父库', kid().dataset.parent === 'lib-t');
+    ok('子库行有缩进类名', kid().classList.contains('is-child'));
+    ok('父行本身没有缩进类名', !parent.classList.contains('is-child'));
+    ok('子库的统计只算自己（2 个词）', /共\s*2\s*词/.test(txt(kid().querySelector('.lib-meta'))), txt(kid().querySelector('.lib-meta')));
+
+    // 父库菜单：新建子词库
+    click(parent.querySelector('[data-testid="btn-lib-more"]'));
+    await waitFor(() => q(f, '[data-testid="lib-menu"]'), { label: '父库菜单' });
+    // 菜单张开后不该自己消失（父行多了展开箭头之后回落过一次 ✗）
+    await wait(400);
+    ok('父库菜单打开后保持打开（不会自己消失）', !!q(f, '[data-testid="lib-menu"]'), f.contentWindow.location.hash);
+    const newChild = q(f, '[data-testid="btn-lib-menu-newchild"]');
+    ok('父库菜单里有「新建子词库」', !!newChild, '');
+    click(newChild);
+    await waitFor(() => q(f, '[data-testid="newlib-form"]'), { label: '新建子库表单' });
+    type(q(f, '[data-testid="newlib-form"] input[name="name"]'), 'Unit 2');
+    click(q(f, '[data-testid="btn-newlib-ok"]'));
+    await waitFor(async () => (await db.all('libs')).some((l) => l.name === 'Unit 2' && l.parentId === 'lib-t'),
+             { label: '子库建好（parentId 正确）' });
+    const created = (await db.all('libs')).find((l) => l.name === 'Unit 2');
+    ok('新建的子库挂在父库下，不是顶层', created.parentId === 'lib-t');
+    ok('新建的子库 order 在兄弟之间排队（不受顶层影响）', created.order === 1, String(created.order));
+    await waitFor(() => (() => { const r = libRow(f, created.id); return r && r.hidden === false; })(), { label: '新子库直接可见（父库自动展开）' });
+
+    // 子库菜单：移出到顶层
+    click(libRow(f, created.id).querySelector('[data-testid="btn-lib-more"]'));
+    await waitFor(() => q(f, '[data-testid="lib-menu"]'), { label: '子库菜单' });
+    const unparent = q(f, '[data-testid="btn-lib-menu-unparent"]');
+    ok('子库菜单里有「移出到顶层」', !!unparent);
+    click(unparent);
+    await waitFor(async () => !(await db.all('libs')).find((l) => l.id === created.id).parentId, { label: '已移出' });
+    const moved = (await db.all('libs')).find((l) => l.id === created.id);
+    ok('移出后 parentId 清掉了', !moved.parentId);
+    await waitFor(() => { const r = libRow(f, created.id); return r && !r.classList.contains('is-child'); }, { label: '变成顶层行' });
+    }
+  }
+
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

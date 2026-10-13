@@ -327,6 +327,45 @@ try {
 
   const smartWordFrame = await openApp({ hash: '#/word?smart=smart%3Aunfamiliar', sel: '#view-word:not([hidden])' });
   ok('智能库自己的页面不重复显示内置块', !q(smartWordFrame, '[data-testid="builtin-smart"]'));
+  // ---------------- 20. v52：进父库显示子库 chips；进子库显示面包屑 ----------------
+  {
+    await db.put('libs', { id: 'lib-w', name: '四级', color: '#3b5bff', order: 0, updatedAt: NOW });
+    await db.put('libs', { id: 'lib-w1', name: 'Unit 1', order: 0, parentId: 'lib-w', updatedAt: NOW });
+    await db.put('libs', { id: 'lib-w2', name: 'Unit 2', order: 1, parentId: 'lib-w', updatedAt: NOW });
+    const mk = async (id, term, libId) => {
+      await db.put('words', { id, term, termNorm: term.toLowerCase(), meanings: ['释义'], createdAt: NOW, updatedAt: NOW });
+      await db.put('links', { id: `${id}|${libId}`, wordId: id, libId, addedAt: NOW, updatedAt: NOW });
+    };
+    await mk('pw1', 'ParentWord', 'lib-w');
+    await mk('cw1', 'ChildOne', 'lib-w1');
+    await mk('cw2', 'ChildTwo', 'lib-w2');
+
+    const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+    const f = await openApp({ hash: '#/word?lib=lib-w', sel: '[data-testid="sublib-chips"]' });
+    const chips = qa(f, '[data-testid="sublib-chip"]');
+    eq('父库页有 3 个 chip：全部 + 2 个子库', chips.length, 3);
+    eq('第一个是「全部」', txt(chips[0]), '全部');
+    ok('默认选中「全部」', chips[0].getAttribute('aria-pressed') === 'true');
+    const terms = () => qa(f, '[data-testid="word-row"]').map((r) => txt(r.querySelector('.word-term')));
+    ok('默认列出父库 + 子库的全部词', terms().includes('ParentWord') && terms().includes('ChildOne') && terms().includes('ChildTwo'), terms().join(','));
+
+    // 点「Unit 1」→ 只剩子库 1 的词
+    const chip1 = chips.find((c) => txt(c) === 'Unit 1');
+    click(chip1);
+    await waitFor(() => terms().length === 1, { label: '按子库筛过' });
+    ok('点子库 chip 只列该子库的词', terms().join(',') === 'ChildOne', terms().join(','));
+
+    // ⚠️ 下面会再 openApp（会把旧 iframe 删掉）→ 关于**父库页**的断言必须放在这之前 ✗
+    ok('父库页**没有**面包屑（顶层库不需要）', !q(f, '[data-testid="lib-breadcrumb"]'));
+
+    // 进子库页 → 面包屑回父库
+    const f2 = await openApp({ hash: '#/word?lib=lib-w1', sel: '[data-testid="lib-breadcrumb"]' });
+    ok('子库页有面包屑', !!q(f2, '[data-testid="lib-breadcrumb"]'));
+    ok('面包屑写着父库名字', txt(q(f2, '[data-testid="lib-breadcrumb"]')).includes('四级'), txt(q(f2, '[data-testid="lib-breadcrumb"]')));
+    click(q(f2, '[data-testid="lib-breadcrumb"]'));
+    await waitFor(() => f2.contentWindow.location.hash === '#/word?lib=lib-w', { label: '点面包屑回父库' });
+  }
+
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

@@ -165,7 +165,11 @@ export async function renderImport() {
   function renderLibs() {
     libBox.replaceChildren(
       ...data.libs.map((lib) =>
-        el('label', { className: 'lib-check-label' }, [
+        el('label', {
+          // v52：子词库在选择列表里缩进，并标出父库 id（父库、子库是各自独立的选项，勾谁进谁）
+          className: 'lib-check-label' + (lib.parentId ? ' is-child' : ''),
+          dataset: lib.parentId ? { parent: lib.parentId } : {}
+        }, [
           el('input', {
             type: 'checkbox',
             dataset: { testid: 'lib-check' },

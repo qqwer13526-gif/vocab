@@ -1071,6 +1071,61 @@ body[data-view='practice'] #tabbar { display: none; }
 .level-pill { padding: 4px 8px; border-radius: var(--r-full); font-size: 12px; }
 .level-pill[data-level='known'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok-ink); }
 .level-pill[data-level='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-ink); }
+/* ---------------- 子词库（v52） ---------------- */
+/* 子库行缩进用 margin（整行右移）。别用 padding：那会在左边留一条"看着是行、点了没反应"的带 ✗ */
+.libs .lib-row.is-child {
+  position: relative;
+  margin-left: 22px;
+  margin-right: 6px;
+}
+/* 引导线：让"这几行属于上面那个库"一眼看得出来（只缩进的话看着还是一列平级卡片 ✗） */
+.libs .lib-row.is-child::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0;      /* 上下都顶到头：相邻子行的线段连成一条，而不是断成几节 ✗ */
+  bottom: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+/* 同一个父库下面的子行挨紧一点，父库之间保持原来的 12px —— 形成"组"的节奏 */
+.libs > .lib-row.is-child { margin-top: -4px; }
+.libs > .lib-row.is-child + .lib-row.is-child { margin-top: -4px; }
+.lib-actions { display: flex; align-items: center; gap: 2px; }
+.lib-expand {
+  display: grid;
+  place-items: center;
+  min-width: 36px;   /* 点按区域要求 ≥32×24（无障碍测试会量），给足 */
+  min-height: 36px;
+  padding: 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  line-height: 1;
+}
+.lib-expand[aria-expanded='true'] { transform: rotate(90deg); }
+.sublib-chips { margin: 0 0 8px; }
+/* 子库 chips：选中态用**库色**（掌握度那行是强调色）—— 两行不用加标签就能分开 ✓ */
+.sublib-chips .chip[aria-pressed='true'] {
+  border-color: var(--lib-color, var(--accent));
+  color: var(--lib-color, var(--accent-text));
+}
+.sublib-chips .chip { font-size: 12px; }
+.lib-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 4px 8px 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+}
+.lib-check-label.is-child { padding-left: 20px; }
+
 .level-filter { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   min-height: 32px;

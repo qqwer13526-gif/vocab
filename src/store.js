@@ -27,13 +27,51 @@ export async function loadAll() {
   };
 }
 
-/** 某个库里的词 id（去重，且只保留还存在的词） */
+/** 某个库里的词 id（去重，且只保留还存在的词）
+ *
+ * v52 起包含**子词库**的词：父库 = 自己 + 直接子库（只允许一层）。
+ * 为什么是"读时算"而不是往 links 里补冗余归属：数据模型里词库只是标签，
+ * 补冗余就得在新建/移动/删除/导入四处维护一致性，迟早不同步；
+ * 这里 `libWordIds` 是全项目**唯一**的取词入口（练习、统计、词条页都走它），
+ * 所以在这一处认层级，其余地方自动跟着对。
+ */
 export function libWordIds(data, libId) {
   const ids = new Set();
+  const want = new Set(descendantLibIds(data, libId));
   for (const l of data.links) {
-    if (l.libId === libId && data.wordsById.has(l.wordId)) ids.add(l.wordId);
+    if (want.has(l.libId) && data.wordsById.has(l.wordId)) ids.add(l.wordId);
   }
   return [...ids];
+}
+
+/** 一个库 + 它的直接子库（只一层）。父库的取词/统计都用它。 */
+export function descendantLibIds(data, libId) {
+  return [libId, ...childLibs(data, libId).map((l) => l.id)];
+}
+
+/** 直接子库（按 order 排，和顶层用同一套排序） */
+export function childLibs(data, libId) {
+  return data.libs.filter((l) => l.parentId === libId && l.id !== libId);
+}
+
+/** 父库对象；顶层库给 null */
+export function parentOf(data, libId) {
+  const self = data.libs.find((l) => l.id === libId);
+  if (!self || !self.parentId) return null;
+  return data.libs.find((l) => l.id === self.parentId) || null;
+}
+
+/** 首页要的树：顶层库（含各自子库），子库不会重复出现在顶层 */
+export function libTree(data) {
+  return data.libs
+    .filter((l) => !l.parentId || !data.libs.some((p) => p.id === l.parentId))
+    .map((lib) => ({ lib, children: childLibs(data, lib.id) }));
+}
+
+/** 同级的下一个 order（子库在兄弟之间排队，不跟顶层抢） */
+export function nextSiblingOrder(data, parentId) {
+  const siblings = data.libs.filter((l) => (l.parentId || null) === (parentId || null));
+  return siblings.reduce((m, l) => Math.max(m, l.order ?? 0), -1) + 1;
 }
 
 /** 某个库的统计：总词数 / 待复习 / 已掌握（盒子 6）/ 生疏（手动标过「生疏」的）
@@ -86,24 +124,33 @@ export function statsFor(ids, data, now) {
 // 全部是软删除，配一个可撤销快照。
 
 /**
- * 删除一个词库：软删除 它的关联 + 它自己。返回撤销快照。
- * @returns {{libId: string, linkIds: string[], at: number}}
+ * 删除一个词库：软删除 它自己 + 它的**直接子库** + 它们的所有归属关系。返回撤销快照。
+ *
+ * v52：删父库要连子库一起删 —— 否则子库会变成指着一个已删父库的孤儿
+ * （虽然 libTree 会把孤儿当顶层显示，但"删了父库、子库还留着"不是用户要的语义）。
+ * 词本身仍然一个字都不动（词永远在总词库）。
+ *
+ * @returns {{libId: string, childLibIds: string[], linkIds: string[], at: number}}
  */
 export async function deleteLibCascade(data, libId, now = Date.now()) {
-  const linkIds = data.links.filter((l) => l.libId === libId).map((l) => l.id);
+  const childLibIds = childLibs(data, libId).map((l) => l.id);
+  const libIds = [libId, ...childLibIds];
+  const linkIds = data.links.filter((l) => libIds.includes(l.libId)).map((l) => l.id);
   for (const id of linkIds) await softDelete('links', id, now);
-  await softDelete('libs', libId, now);
-  return { libId, linkIds, at: now };
+  for (const id of libIds) await softDelete('libs', id, now);
+  return { libId, childLibIds, linkIds, at: now };
 }
 
-/** 撤销上面那次删除（把 deleted 标记清回去） */
+/** 撤销上面那次删除（把 deleted 标记清回去；老快照没有 childLibIds 也能用） */
 export async function undoDeleteLibCascade(snap) {
   for (const id of snap.linkIds) {
     const row = await get('links', id);
     if (row) await put('links', { ...row, deleted: false, updatedAt: Date.now() });
   }
-  const lib = await get('libs', snap.libId);
-  if (lib) await put('libs', { ...lib, deleted: false, updatedAt: Date.now() });
+  for (const id of [snap.libId, ...(snap.childLibIds || [])]) {
+    const lib = await get('libs', id);
+    if (lib) await put('libs', { ...lib, deleted: false, updatedAt: Date.now() });
+  }
 }
 
 /** 中文的"今天/明天"式日期，界面统一用它 */

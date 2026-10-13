@@ -15,7 +15,7 @@ import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { countUp } from './motion.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { setAmbient } from './theme.js';
-import { libWordIds, loadAll, nextLibOrder, PALETTE } from './store.js';
+import { childLibs, libWordIds, loadAll, nextLibOrder, PALETTE, parentOf } from './store.js';
 import { showToast } from './toast.js';
 
 export async function renderWord(params = {}) {
@@ -31,6 +31,10 @@ async function renderList(view, params, data) {
   const smart = isSmartId(params.smart) ? smartDef(params.smart) : null;
   const libId = smart ? null : params.lib || null;
   const lib = libId ? data.libs.find((l) => l.id === libId) : null;
+  // v52 子词库：进父库时能只看某个子库；进子库时给一条回父库的面包屑
+  const kids = libId ? childLibs(data, libId) : [];
+  const parentLib = libId ? parentOf(data, libId) : null;
+  let subLibId = null;
   setAmbient(smart?.color || lib?.color); // 氛围光：进哪个库就染哪个色（总词库用品牌色）
   const ids = smart ? smartWordIds(data, smart.id) : libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
   const words = ids
@@ -83,6 +87,34 @@ async function renderList(view, params, data) {
     chip('unfamiliar', `生疏 ${counts.unfamiliar}`),
     chip('none', `未标 ${counts.none}`)
   ]);
+
+  // 子库筛选条（只在"这个库有子库"时出现）。父库默认列出"全部 = 自己 + 子库"。
+  const subChips = kids.length
+    ? el('div', {
+        className: 'level-filter sublib-chips',
+        dataset: { testid: 'sublib-chips' },
+        style: { '--lib-color': lib?.color || 'var(--accent)' }   // 选中态用库色，跟掌握度那行区分开
+      }, [
+        subChip(null, '全部'),
+        ...kids.map((k) => subChip(k.id, k.name))
+      ])
+    : null;
+
+  function subChip(id, label) {
+    return el('button', {
+      className: 'chip',
+      type: 'button',
+      dataset: id ? { testid: 'sublib-chip', lib: id } : { testid: 'sublib-chip' },
+      'aria-pressed': String(subLibId === id),
+      onclick: (e) => {
+        subLibId = id;
+        for (const b of e.currentTarget.parentElement.children) {
+          b.setAttribute('aria-pressed', String((b.dataset.lib || null) === id));
+        }
+        paint();
+      }
+    }, label);
+  }
 
   function chip(key, label) {
     return el('button', {
@@ -161,7 +193,12 @@ async function renderList(view, params, data) {
     const searched = nq
       ? words.filter((w) => w.termNorm.includes(nq) || w.meanings.join(' ').toLowerCase().includes(query.toLowerCase()))
       : words;
-    const filtered = levelFilter === 'all' ? searched : searched.filter((w) => (levelOf(w) || 'none') === levelFilter);
+    let filtered = levelFilter === 'all' ? searched : searched.filter((w) => (levelOf(w) || 'none') === levelFilter);
+    // v52：父库页选了某个子库 → 只留那个子库的词
+    if (subLibId) {
+      const inSub = new Set(libWordIds(data, subLibId));
+      filtered = filtered.filter((w) => inSub.has(w.id));
+    }
 
     count.textContent = `${filtered.length} 个词${query || levelFilter !== 'all' ? `（共 ${words.length}）` : ''}`;
     list.replaceChildren();
@@ -343,10 +380,19 @@ async function renderList(view, params, data) {
   view.replaceChildren(...[
     el('div', { className: 'word-head' }, [
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
+      parentLib
+        ? el('button', {
+            className: 'lib-breadcrumb',
+            dataset: { testid: 'lib-breadcrumb' },
+            type: 'button',
+            title: `回到「${parentLib.name}」`,
+            onclick: () => { location.hash = `#/word?lib=${encodeURIComponent(parentLib.id)}`; }
+          }, [icon('chevronLeft', { size: 16 }), el('span', {}, parentLib.name)])
+        : null,
       el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
-    ]),
+    ].filter(Boolean)),
     builtin,
-    el('div', { className: 'card word-tools' }, [search, count, chips, tools, status]),
+    el('div', { className: 'card word-tools' }, [search, count, subChips, chips, tools, status].filter(Boolean)),
     list
   ].filter(Boolean));
   paint();

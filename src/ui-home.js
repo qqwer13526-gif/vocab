@@ -19,16 +19,22 @@ import { icon } from './icons.js';
 import {
   PALETTE,
   allWordIds,
+  childLibs,
   deleteLibCascade,
   libStats,
+  libTree,
   loadAll,
   nextLibOrder,
+  nextSiblingOrder,
   statsFor,
   undoDeleteLibCascade
 } from './store.js';
 import { countUp } from './motion.js';
 import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
+
+/** 哪些父库是展开的（v52）。放在模块级：重渲染（改完名、建完子库）之后展开状态要保住 */
+const expanded = new Set();
 
 export async function renderHome() {
   setAmbient(); // 首页没有单一库色 → 回到品牌色柔光
@@ -61,32 +67,57 @@ export async function renderHome() {
   // ---------------------------------------------------------------- 我的词库
   const list = el('section', { className: 'libs' });
 
-  for (const lib of data.libs) {
+  // v52：按树渲染 —— 每个顶层库一行，它的子库紧跟其后（缩进、默认收起）
+  for (const { lib, children } of libTree(data)) {
+    let childRows = [];
+    const open = expanded.has(lib.id);
+    const parentColor = lib.color || PALETTE[0];
     list.append(
       libRow({
         testid: 'lib-row',
         lib: lib.id,
         name: lib.name,
-        color: lib.color || PALETTE[0],
-        stats: libStats(data, lib.id, now),
+        color: parentColor,
+        stats: libStats(data, lib.id, now),   // 统计自动含子库（libWordIds 认层级）
+        expand: children.length ? {
+          open,
+          count: children.length,
+          // ⚠️ 子行自己去 DOM 里找（别从外部传进来：这段代码在 libRow 内部，看不见循环里的变量 ✗）
+          toggle: (btn) => {
+            const next = !expanded.has(lib.id);
+            if (next) expanded.add(lib.id);
+            else expanded.delete(lib.id);
+            btn.setAttribute('aria-expanded', String(next));
+            for (const r of btn.closest('.libs').querySelectorAll(`[data-parent="${lib.id}"]`)) r.hidden = !next;
+          }
+        } : null,
         onPractice: () => {
           location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`;
         },
         menu: [
           { testid: 'btn-lib-menu-practice', icon: 'list', label: '练整库', run: () => { location.hash = `#/practice?lib=${encodeURIComponent(lib.id)}`; } },
+          {
+            testid: 'btn-lib-menu-newchild',
+            icon: 'plus',
+            label: '新建子词库',
+            // ⚠️ 菜单是**行的兄弟**（toggleMenu 把菜单插在行后面），所以 item.closest('.lib-row') 是 null ✗
+            //    取菜单的前一个兄弟就是那一行 ✓
+            run: (menu) => openNewLibForm(menu.previousElementSibling, data, lib.id)
+          },
           { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, lib) },
           {
             testid: 'btn-lib-menu-delete',
             icon: 'trash',
-            label: '删除词库',
+            label: children.length ? `删除词库（含 ${children.length} 个子词库）` : '删除词库',
             danger: true,
             // 两步确认由 toggleMenu 在"建元素时"装上（见那里的注释）
             confirm: async () => {
               const snap = await deleteLibCascade(data, lib.id);
               closeMenu();
-              // 正在看/正在练这个库的话，路径已经失效 → 回首页
-              if (location.hash.includes(encodeURIComponent(lib.id))) location.hash = '#/';
-              showToast(`已删除「${lib.name}」，${snap.linkIds.length} 个词还在总词库里`, {
+              // 正在看/正在练这个库（或它的子库）的话，路径已经失效 → 回首页
+              const gone = [lib.id, ...snap.childLibIds];
+              if (gone.some((id) => location.hash.includes(encodeURIComponent(id)))) location.hash = '#/';
+              showToast(`已删除「${lib.name}」${snap.childLibIds.length ? `及 ${snap.childLibIds.length} 个子词库` : ''}，${snap.linkIds.length} 个词还在总词库里`, {
                 kind: 'ok',
                 action: {
                   label: '撤销',
@@ -102,6 +133,59 @@ export async function renderHome() {
         ]
       })
     );
+
+    childRows = children.map((kid) =>
+        libRow({
+          testid: 'lib-row',
+          lib: kid.id,
+          childOf: lib.id,
+          hidden: !open,
+          name: kid.name,
+          color: kid.color || parentColor,
+          stats: libStats(data, kid.id, now),
+          onPractice: () => {
+            location.hash = `#/practice?lib=${encodeURIComponent(kid.id)}`;
+          },
+          menu: [
+            { testid: 'btn-lib-menu-practice', icon: 'list', label: '练整库', run: () => { location.hash = `#/practice?lib=${encodeURIComponent(kid.id)}`; } },
+            {
+              testid: 'btn-lib-menu-unparent',
+              icon: 'undo',
+              label: '移出到顶层',
+              run: async () => {
+                const next = { ...kid, order: nextSiblingOrder(data, null), updatedAt: Date.now() };
+                delete next.parentId;
+                await put('libs', next);
+                await renderHome();
+              }
+            },
+            { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, kid) },
+            {
+              testid: 'btn-lib-menu-delete',
+              icon: 'trash',
+              label: '删除词库',
+              danger: true,
+              confirm: async () => {
+                const snap = await deleteLibCascade(data, kid.id);
+                closeMenu();
+                if (location.hash.includes(encodeURIComponent(kid.id))) location.hash = '#/';
+                showToast(`已删除「${kid.name}」，${snap.linkIds.length} 个词还在总词库里`, {
+                  kind: 'ok',
+                  action: {
+                    label: '撤销',
+                    onClick: async () => {
+                      await undoDeleteLibCascade(snap);
+                      await renderHome();
+                    }
+                  }
+                });
+                await renderHome();
+              }
+            }
+          ]
+        })
+    );
+    for (const r of childRows) list.append(r);
   }
 
   if (!data.libs.length) {
@@ -141,7 +225,7 @@ export async function renderHome() {
   /** 一行的 DOM：总词库 / 词库 / 智能库共用一套（保证等高、等距、同圆角）。
    *  点名字 = 练这一组；右侧要么是 ⋯ 菜单（多个动作），要么是一个箭头（只有一个动作）。
    *  ◎ meta 给了就不画进度条（智能库那两行不画"掌握率"，那是没意义的数据）。 */
-  function libRow({ testid, lib = null, smart = null, name, color, stats = null, badge = '', meta = '', metaTestid = '', onPractice, menu = null, trailing = null }) {
+  function libRow({ testid, lib = null, smart = null, childOf = null, hidden = false, expand = null, name, color, stats = null, badge = '', meta = '', metaTestid = '', onPractice, menu = null, trailing = null }) {
     // 数字拆成独立的 span：练完一轮回到首页时它们会"滚"上去（v33 的码表滚动），而不是硬跳
     const num = (value, suffix, keyPart) => {
       const n = el('span', { dataset: { num: `home:${lib || smart || testid}:${keyPart}` } });
@@ -172,7 +256,7 @@ export async function renderHome() {
         onclick: trailing.run
       }, [icon(trailing.icon, { size: 20 })]);
     } else {
-      action = el('button', {
+      const more = el('button', {
         className: 'lib-more',
         dataset: { testid: 'btn-lib-more' },
         type: 'button',
@@ -180,9 +264,26 @@ export async function renderHome() {
         'aria-expanded': 'false',
         onclick: (e) => {
           e.stopPropagation(); // 别顺带把整行的"进词库"也触发了
-          toggleMenu(action, menu);
+          toggleMenu(more, menu);
         }
       }, [icon('more', { size: 20 })]);
+      if (expand) {
+        // 有子库才给展开箭头（v52）。点它只切换子行的显隐，不进库、不重渲染。
+        const btn = el('button', {
+          className: 'lib-expand',
+          dataset: { testid: 'lib-expand' },
+          type: 'button',
+          'aria-label': `展开「${name}」的 ${expand.count} 个子词库`,
+          'aria-expanded': String(!!expand.open),
+          onclick: (e) => {
+            e.stopPropagation();
+            expand.toggle(btn);
+          }
+        }, [icon('chevronRight', { size: 18 })]);
+        action = el('div', { className: 'lib-actions' }, [btn, more]);
+      } else {
+        action = more;
+      }
     }
 
     // 整行可点 = 进词库页（v23）：拇指不用精准点中名字。⋯ 会 stopPropagation，点它不会顺带进库。
@@ -190,9 +291,9 @@ export async function renderHome() {
       if (testid === 'all-lib-row') location.hash = '#/word';
       else if (lib) location.hash = `#/word?lib=${encodeURIComponent(lib)}`;
     };
-    return el('div', {
-      className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : '') + (smart ? ' smart-row' : ''),
-      dataset: lib ? { testid, lib } : smart ? { testid, smart } : { testid },
+    const row = el('div', {
+      className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : '') + (smart ? ' smart-row' : '') + (childOf ? ' is-child' : ''),
+      dataset: childOf ? { testid, lib, parent: childOf } : lib ? { testid, lib } : smart ? { testid, smart } : { testid },
       onclick: open
     }, [
       el('span', { className: 'lib-dot', style: { background: color } }),
@@ -223,6 +324,8 @@ export async function renderHome() {
       ].filter(Boolean)),
       action
     ]);
+    row.hidden = !!hidden;
+    return row;
   }
 
   /** ⋯ 菜单：行内展开（和"新建词库"同一套模式），不是弹窗 */
@@ -311,8 +414,12 @@ export async function renderHome() {
   /** 删除词库：两步确认由 toggleMenu 装；这里不再自己调 confirmThen */
 }
 
-/** 内联的新建词库表单（不用浏览器 prompt：难看、手机上体验也差） */
-function openNewLibForm(anchor, data) {
+/** 内联的新建词库表单（不用浏览器 prompt：难看、手机上体验也差）
+ *
+ * v52：带 parentId 时是"新建**子**词库" —— 序号在兄弟之间排队（nextSiblingOrder），
+ * 建完自动把父库展开，不然用户会觉得"点了创建怎么没反应"。
+ */
+function openNewLibForm(anchor, data, parentId = null) {
   const existing = document.querySelector('[data-testid="newlib-form"]');
   if (existing) {
     existing.remove();
@@ -335,7 +442,10 @@ function openNewLibForm(anchor, data) {
     })
   );
 
-  const form = el('form', { className: 'card newlib-form', dataset: { testid: 'newlib-form' } }, [
+  const form = el('form', {
+    className: 'card newlib-form',
+    dataset: parentId ? { testid: 'newlib-form', parent: parentId } : { testid: 'newlib-form' }
+  }, [
     input,
     el('div', { className: 'colors' }, swatches),
     el('div', { className: 'row-2' }, [
@@ -356,10 +466,12 @@ function openNewLibForm(anchor, data) {
       id: crypto.randomUUID(),
       name,
       color,
-      order: nextLibOrder(data.libs),
+      order: parentId ? nextSiblingOrder(data, parentId) : nextLibOrder(data.libs),
+      ...(parentId ? { parentId } : {}),
       createdAt: now,
       updatedAt: now
     });
+    if (parentId) expanded.add(parentId);   // 建在收起的父库下面 = 看不见 → 自动展开
     await renderHome();
   });
 

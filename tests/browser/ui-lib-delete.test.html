@@ -93,7 +93,8 @@ try {
   const store = await import('../../src/store.js');
   const data1 = await store.loadAll();
   const snap = await store.deleteLibCascade(data1, 'lib-b');
-  eq('快照只记库 id 与关联 id，不含任何词 id', Object.keys(snap).sort().join(','), 'at,libId,linkIds');
+  eq('快照只记库 id 与关联 id，不含任何词 id（v52 起多了子库 id，仍然只有库/关联）',
+     Object.keys(snap).sort().join(','), 'at,childLibIds,libId,linkIds');
   eq('再次删除同一个库：词条数不变（2 个词一个没少）', (await store.loadAll()).words.length, 2);
   await store.undoDeleteLibCascade(snap);
   eq('撤销后关联恢复', (await rawLink('w-shared|lib-b')).deleted, false);
@@ -112,6 +113,50 @@ try {
   await waitFor(async () => (await rawLib('lib-b'))?.name === '改过名字的库', { label: '名字写进库' });
   await waitFor(() => txt(libRow(frame3, 'lib-b').querySelector('.lib-name')) === '改过名字的库', { label: '列表刷新' });
   ok('重命名立刻生效', true);
+  // ---------------- 7. v52：删除**父库**要连子库一起删，撤销要一起恢复 ----------------
+  {
+    await db.put('libs', { id: 'lib-p', name: '四级（父）', color: '#3b5bff', order: 5, updatedAt: NOW });
+    await db.put('libs', { id: 'lib-p1', name: '四级 Unit 1', order: 0, parentId: 'lib-p', updatedAt: NOW });
+    await db.put('libs', { id: 'lib-p2', name: '四级 Unit 2', order: 1, parentId: 'lib-p', updatedAt: NOW });
+    await db.put('words', { id: 'w-sub', term: 'w-sub', termNorm: 'w-sub', meanings: ['子库的词'], createdAt: NOW, updatedAt: NOW });
+    await db.put('links', { id: 'w-sub|lib-p1', wordId: 'w-sub', libId: 'lib-p1', addedAt: NOW, updatedAt: NOW });
+
+    const f2 = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+    await waitFor(() => libRow(f2, 'lib-p'), { label: '父库行' });
+    // 展开才看得到子库（先把"有没有展开箭头"断言掉，免得 click(null) 把脚本弄崩、盖住真正的原因）
+    const expandBtn = libRow(f2, 'lib-p').querySelector('[data-testid="lib-expand"]');
+    ok('有子库的父行要带展开箭头', !!expandBtn);
+    if (!expandBtn) {
+      // 功能还没做时，让这一节干净地停在这里（其余断言不再级联崩）
+    } else {
+    click(expandBtn);
+    await waitFor(() => libRow(f2, 'lib-p1'), { label: '子库行' });
+
+    const menuBtn = libRow(f2, 'lib-p').querySelector('[data-testid="btn-lib-more"]');
+    click(menuBtn);
+    await waitFor(() => q(f2, '[data-testid="lib-menu"]'), { label: '父库菜单' });
+    const delItem = q(f2, '[data-testid="btn-lib-menu-delete"]');
+    ok('父库的删除项会点明要连子库一起删', txt(delItem).includes('2 个子词库'), txt(delItem));
+    click(delItem);
+    await waitFor(() => txt(q(f2, '[data-testid="lib-menu"]')).includes('确认'), { label: '确认态' });
+    click(q(f2, '[data-testid="btn-lib-menu-delete"]'));
+    await waitFor(async () => (await rawLib('lib-p')).deleted === true, { label: '父库已软删' });
+
+    ok('子库 1 一起被软删（不会留成孤儿）', (await rawLib('lib-p1')).deleted === true);
+    ok('子库 2 一起被软删', (await rawLib('lib-p2')).deleted === true);
+    ok('子库的归属关系一起被软删', (await rawLink('w-sub|lib-p1')).deleted === true);
+    ok('子库里的词本身一个都没删', (await rawWord('w-sub')).deleted !== true);
+
+    // 撤销：父库、两个子库、归属都要回来
+    await waitFor(() => q(f2, '[data-testid="toast"] .toast-action'), { label: '撤销按钮' });
+    click(q(f2, '[data-testid="toast"] .toast-action'));
+    await waitFor(async () => (await rawLib('lib-p')).deleted !== true, { label: '父库已恢复' });
+    ok('撤销把子库 1 也恢复了', (await rawLib('lib-p1')).deleted !== true);
+    ok('撤销把子库 2 也恢复了', (await rawLib('lib-p2')).deleted !== true);
+    ok('撤销把归属也恢复了', (await rawLink('w-sub|lib-p1')).deleted !== true);
+    }
+  }
+
 } catch (e) {
   ok('删除词库测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }

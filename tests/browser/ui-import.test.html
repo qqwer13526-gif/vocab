@@ -217,6 +217,21 @@ try {
   const ab = (await db.all('words')).find((w) => w.termNorm === 'absorb');
   ok('Excel 里的词带着释义进库了', ab && ab.meanings.length === 2, JSON.stringify(ab?.meanings));
   eq('词性也从 Excel 里带进来了', ab.pos, 'v.');
+  // ---------------- 12. v52：选择词库的列表里，子库要缩进并标出父库 ----------------
+  {
+    await db.put('libs', { id: 'lib-i', name: '四级', color: '#3b5bff', order: 0, updatedAt: NOW });
+    await db.put('libs', { id: 'lib-i1', name: 'Unit 1', order: 0, parentId: 'lib-i', updatedAt: NOW });
+    const f = await openApp({ hash: '#/import', sel: '[data-testid="lib-checks"]' });
+    const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+    const labels = qa(f, '[data-testid="lib-checks"] .lib-check-label');
+    const childLabel = labels.find((l) => txt(l).includes('Unit 1'));
+    ok('子库在选择列表里也存在', !!childLabel);
+    ok('子库那一条带 is-child 缩进类', childLabel.classList.contains('is-child'));
+    ok('子库那条标了父库 id（便于样式/测试定位）', childLabel.dataset.parent === 'lib-i');
+    const parentLabel = labels.find((l) => txt(l).includes('四级'));
+    ok('父库那条没有缩进类', !parentLabel.classList.contains('is-child'));
+  }
+
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));
 }
