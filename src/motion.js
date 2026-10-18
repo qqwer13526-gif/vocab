@@ -191,7 +191,15 @@ export function staggerPage(root, { scope = 'page', step = STEP, cap = null, off
     if (child.hidden || child.classList.contains('word-head')) continue; // 返回+标题是外壳，不动
     if (child.classList.contains('card')) { blocks.push(child); continue; }
     for (const inner of child.children || []) {
-      if (inner.classList.contains('card') || inner.classList.contains('newlib-row')) blocks.push(inner);
+      if (inner.classList.contains('card') || inner.classList.contains('newlib-row')) {
+        blocks.push(inner);
+        continue;
+      }
+      // v54：左滑包层（.swipe-item > .card.word-row）—— 动画要挂**里面那张卡**上，
+      // 包层自己不能动（它要做裁剪框，动了会和左滑的 transform 打架）
+      for (const deep of inner.children || []) {
+        if (deep.classList.contains('card')) blocks.push(deep);
+      }
     }
   }
   // 只给"这一屏看得见的卡片"做交错（v40）：

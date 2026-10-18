@@ -4,7 +4,7 @@
  * 不做增量索引——简单、够快、不会有缓存不同步的 bug。
  */
 
-import { all, get, put, softDelete } from './db.js';
+import { all, get, hardDelete, put, softDelete } from './db.js';
 import { MAX_BOX } from './srs.js';
 
 export const PALETTE = ['#3b5bff', '#ff9f0a', '#34c759', '#ff375f', '#af52de', '#5ac8fa'];
@@ -151,6 +151,33 @@ export async function undoDeleteLibCascade(snap) {
     const lib = await get('libs', id);
     if (lib) await put('libs', { ...lib, deleted: false, updatedAt: Date.now() });
   }
+}
+
+// ---------------------------------------------------------------- 删除单个词（v54）
+//
+// 语义（用户定）：左滑露出的「删除」= **彻底删除** —— 词 + 它在所有库里的归属 + 练习进度，
+// 一起删掉（软删，配 6 秒撤销）。
+// ⚠️ 进度用 hardDelete 真删：软删的 prog 会让这个词被当成"已经练过"，进不了新词队列 ✗
+
+/** @returns {{wordId: string, linkIds: string[], prog: object|null, at: number}} */
+export async function deleteWordCascade(data, wordId, now = Date.now()) {
+  const linkIds = data.links.filter((l) => l.wordId === wordId).map((l) => l.id);
+  for (const id of linkIds) await softDelete('links', id, now);
+  const prog = (await get('prog', wordId)) || null;
+  if (prog) await hardDelete('prog', wordId);
+  await softDelete('words', wordId, now);
+  return { wordId, linkIds, prog, at: now };
+}
+
+/** 撤销上面那次删除（词、归属、进度全部回来） */
+export async function undoDeleteWord(snap) {
+  for (const id of snap.linkIds || []) {
+    const row = await get('links', id);
+    if (row) await put('links', { ...row, deleted: false, updatedAt: Date.now() });
+  }
+  if (snap.prog) await put('prog', { ...snap.prog, updatedAt: Date.now() });
+  const w = await get('words', snap.wordId);
+  if (w) await put('words', { ...w, deleted: false, updatedAt: Date.now() });
 }
 
 /** 中文的"今天/明天"式日期，界面统一用它 */

@@ -16,7 +16,8 @@ import { countUp } from './motion.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { setAmbient } from './theme.js';
 import { notesCard, notesOf } from './ui-notes.js';
-import { childLibs, libWordIds, loadAll, nextLibOrder, PALETTE, parentOf } from './store.js';
+import { attachSwipe, closeOpenSwipe } from './swipe.js';
+import { childLibs, deleteWordCascade, libWordIds, loadAll, nextLibOrder, PALETTE, parentOf, undoDeleteWord } from './store.js';
 import { showToast } from './toast.js';
 
 export async function renderWord(params = {}) {
@@ -266,6 +267,23 @@ async function renderList(view, params, data) {
     }
   }
 
+  /** 彻底删除一个词（左滑露出的按钮走这里）：词 + 归属 + 进度，6 秒内可撤销 */
+  async function removeWord(w) {
+    const snap = await deleteWordCascade(data, w.id);
+    closeOpenSwipe();
+    showToast(`已删除「${w.term}」`, {
+      kind: 'ok',
+      action: {
+        label: '撤销',
+        onClick: async () => {
+          await undoDeleteWord(snap);
+          await renderList(view, params, await loadAll());
+        }
+      }
+    });
+    await renderList(view, params, await loadAll());
+  }
+
   function rowFor(w) {
     const lv = levelOf(w) || 'none';
     const startPractice = () => {
@@ -278,7 +296,7 @@ async function renderList(view, params, data) {
     //   点行的空白处（释义、音标那一块）→ 从这个词开始练
     //   点单词本身 → 改这个词的信息
     //   右边的「练」是给键盘/读屏和"看得见的入口"用的（不再用三角形图标）
-    return el('div', {
+    const row = el('div', {
       className: 'card word-row',
       dataset: { testid: 'word-row', id: w.id },
       onclick: startPractice
@@ -314,6 +332,21 @@ async function renderList(view, params, data) {
         }, lv === 'none' ? '未标' : LEVEL_LABEL[lv] || lv)
       ])
     ]);
+
+    // v54：包一层做左滑露出。原来的 .word-row 结构一个字不改（现有测试全都还能用 ✓）
+    const del = el('button', {
+      className: 'word-del',
+      dataset: { testid: 'word-del', id: w.id },
+      type: 'button',
+      'aria-label': `彻底删除「${w.term}」`,
+      onclick: (e) => {
+        e.stopPropagation();
+        removeWord(w);
+      }
+    }, '删除');
+    const item = el('div', { className: 'swipe-item', dataset: { swiped: '0' } }, [del, row]);
+    attachSwipe(item);
+    return item;
   }
 
   search.addEventListener('input', paint);

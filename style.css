@@ -1071,6 +1071,40 @@ body[data-view='practice'] #tabbar { display: none; }
 .level-pill { padding: 4px 8px; border-radius: var(--r-full); font-size: 12px; }
 .level-pill[data-level='known'] { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok-ink); }
 .level-pill[data-level='unfamiliar'] { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-ink); }
+/* ---------------- 词条左滑删除（v54） ---------------- */
+.swipe-item {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md, 16px);
+  /* 横向归我们、纵向留给浏览器：不加这条，滚页面会被吃成斜拖 ✗ */
+  touch-action: pan-y;
+}
+.swipe-item .word-row {
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+  background: var(--card);   /* 必须不透明，否则底下的红色按钮会透出来 */
+  touch-action: pan-y;
+  user-select: none;          /* 拖动时别顺手选中文字 ✗ */
+  -webkit-user-select: none;
+}
+.swipe-item.is-swiping .word-row { pointer-events: none; }
+.word-del {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 84px;               /* 和 src/swipe.js 的 ACTION_W 保持一致 */
+  border: 0;
+  background: #ff3b30;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.word-del:active { background: #e02f25; }
+
 /* ---------------- 笔记 / 提纲（v53） ---------------- */
 .notes-card { display: grid; gap: 10px; padding: 14px 16px; }
 .notes-head { display: flex; align-items: center; gap: 8px; }

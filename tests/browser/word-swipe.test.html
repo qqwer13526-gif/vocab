@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>词条左滑删除 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 词条左滑 → 露出「删除」→ 彻底删除（v54）。
+ *
+ * 契约：
+ *   · 每个词条外面包一层 .swipe-item，里面是原来的 .word-row + 右侧的 [data-testid="word-del"]
+ *   · 左滑够远/够快 → 容器带 data-swiped="1"；右滑/点别处/滚动 → 回到 "0"
+ *   · **纵向拖动绝不触发**（否则滚页面会误删 ✗ 这是本节最重要的断言）
+ *   · 点「删除」= 词 + 它所有库的归属 + 练习进度 一起软删；6 秒内可撤销
+ *   · 刚滑完点词条本身不该跳进练习页 ✗
+ *
+ * 跑法：python tool/browser_test.py tests/browser/word-swipe.test.html
+ */
+import { holdLoad, ok, eq, openApp, report, waitFor, click } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (f, s) => f.contentDocument.querySelector(s);
+const qa = (f, s) => [...f.contentDocument.querySelectorAll(s)];
+const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+
+/** 在 iframe 里合成一段指针手势（真机是触摸，这里只验逻辑与阈值） */
+function swipe(f, el, from, to, { steps = 6, ms = 16 } = {}) {
+  return f.contentWindow.eval(
+    `(async () => {
+       const el = document.querySelector('${el}');
+       const opt = (x, y) => ({ pointerId: 1, isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y, pointerType: 'touch', buttons: 1 });
+       const fire = (type, x, y) => el.dispatchEvent(new PointerEvent(type, opt(x, y)));
+       // 坐标要从**没被 translate 的包层**算：行本身打开后会左移 84px，
+       // 用它自己的 rect 算会把起点算到屏幕左边缘附近，被"边缘留给系统"那条挡掉 ✗
+       const host = el.closest('.swipe-item') || el;
+       const r = host.getBoundingClientRect();
+       const x0 = r.left + ${from.x}, y0 = r.top + ${from.y};
+       const x1 = r.left + ${to.x}, y1 = r.top + ${to.y};
+       fire('pointerdown', x0, y0);
+       for (let i = 1; i <= ${steps}; i++) {
+         await new Promise((res) => setTimeout(res, ${ms}));
+         fire('pointermove', x0 + (x1 - x0) * i / ${steps}, y0 + (y1 - y0) * i / ${steps});
+       }
+       fire('pointerup', x1, y1);
+       return true;
+     })()`
+  );
+}
+
+try {
+  db = await import('../../src/db.js');
+  await db.wipeAll();
+  await db.put('libs', { id: 'lib-s', name: '四级', color: '#3b5bff', order: 0, createdAt: NOW, updatedAt: NOW });
+  for (const id of ['w-a', 'w-b']) {
+    await db.put('words', { id, term: id.toUpperCase(), termNorm: id, meanings: ['释义'], createdAt: NOW, updatedAt: NOW });
+    await db.put('links', { id: `${id}|lib-s`, wordId: id, libId: 'lib-s', addedAt: NOW, updatedAt: NOW });
+    await db.put('prog', { wordId: id, box: 2, dueAt: NOW, streak: 1, lapses: 0, updatedAt: NOW });
+  }
+
+  const f = await openApp({ hash: '#/word?lib=lib-s', sel: '[data-testid="word-row"]' });
+
+  // ---------------- 1. 结构：每行都有包层和删除按钮 ----------------
+  eq('每行外面都有 .swipe-item 包层', qa(f, '.swipe-item').length, qa(f, '[data-testid="word-row"]').length);
+  eq('每行都有一个删除按钮', qa(f, '[data-testid="word-del"]').length, qa(f, '[data-testid="word-row"]').length);
+  ok('初始是收起状态', qa(f, '.swipe-item').every((n) => (n.dataset.swiped || '0') === '0'));
+
+  // ---------------- 2. 纵向拖动**绝不能**触发（最重要）----------------
+  const item = () => qa(f, '.swipe-item').find((n) => n.querySelector('[data-testid="word-row"][data-id="w-a"]'));
+  await swipe(f, '[data-testid="word-row"][data-id="w-a"]', { x: 200, y: 40 }, { x: 190, y: -10 });  // 竖着往上
+  await new Promise((r) => setTimeout(r, 260));
+  eq('纵向拖动不会露出删除', item().dataset.swiped || '0', '0');
+
+  // ---------------- 3. 左滑露出 ----------------
+  await swipe(f, '[data-testid="word-row"][data-id="w-a"]', { x: 240, y: 30 }, { x: 120, y: 34 });
+  await waitFor(() => (item().dataset.swiped || '0') === '1', { label: '左滑后露出' });
+  ok('左滑后容器标记 swiped=1', true);
+
+  // ---------------- 4. 滑完点词条本身不该跳走 ----------------
+  const hashBefore = f.contentWindow.location.hash;
+  f.contentDocument.querySelector('[data-testid="word-row"][data-id="w-a"] .word-row-main').dispatchEvent(
+    new f.contentWindow.MouseEvent('click', { bubbles: true, cancelable: true })
+  );
+  await new Promise((r) => setTimeout(r, 260));
+  eq('刚滑完点行不会进练习页', f.contentWindow.location.hash, hashBefore);
+
+  // ---------------- 5. 点删除 → 词/归属/进度一起软删 ----------------
+  click(qa(f, '[data-testid="word-del"]').find((b) => b.dataset.id === 'w-a'));
+  await waitFor(async () => (await db.all('words')).find((w) => w.id === 'w-a')?.deleted === true, { label: '词软删' });
+  ok('归属也软删了', (await db.all('links')).find((l) => l.id === 'w-a|lib-s').deleted === true);
+  ok('练习进度也删了', (await db.all('prog')).find((p) => p.wordId === 'w-a') === undefined);
+  ok('提示条给了撤销', !!q(f, '[data-testid="toast"] .toast-action'), txt(q(f, '[data-testid="toast"]')));
+  eq('列表里少了一行', qa(f, '[data-testid="word-row"]').length, 1);
+
+  // ---------------- 6. 撤销全部回来 ----------------
+  click(q(f, '[data-testid="toast"] .toast-action'));
+  await waitFor(async () => (await db.all('words')).find((w) => w.id === 'w-a')?.deleted !== true, { label: '撤销恢复' });
+  ok('撤销后归属恢复', (await db.all('links')).find((l) => l.id === 'w-a|lib-s').deleted !== true);
+  ok('撤销后进度恢复', !!(await db.all('prog')).find((p) => p.wordId === 'w-a'));
+
+  // ---------------- 7. 一次只开一行 + 右滑收回 ----------------
+  const f2 = await openApp({ hash: '#/word?lib=lib-s', sel: '[data-testid="word-row"]' });
+  const itemOf = (id) => qa(f2, '.swipe-item').find((n) => n.querySelector(`[data-testid="word-row"][data-id="${id}"]`));
+  await swipe(f2, '[data-testid="word-row"][data-id="w-a"]', { x: 240, y: 30 }, { x: 120, y: 34 });
+  await waitFor(() => (itemOf('w-a').dataset.swiped || '0') === '1', { label: '第一行开了' });
+  await swipe(f2, '[data-testid="word-row"][data-id="w-b"]', { x: 240, y: 30 }, { x: 120, y: 34 });
+  await waitFor(() => (itemOf('w-b').dataset.swiped || '0') === '1', { label: '第二行开了' });
+  eq('开第二行时第一行自动收回', itemOf('w-a').dataset.swiped || '0', '0');
+
+  await swipe(f2, '[data-testid="word-row"][data-id="w-b"]', { x: 120, y: 30 }, { x: 240, y: 34 });
+  await waitFor(() => (itemOf('w-b').dataset.swiped || '0') === '0', { label: '右滑收回' });
+  ok('右滑能收回', true);
+} catch (e) {
+  ok('左滑测试脚本本身不能崩', false, String(e && e.stack ? e.stack.split('\n')[0] : e));
+} finally {
+  release();
+  report();
+}
+</script>
+</body>
+</html>
