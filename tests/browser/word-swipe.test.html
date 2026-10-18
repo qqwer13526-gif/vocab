@@ -70,6 +70,20 @@ try {
   eq('每行都有一个删除按钮', qa(f, '[data-testid="word-del"]').length, qa(f, '[data-testid="word-row"]').length);
   ok('初始是收起状态', qa(f, '.swipe-item').every((n) => (n.dataset.swiped || '0') === '0'));
 
+  // 收起时红色按钮必须**完全不可见**：不然卡片的 16px 圆角处会漏出一牙红（v55 修的就是这个 ✗）
+  const delOfIn = (fr, id) => [...fr.contentDocument.querySelectorAll('[data-testid="word-del"]')].find((b) => b.dataset.id === id);
+  const delOf = (id) => delOfIn(f, id);
+  const vis = (n) => {
+    const cs = f.contentWindow.getComputedStyle(n);
+    return cs.visibility + '/' + cs.opacity;
+  };
+  ok('收起时删除按钮不可见（否则卡角会漏红）', vis(delOf('w-a')) === 'hidden/0', vis(delOf('w-a')));
+  ok(
+    '收起时删除按钮不进读屏 / 不进 Tab',
+    delOf('w-a').getAttribute('aria-hidden') === 'true' && delOf('w-a').tabIndex === -1,
+    `aria-hidden=${delOf('w-a').getAttribute('aria-hidden')} tabIndex=${delOf('w-a').tabIndex}`
+  );
+
   // ---------------- 2. 纵向拖动**绝不能**触发（最重要）----------------
   const item = () => qa(f, '.swipe-item').find((n) => n.querySelector('[data-testid="word-row"][data-id="w-a"]'));
   await swipe(f, '[data-testid="word-row"][data-id="w-a"]', { x: 200, y: 40 }, { x: 190, y: -10 });  // 竖着往上
@@ -80,6 +94,11 @@ try {
   await swipe(f, '[data-testid="word-row"][data-id="w-a"]', { x: 240, y: 30 }, { x: 120, y: 34 });
   await waitFor(() => (item().dataset.swiped || '0') === '1', { label: '左滑后露出' });
   ok('左滑后容器标记 swiped=1', true);
+  // 有 120ms 淡入，等它到位再断言（不然读到 0.74 会误报 ✗）
+  await waitFor(() => vis(delOf('w-a')) === 'visible/1', { label: '删除按钮淡入完成' });
+  ok('滑开后删除按钮可见', vis(delOf('w-a')) === 'visible/1', vis(delOf('w-a')));
+  ok('滑开后删除按钮可聚焦（读屏也能找到）', delOf('w-a').getAttribute('aria-hidden') === 'false' && delOf('w-a').tabIndex === 0,
+     `aria-hidden=${delOf('w-a').getAttribute('aria-hidden')} tabIndex=${delOf('w-a').tabIndex}`);
 
   // ---------------- 4. 滑完点词条本身不该跳走 ----------------
   const hashBefore = f.contentWindow.location.hash;
@@ -115,6 +134,12 @@ try {
   await swipe(f2, '[data-testid="word-row"][data-id="w-b"]', { x: 120, y: 30 }, { x: 240, y: 34 });
   await waitFor(() => (itemOf('w-b').dataset.swiped || '0') === '0', { label: '右滑收回' });
   ok('右滑能收回', true);
+  const vis2 = () => {
+    const cs = f2.contentWindow.getComputedStyle(delOfIn(f2, 'w-b'));
+    return `${cs.visibility}/${cs.opacity}`;
+  };
+  await waitFor(() => vis2() === 'hidden/0', { label: '收回后淡出完成' });
+  ok('收回后删除按钮又藏起来', vis2() === 'hidden/0', vis2());
 } catch (e) {
   ok('左滑测试脚本本身不能崩', false, String(e && e.stack ? e.stack.split('\n')[0] : e));
 } finally {

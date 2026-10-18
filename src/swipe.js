@@ -35,11 +35,21 @@ export function attachSwipe(item, { width = ACTION_W, onOpen, onClose } = {}) {
   let totalMx = 0;  // 这次手势的净水平位移（判"向右收"用）
   let suppressUntil = 0; // 刚滑完的一小会儿，吞掉这一下 click（不然会顺带进练习页 ✗）
 
+  // 收起时按钮不该被读屏念到、也不该出现在 Tab 顺序里（45 行 = 45 个看不见的"删除" ✗）
+  const action = item.querySelector('[data-testid="word-del"]');
+  const setActionA11y = (shown) => {
+    if (!action) return;
+    action.setAttribute('aria-hidden', shown ? 'false' : 'true');
+    action.tabIndex = shown ? 0 : -1;
+  };
+  setActionA11y(false);
+
   const setX = (x) => {
     content.style.transform = x ? `translate3d(${x.toFixed(1)}px, 0, 0)` : '';
   };
   const mark = (open) => {
     item.dataset.swiped = open ? '1' : '0';
+    setActionA11y(open);
   };
 
   function settle(open, velocity = 0) {
@@ -110,6 +120,7 @@ export function attachSwipe(item, { width = ACTION_W, onOpen, onClose } = {}) {
         if (Math.abs(mx) > THRESHOLD) {
           axis = 'x';
           item.classList.add('is-swiping');
+          setActionA11y(true);   // 开始滑就让它可聚焦（滑到一半取消也会在 settle 里收回）
           try {
             content.setPointerCapture(e.pointerId);
           } catch {
