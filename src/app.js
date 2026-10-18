@@ -33,6 +33,7 @@ const VIEWS = {
   practice: '#view-practice',
   import: '#view-import',
   word: '#view-word',
+  note: '#view-note',
   settings: '#view-settings'
 };
 
@@ -127,7 +128,7 @@ export function show(name, params = {}) {
   document.body.dataset.view = name;
   // 底部导航：语义上的"当前项"（aria-current）只给真正对应的那一格；
   // 视觉上的指示器（白药丸）在 word/practice 这种子界面里停在它所属的那一格。
-  const TAB_OF_VIEW = { home: 'home', import: 'import', settings: 'settings', word: 'home', practice: 'home' };
+  const TAB_OF_VIEW = { home: 'home', import: 'import', settings: 'settings', word: 'home', practice: 'home', note: 'home' };
   const tabs = [...document.querySelectorAll('#tabbar a')];
   const activeKey = TAB_OF_VIEW[name] || 'home';
   const idx = Math.max(0, tabs.findIndex((a) => a.dataset.nav === activeKey));
@@ -224,6 +225,7 @@ register('home', renderHome);
 registerLazy('practice', () => import('./ui-practice.js').then((m) => m.renderPractice));
 registerLazy('import', () => import('./ui-import.js').then((m) => m.renderImport));
 registerLazy('word', () => import('./ui-word.js').then((m) => m.renderWord));
+registerLazy('note', () => import('./ui-notes.js').then((m) => m.renderNote));
 registerLazy('settings', () => import('./ui-settings.js').then((m) => m.renderSettings));
 
 // ---------------------------------------------------------------- service worker 与"更新"

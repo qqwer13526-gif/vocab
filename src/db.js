@@ -11,13 +11,15 @@
  */
 
 const DB_NAME = 'vocab';
-const DB_VERSION = 1;
+const DB_VERSION = 2;   // v53：新增 notes 表（笔记/提纲），老数据一条不动 ✓
 
 export const STORES = {
   words: { keyPath: 'id', indexes: [['by_termNorm', 'termNorm', { unique: true }]] },
   libs: { keyPath: 'id', indexes: [['by_order', 'order']] },
   links: { keyPath: 'id', indexes: [['by_word', 'wordId'], ['by_lib', 'libId']] },
   prog: { keyPath: 'wordId', indexes: [['by_dueAt', 'dueAt']] },
+  // 笔记 / 提纲（v53）：挂在词库上，**不进练习** —— 所以独立一张表，不混进 words
+  notes: { keyPath: 'id', indexes: [['by_lib', 'libId'], ['by_order', 'order']] },
   meta: { keyPath: 'key', indexes: [] }
 };
 

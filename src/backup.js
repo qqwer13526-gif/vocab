@@ -13,21 +13,22 @@
 import { all, putMany, wipeAll } from './db.js';
 
 export const BACKUP_KIND = 'vocab-pwa-backup';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;   // v53：多了 notes（笔记/提纲）。读 v1 老备份照旧 ✓
 
 /** 音标库是大文件（3.8MB），不进备份 —— 恢复后重新下载一次就行 */
 const SKIP_META = new Set(['phoneticDict', 'phoneticDictFallback']);
 
-export function buildBackup({ words = [], libs = [], links = [], prog = [], meta = [] } = {}, { now = Date.now() } = {}) {
+export function buildBackup({ words = [], libs = [], links = [], prog = [], notes = [], meta = [] } = {}, { now = Date.now() } = {}) {
   return {
     kind: BACKUP_KIND,
     version: BACKUP_VERSION,
     exportedAt: new Date(now).toISOString(),
-    counts: { words: words.length, libs: libs.length, links: links.length, prog: prog.length },
+    counts: { words: words.length, libs: libs.length, links: links.length, prog: prog.length, notes: notes.length },
     words,
     libs,
     links,
     prog,
+    notes,
     meta: meta.filter((m) => m && !SKIP_META.has(m.key))
   };
 }
@@ -46,6 +47,7 @@ export function parseBackup(text) {
     words: data.words,
     libs: data.libs,
     links: Array.isArray(data.links) ? data.links : [],
+    notes: Array.isArray(data.notes) ? data.notes : [],
     prog: Array.isArray(data.prog) ? data.prog : [],
     meta: Array.isArray(data.meta) ? data.meta : [],
     exportedAt: data.exportedAt || '',

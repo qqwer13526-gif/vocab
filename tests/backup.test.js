@@ -25,7 +25,7 @@ test('备份里带上身份和计数', () => {
   assert.equal(b.kind, BACKUP_KIND);
   assert.equal(b.version, BACKUP_VERSION);
   assert.equal(b.exportedAt, new Date(T0).toISOString());
-  assert.deepEqual(b.counts, { words: 1, libs: 1, links: 1, prog: 1 });
+  assert.deepEqual(b.counts, { words: 1, libs: 1, links: 1, prog: 1, notes: 0 });
 });
 
 test('音标库这种大文件不进备份（3.8MB 没必要，恢复后重下一次就行）', () => {

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>笔记 / 提纲 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 笔记 / 提纲（v53）。
+   跑法：python tool/browser_test.py tests/browser/notes.test.html */
+import { click, eq, holdLoad, ok, openApp, report, type, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (f, s) => f.contentDocument.querySelector(s);
+const qa = (f, s) => [...f.contentDocument.querySelectorAll(s)];
+const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+
+const MD = [
+  '# 机器人进校园',
+  '',
+  '> 适用：校报投稿',
+  '',
+  '| 问 | 答案 |',
+  '|---|---|',
+  '| 题眼 | future |',
+  '',
+  '```',
+  'P1 引入',
+  '```',
+  '',
+  '- **★ 必加**：未来一句'
+].join('\n');
+
+try {
+  db = await import('../../src/db.js');
+  await db.wipeAll();
+  await db.put('libs', { id: 'lib-n', name: '四级', color: '#3b5bff', order: 0, createdAt: NOW, updatedAt: NOW });
+  await db.put('notes', { id: 'n1', libId: 'lib-n', title: '机器人进校园 · 提纲', body: MD, order: 1, createdAt: NOW, updatedAt: NOW });
+  await db.put('notes', { id: 'n2', libId: 'lib-n', title: '图表作文三段式', body: '开头\n主体\n结尾', order: 2, createdAt: NOW, updatedAt: NOW });
+
+  // ---------------- 1. 词库页里的笔记卡 ----------------
+  const f = await openApp({ hash: '#/word?lib=lib-n', sel: '[data-testid="notes-card"]' });
+  ok('词库页有「笔记 / 提纲」卡', !!q(f, '[data-testid="notes-card"]'));
+  eq('卡里列出 2 篇', qa(f, '[data-testid="note-row"]').length, 2);
+  eq('卡头显示篇数', txt(q(f, '[data-testid="notes-count"]')), '2 篇');
+  ok('有「新建笔记」入口', !!q(f, '[data-testid="btn-new-note"]'));
+
+  // ---------------- 2. 阅读区：粗体/表格/代码块都渲染出来 ----------------
+  click(qa(f, '[data-testid="note-row"]').find((r) => r.dataset.note === 'n1'));
+  await waitFor(() => f.contentWindow.location.hash.includes('#/note?id=n1'), { label: '跳到阅读区' });
+  await waitFor(() => q(f, '[data-testid="note-body-rendered"] table'), { label: '正文渲染' });
+  const body = q(f, '[data-testid="note-body-rendered"]');
+  ok('标题渲染成 h1', !!body.querySelector('h1'));
+  ok('引用渲染成 blockquote', !!body.querySelector('blockquote'));
+  ok('表格渲染出来了（手机上横向滚，不撑破页面）', !!body.querySelector('.md-table table') && !!body.querySelector('td'));
+  ok('代码块渲染成 pre>code', !!body.querySelector('pre code'));
+  ok('粗体渲染成 strong', !!body.querySelector('strong'));
+
+  // ---------------- 3. 编辑标题并保存 ----------------
+  click(q(f, '[data-testid="btn-note-edit"]'));
+  await waitFor(() => q(f, '[data-testid="note-title"]'), { label: '编辑态' });
+  eq('编辑框预填原标题', q(f, '[data-testid="note-title"]').value, '机器人进校园 · 提纲');
+  type(q(f, '[data-testid="note-title"]'), '机器人进校园（改过）');
+  click(q(f, '[data-testid="btn-note-save"]'));
+  await waitFor(async () => (await db.all('notes')).find((n) => n.id === 'n1')?.title === '机器人进校园（改过）', { label: '保存落库' });
+  // 保存后是"hash 变化 → 重新渲染阅读区"，要等它渲染完再看标题（不然读到的还是编辑态 ✗）
+  await waitFor(() => q(f, '#view-note [data-testid="note-body-rendered"]'), { label: '回到阅读区' });
+  ok('保存后回到阅读区并显示新标题', txt(q(f, '#view-note .page-title')).includes('改过'), txt(q(f, '#view-note .page-title')));
+
+  // ---------------- 4. 新建一篇 ----------------
+  const f2 = await openApp({ hash: '#/note?lib=lib-n&new=1', sel: '[data-testid="note-title"]' });
+  type(q(f2, '[data-testid="note-title"]'), '第三篇');
+  type(q(f2, '[data-testid="note-body"]'), '# 小标题\n- 一\n- 二');
+  click(q(f2, '[data-testid="btn-note-save"]'));
+  await waitFor(async () => (await db.all('notes')).filter((n) => !n.deleted).length === 3, { label: '新笔记落库' });
+  const f3 = await openApp({ hash: '#/word?lib=lib-n', sel: '[data-testid="notes-card"]' });
+  eq('回到词库页能看到 3 篇', qa(f3, '[data-testid="note-row"]').length, 3);
+
+  // ---------------- 5. 删除（可撤销）----------------
+  const f4 = await openApp({ hash: '#/note?id=n2', sel: '[data-testid="btn-note-delete"]' });
+  click(q(f4, '[data-testid="btn-note-delete"]'));
+  await waitFor(async () => (await db.all('notes')).find((n) => n.id === 'n2')?.deleted === true, { label: '软删除落库' });
+  ok('删除后给了撤销入口', !!q(f4, '[data-testid="toast"] .toast-action'));
+  click(q(f4, '[data-testid="toast"] .toast-action'));
+  await waitFor(async () => (await db.all('notes')).find((n) => n.id === 'n2')?.deleted !== true, { label: '撤销恢复' });
+  ok('撤销后笔记回来了', true);
+} catch (e) {
+  ok('笔记测试脚本本身不能崩', false, String(e && e.message));
+} finally {
+  release();
+  report();
+}
+</script>
+</body>
+</html>

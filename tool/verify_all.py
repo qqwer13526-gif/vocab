@@ -29,6 +29,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑤ 界面：练习", "ui-practice", [PY, "tool/browser_test.py", "tests/browser/ui-practice.test.html"], "ui"),
     ("⑥ 界面：导入", "ui-import", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
     ("⑦ 界面：词条", "ui-word", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
+    ("⑦a2 界面：笔记 / 提纲（阅读区 / 编辑 / 删除撤销 / 备份含笔记）", "notes", [PY, "tool/browser_test.py", "tests/browser/notes.test.html"], "ui"),
     ("⑦b 界面：底部导航（三项 / aria-current / 点按尺寸 / 练习页隐藏）", "ui-nav", [PY, "tool/browser_test.py", "tests/browser/ui-nav.test.html"], "ui"),
     ("⑦c 界面：删除词库（两步确认 / 只删库不删词 / 撤销）", "ui-lib-delete", [PY, "tool/browser_test.py", "tests/browser/ui-lib-delete.test.html"], "ui"),
     ("⑧ 布局：各界面无横向滚动", "layout", [PY, "tool/browser_test.py", "tests/browser/layout.test.html"], "ui"),

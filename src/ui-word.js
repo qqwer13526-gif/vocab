@@ -15,6 +15,7 @@ import { isSmartId, smartDef, smartWordIds } from './smart.js';
 import { countUp } from './motion.js';
 import { speakWord, speechSettings, speechSupported, unlockSpeech } from './speech.js';
 import { setAmbient } from './theme.js';
+import { notesCard, notesOf } from './ui-notes.js';
 import { childLibs, libWordIds, loadAll, nextLibOrder, PALETTE, parentOf } from './store.js';
 import { showToast } from './toast.js';
 
@@ -33,6 +34,8 @@ async function renderList(view, params, data) {
   const lib = libId ? data.libs.find((l) => l.id === libId) : null;
   // v52 子词库：进父库时能只看某个子库；进子库时给一条回父库的面包屑
   const kids = libId ? childLibs(data, libId) : [];
+  // v53：这个库的笔记 / 提纲（挂在词库上，不进练习）
+  const notes = libId && !smart ? await notesOf(libId) : [];
   const parentLib = libId ? parentOf(data, libId) : null;
   let subLibId = null;
   setAmbient(smart?.color || lib?.color); // 氛围光：进哪个库就染哪个色（总词库用品牌色）
@@ -392,6 +395,7 @@ async function renderList(view, params, data) {
       el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
     ].filter(Boolean)),
     builtin,
+    libId && !smart ? notesCard(libId, notes) : null,
     el('div', { className: 'card word-tools' }, [search, count, subChips, chips, tools, status].filter(Boolean)),
     list
   ].filter(Boolean));
