@@ -73,7 +73,11 @@ async function audit(label, frame) {
   );
 
   const unfocusable = [...doc.querySelectorAll('button, a[href], input, select, textarea')].filter(
-    (n) => !n.disabled && visible(n) && n.tabIndex < 0
+    // visibility:hidden 的元素在无障碍语义上是"不存在的"，也不该被 Tab 到 ——
+    // 收起的左滑删除按钮正是这样（v55）：它存在但看不见，所以不算"该能 Tab 到"✗
+    (n) => !n.disabled && visible(n) &&
+      (n.checkVisibility ? n.checkVisibility({ visibilityProperty: true }) : true) &&
+      n.tabIndex < 0
   );
   ok(`${label}：可交互元素都能 Tab 到`, unfocusable.length === 0, unfocusable.map((n) => n.className).join(' | '));
 
