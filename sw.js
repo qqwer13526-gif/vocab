@@ -1,11 +1,11 @@
 /* 背单词 App 的 service worker。
  *
- * 策略（v56 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
+ * 策略（v57 起：外壳预缓存 + 静态资源"缓存优先，后台更新"）：
  *   - 安装时只预缓存 ASSETS（**首屏必需的那一小撮**）→ 第一次打开要下的东西少一半
  *   - DEFERRED 里那些（练习/导入/词条/设置界面及其重依赖）首次用到时才下，下完就进缓存
  *   - 导航请求：联网时取最新（一刷新就是新代码），断网回退缓存外壳
  *   - 同源静态资源：**先给缓存**（首屏 ~100ms 出来），同时在后台把新版本写进缓存
- *     v9~v56 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
+ *     v9~v57 是"联网就取最新"：Pages 的 max-age=600 一过期，每次打开都要把 20 多个模块
  *     重新从网上拉一遍（国内每请求 ~400ms）→ 进应用要好几秒。要立刻换版本仍走
  *     「立即更新」按钮（它清缓存 + 让新 SW 接管），或等新 SW 装上后自动换。
  *   - 改代码后把 VERSION 加一，旧缓存会在 activate 时清掉
@@ -13,7 +13,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v56';
+const VERSION = 'v57';
 const CACHE = `vocab-${VERSION}`;
 
 // 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）
@@ -33,7 +33,7 @@ const ASSETS = [
   './src/press.js',   // 同上：全局按压反馈
   './src/glass.js',   // 同上：底部胶囊的液态行为
   './src/spring.js',   // dragorder 依赖（弹簧收尾）→ 首屏导入链上，必须预缓存 ✗
-  './src/dragorder.js',  // 长按拖动排序（v56，ui-home **急切** import → 必须预缓存 ✗）
+  './src/dragorder.js',  // 长按拖动排序（v57，ui-home **急切** import → 必须预缓存 ✗）
   './src/motion.js',  // 首页数字滚动/列表入场（首页链上）
   './src/icons.js',
   './src/toast.js',
@@ -55,9 +55,9 @@ const DEFERRED = [
   './src/ui-practice.js',
   './src/ui-import.js',
   './src/ui-word.js',
-  './src/ui-notes.js',   // 笔记阅读区/编辑（v56，从词库页按需 import）
+  './src/ui-notes.js',   // 笔记阅读区/编辑（v57，从词库页按需 import）
   './src/notes.js',      // Markdown 子集渲染（被 ui-notes 依赖）
-  './src/swipe.js',      // 左滑手势控制器（v56，被 ui-word 依赖）
+  './src/swipe.js',      // 左滑手势控制器（v57，被 ui-word 依赖）
   './src/ui-settings.js',
   './src/changelog.js',   // 更新日志数据（设置页按需加载）
   './src/perf.js',        // 帧率浮层（只有 ?perf=1 时才 import）
@@ -110,7 +110,7 @@ self.addEventListener('fetch', (e) => {
   // 页面导航：联网时取最新（开发时不会吃陈旧外壳），断网时回退到缓存里的外壳。
   // ⚠️ 实测：SW 接管导航时那一段「等响应 ≈750ms」主要是 **service worker 冷启动**
   //    （浏览器必须先启动 worker 才能回答这次请求）—— 平台行为，JS 改不掉。
-  //    v56 试过改成 cache-first + 后台更新想省掉网络那一段：本地量不出收益（localhost 网络≈0），
+  //    v57 试过改成 cache-first + 后台更新想省掉网络那一段：本地量不出收益（localhost 网络≈0），
   //    却把"预缓存全部资源"的离线不变量弄红了 → 撤回。真要省那一段，等有真机数据再说。
   if (req.mode === 'navigate') {
     e.respondWith(

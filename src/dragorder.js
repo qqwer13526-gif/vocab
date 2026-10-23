@@ -1,20 +1,27 @@
-/* 长按拖动排序（v56）：首页「我的词库」可以长按拖动重排。
+/* 长按拖动排序（v57 起）：首页「我的词库」长按拖动重排。
  *
- * 为什么不用 pointer events：长按之后需要**阻止页面滚动**，而 pointermove 不可取消 ✗。
- * 正确做法是"等长按结束、手指还没动过"的时候再挂非 passive 的 touchmove 并 preventDefault ✓
- * （手指没动就还没开始滚 → 这时拦得住 ✓）。
+ * v57 修的三件事（都是真机反馈出来的）：
+ *   ① **拖动容易变成滑动** —— 取消阈值 10px 太小（拇指长按几乎必超 ✗）；
+ *      而且页面一旦开始滚，长按到点会变成"半拖半滚"。现在：阈值 16px ✓、
+ *      手指停住 150ms 后**重新计时**（慢慢挪不会永远失败 ✓）、长按到点时若页面已滚动就**不启动** ✓
+ *   ② **拖到边缘不自动滚 / 卡片不跟手** —— 原来只在 touchmove 里滚（手指停住就不滚 ✗），
+ *      而且卡片位移没有补偿滚动量。现在：拖动期间常驻 rAF 循环 ✓ + 位移补偿 `+scrolledBy` ✓
+ *   ③ **落位后闪烁** —— 原来是"清 transform → 整页重渲染"，中间那 1~2 帧是旧顺序复位 + 新顺序没到 ✗。
+ *      现在：**原地挪 DOM 节点**（节点身份不变、行高不变、滚动位置不动 ✓），只把顺序写库 ✓
  *
- * 单元本身是"单元"：顶层词库 + 它下面的子词库算**一个单元**一起走（拖父库时子库跟着 ✓）。
- * 子词库只在自己那一组里换位。
+ * 手势仍用 touch 而不是 pointer：长按后要阻止滚动，而 pointermove 不可取消 ✗；
+ * 手指没动过就还没开始滚，这时挂非 passive 的 touchmove + preventDefault 才拦得住 ✓
  */
 
 import { runSpring } from './spring.js';
 
-export const LONG_PRESS_MS = 400; // 长按多久才开始拖（真机可能要调）
-export const MOVE_TOLERANCE = 10; // 长按期间手指抖超过这个距离就取消（交给页面滚动）
+export const LONG_PRESS_MS = 400; // 长按多久才开始拖
+export const MOVE_TOLERANCE = 16; // 长按期间允许的手抖（v57：10 → 16，10px 太容易取消 ✗）
+const RESUME_MS = 150; // 手指停住多久后重新开始计时
+const SCROLLED_LIMIT = 8; // 长按完成时页面已经滚过这么多 → 判定用户在滚动，不启动拖动
 const GAP = 12; // 和 .libs 的 gap 一致
-const EDGE = 80; // 手指进入上下这么多像素 → 自动滚动
-const SCROLL_STEP = 10;
+const EDGE = 100; // 手指进入上下这么多像素 → 自动滚动（v57：80 → 100）
+const SCROLL_MAX = 16; // 自动滚每帧最大像素
 
 /* ------------------------------------------------------------------ 纯逻辑 */
 
@@ -95,19 +102,23 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
   }
 
   let pressTimer = 0;
+  let resumeTimer = 0;
   let pressed = null;
   let armed = false;
   let startX = 0;
   let startY = 0;
+  let startScrollY = 0;
+  let lastTouch = null;
   let drag = null;
-  let scrollRaf = 0;
-  let scrollDir = 0;
+  let loopRaf = 0;
   let suppressClickUntil = 0;
 
-  function clearTimer() {
+  const clearTimers = () => {
     if (pressTimer) clearTimeout(pressTimer);
+    if (resumeTimer) clearTimeout(resumeTimer);
     pressTimer = 0;
-  }
+    resumeTimer = 0;
+  };
 
   function onPressStart(e) {
     if (drag || e.touches.length !== 1) return;
@@ -115,32 +126,45 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
     if (!row || !list.contains(row)) return;
     pressed = row;
     armed = true;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    clearTimer();
-    pressTimer = setTimeout(() => beginDrag(), LONG_PRESS_MS);
+    lastTouch = e.touches[0];
+    startX = lastTouch.clientX;
+    startY = lastTouch.clientY;
+    startScrollY = window.scrollY;
+    clearTimers();
+    pressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
   }
 
   function onPressMove(e) {
     if (!armed || drag) return;
     const t = e.touches[0];
     if (!t) return;
-    if (Math.hypot(t.clientX - startX, t.clientY - startY) > MOVE_TOLERANCE) {
-      // 手指先动了 → 用户想滚页面，不是想拖
-      armed = false;
-      clearTimer();
-    }
+    lastTouch = t;
+    if (Math.hypot(t.clientX - startX, t.clientY - startY) <= MOVE_TOLERANCE) return;
+    // 手指动了：先撤掉长按，但**等它停住**再重新计时 —— 慢慢挪不该永远失败 ✓
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = 0;
+    if (resumeTimer) clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => {
+      if (!armed || drag || !lastTouch) return;
+      startX = lastTouch.clientX;
+      startY = lastTouch.clientY;
+      startScrollY = window.scrollY;
+      pressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
+    }, RESUME_MS);
   }
 
   function onPressEnd() {
     if (drag) return;
     armed = false;
-    clearTimer();
+    clearTimers();
   }
 
   function beginDrag() {
     if (!armed || !pressed) return;
     armed = false;
+    clearTimers();
+    // 页面已经滚过了 → 用户是在滚页面，不是要拖（否则会"半拖半滚" ✗）
+    if (Math.abs(window.scrollY - startScrollY) > SCROLLED_LIMIT) return;
     const units = unitsFor(pressed);
     const me = units.find((u) => u.root === pressed);
     if (!me) return;
@@ -150,22 +174,72 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
       row: pressed,
       me,
       others,
+      units,
       rects: others.map(unitRect),
       startCenterY: meRect.top + meRect.height / 2,
       height: meRect.height,
       from: units.indexOf(me),
       target: units.indexOf(me),
-      dy: 0,
-      shift: 0
+      dyScreen: 0,
+      scrolledBy: 0,
+      shift: meRect.height + GAP
     };
-    drag.shift = meRect.height + GAP;
     list.classList.add('is-reordering');
     for (const el of me.elements) el.classList.add('is-dragged');
     haptic(12);
-    // 手指没动过 → 现在拦滚动才是有效的
     document.addEventListener('touchmove', onDragMove, { passive: false });
     document.addEventListener('touchend', onDragEnd, { passive: false });
     document.addEventListener('touchcancel', onDragEnd, { passive: false });
+    loopRaf = requestAnimationFrame(loop);
+  }
+
+  /** 拖动期间常驻的循环：自动滚（只靠 touchmove 会"手指停住就不滚" ✗） */
+  function loop() {
+    if (!drag) return;
+    autoScrollStep();
+    loopRaf = requestAnimationFrame(loop);
+  }
+
+  function autoScrollStep() {
+    if (!drag || !lastTouch) return;
+    const vh = window.innerHeight;
+    const y = lastTouch.clientY;
+    let dir = 0;
+    let depth = 0;
+    if (y < EDGE) {
+      dir = -1;
+      depth = (EDGE - y) / EDGE;
+    } else if (y > vh - EDGE) {
+      dir = 1;
+      depth = (y - (vh - EDGE)) / EDGE;
+    }
+    if (!dir) return;
+    const step = Math.min(SCROLL_MAX, 2 + SCROLL_MAX * Math.min(1, depth * 1.6));
+    const before = window.scrollY;
+    window.scrollBy(0, dir * step);
+    const moved = window.scrollY - before;
+    if (!moved) return; // 已经到顶/到底
+    drag.scrolledBy += moved;
+    // 别的卡跟着滚动（它们的 top 变了）→ 只挪量好的矩形，不重新量布局
+    for (const r of drag.rects) r.top -= moved;
+    applyTransform();
+    applyTarget();
+  }
+
+  function applyTransform() {
+    if (!drag) return;
+    // 卡片要**永远贴着手指**：页面往上滚了多少，transform 就要加回多少 ✓
+    const y = drag.dyScreen + drag.scrolledBy;
+    for (const el of drag.me.elements) el.style.transform = `translate3d(0, ${y}px, 0)`;
+  }
+
+  function applyTarget() {
+    if (!drag) return;
+    const idx = computeTargetIndex(drag.rects, drag.startCenterY + drag.dyScreen);
+    if (idx === drag.target) return;
+    drag.target = idx;
+    haptic(6);
+    applyShifts();
   }
 
   function applyShifts() {
@@ -188,35 +262,10 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
     e.preventDefault();
     const t = e.touches[0];
     if (!t) return;
-    const dy = t.clientY - startY;
-    drag.dy = dy;
-    for (const el of drag.me.elements) el.style.transform = `translate3d(0, ${dy}px, 0)`;
-    const idx = computeTargetIndex(drag.rects, drag.startCenterY + dy);
-    if (idx !== drag.target) {
-      drag.target = idx;
-      haptic(6); // 每跨过一张"卡"一下
-      applyShifts();
-    }
-    autoScroll(t.clientY);
-  }
-
-  function autoScroll(clientY) {
-    const h = window.innerHeight;
-    const dir = clientY < EDGE ? -1 : clientY > h - EDGE ? 1 : 0;
-    scrollDir = dir;
-    if (!dir || scrollRaf) return;
-    const step = () => {
-      if (!drag || !scrollDir) {
-        scrollRaf = 0;
-        return;
-      }
-      window.scrollBy(0, scrollDir * SCROLL_STEP);
-      // 滚过之后"其它卡"的位置跟着变 → 把之前量的矩形整体挪一下（不必重排布局）
-      for (const r of drag.rects) r.top -= scrollDir * SCROLL_STEP;
-      drag.startCenterY -= scrollDir * SCROLL_STEP;
-      scrollRaf = requestAnimationFrame(step);
-    };
-    scrollRaf = requestAnimationFrame(step);
+    lastTouch = t;
+    drag.dyScreen = t.clientY - startY;
+    applyTransform();
+    applyTarget();
   }
 
   function cleanup() {
@@ -224,17 +273,34 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
     document.removeEventListener('touchmove', onDragMove);
     document.removeEventListener('touchend', onDragEnd);
     document.removeEventListener('touchcancel', onDragEnd);
-    if (scrollRaf) cancelAnimationFrame(scrollRaf);
-    scrollRaf = 0;
-    scrollDir = 0;
+    if (loopRaf) cancelAnimationFrame(loopRaf);
+    loopRaf = 0;
+  }
+
+  /** 原地把节点挪到新顺序（不重建 DOM → 不闪、不跳 ✓） */
+  function applyDomOrder(ids) {
+    if (!drag) return;
+    const anchor = list.querySelector('.newlib-row'); // 「＋ 新建词库」永远留在最后 ✓
+    const byId = new Map();
+    for (const u of drag.units) byId.set(u.root.dataset.lib, u);
+    for (const id of ids) {
+      const u = byId.get(id);
+      if (!u) continue;
+      for (const el of u.elements) list.insertBefore(el, anchor);
+    }
   }
 
   function onDragEnd() {
     if (!drag) return;
-    const { me, others, from, target, shift, dy } = drag;
+    const { me, others, from, target, dyScreen, shift, scrolledBy } = drag;
     cleanup();
 
     const settle = () => {
+      const moved = target !== from;
+      const ids = others.map((u) => u.root.dataset.lib);
+      ids.splice(target, 0, me.root.dataset.lib);
+      const pid = parentKey(me.root) || null;
+      if (moved) applyDomOrder(ids); // 先按新顺序挪节点（同一帧里紧接着清 transform，看不出中间态 ✓）
       for (const el of me.elements) {
         el.style.transform = '';
         el.classList.remove('is-dragged');
@@ -246,27 +312,23 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
         }
       }
       suppressClickUntil = performance.now() + 300; // 别让松手那一下顺手进词库 ✗
-      const moved = target !== from;
-      const ids = others.map((u) => u.root.dataset.lib);
-      ids.splice(target, 0, me.root.dataset.lib);
-      const pid = parentKey(me.root) || null;
       drag = null;
       if (moved) onCommit?.(ids, pid);
     };
 
     const finalDy = (target - from) * shift;
-    if (Math.abs(finalDy - dy) < 0.5) {
+    if (Math.abs(finalDy - dyScreen) < 0.5) {
       settle();
       return;
     }
     runSpring({
-      from: dy,
+      from: dyScreen,
       velocity: 0,
       to: finalDy,
       damping: 1,
       response: 0.3,
       onFrame: (y) => {
-        for (const el of me.elements) el.style.transform = `translate3d(0, ${y}px, 0)`;
+        for (const el of me.elements) el.style.transform = `translate3d(0, ${y + scrolledBy}px, 0)`;
       },
       onDone: settle
     });
@@ -280,9 +342,6 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
     }
   };
 
-  // 调试钩子：真机/测试里能读到当前拖动状态（只读，别在业务里依赖它）
-  list.__dragState = () => (drag ? { from: drag.from, target: drag.target, dy: drag.dy, shift: drag.shift, rects: drag.rects.length } : null);
-
   list.addEventListener('touchstart', onPressStart, { passive: true });
   list.addEventListener('touchmove', onPressMove, { passive: true });
   list.addEventListener('touchend', onPressEnd, { passive: true });
@@ -292,7 +351,7 @@ export function attachDragOrder(list, { itemSelector = '.lib-row', onCommit, onH
   return {
     destroy() {
       cleanup();
-      clearTimer();
+      clearTimers();
       list.removeEventListener('touchstart', onPressStart);
       list.removeEventListener('touchmove', onPressMove);
       list.removeEventListener('touchend', onPressEnd);

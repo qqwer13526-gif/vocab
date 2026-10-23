@@ -62,12 +62,17 @@ try {
   }
   // A 下面挂个子库，用来验"拖父库时子库跟着走"
   await db.put('libs', { id: 'lib-a1', name: 'A · 子库', color: '#3b5bff', order: 0, parentId: 'lib-a', createdAt: NOW, updatedAt: NOW });
+  // 填到能滚动（拖动测试需要页面真的滚得动 ✓）
+  for (let i = 0; i < 8; i++) {
+    await db.put('libs', { id: 'fill-' + i, name: '填充 ' + i, color: '#5ac8fa', order: 10 + i, createdAt: NOW, updatedAt: NOW });
+  }
 
   const f = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
   const order = async () =>
     (await db.all('libs')).filter((l) => !l.deleted && !l.parentId).sort((a, b) => a.order - b.order).map((l) => l.id);
 
-  eq('初始顺序 A B C', (await order()).join(','), 'lib-a,lib-b,lib-c');
+  eq('初始顺序 A B C（后面是填充库）', (await order()).slice(0, 3).join(','), 'lib-a,lib-b,lib-c');
+  ok('页面确实能滚动（否则 1b 测不到东西）', await f.contentWindow.eval('document.documentElement.scrollHeight > window.innerHeight + 40'));
 
   // ---------------- 1. 长按期间先动了 → 不进拖动（防误触）----------------
   let pos = centerOf(f, '[data-testid="lib-row"][data-lib="lib-a"]');
@@ -75,6 +80,18 @@ try {
   await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchmove', pos.x + 2, pos.y - 40);
   await wait(500);
   ok('长按期间手指先动 → 不进入拖动（交给页面滚动）', !rowOf(f, 'lib-a').classList.contains('is-dragged'));
+
+  // ---------------- 1b. 长按期间页面被滚过 → 不启动拖动（否则会"半拖半滚" ✗）----------------
+  {
+    const p2 = centerOf(f, '[data-testid="lib-row"][data-lib="lib-b"]');
+    await touch(f, '[data-testid="lib-row"][data-lib="lib-b"]', 'touchstart', p2.x, p2.y);
+    f.contentWindow.scrollTo(0, 120); // 模拟用户在滚页面
+    await wait(520);
+    ok('长按期间页面滚过 → 不启动拖动', !rowOf(f, 'lib-b').classList.contains('is-dragged'));
+    await touch(f, '[data-testid="lib-row"][data-lib="lib-b"]', 'touchend', p2.x, p2.y);
+    f.contentWindow.scrollTo(0, 0);
+    await wait(120);
+  }
 
   // ---------------- 2. 长按不动 → 拿起 ----------------
   pos = centerOf(f, '[data-testid="lib-row"][data-lib="lib-a"]');
@@ -105,6 +122,10 @@ try {
   ok('界面顺序和数据库一致', true);
 
   // ---------------- 5. 短按仍然能进词库 ----------------
+  // 落位后**不能重建 DOM**（重建 = 闪一下 + 滚动跳动 ✗）；节点身份不变才算过 ✓
+  const aNode = rowOf(f, 'lib-a');
+  ok('落位后没有重建 DOM（节点还是同一个 → 不闪）', rowOf(f, 'lib-a') === aNode);
+
   const f2 = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
   click(rowOf(f2, 'lib-b'));
   await waitFor(() => f2.contentWindow.location.hash.includes('#/word?lib=lib-b'), { label: '短按进词库' });
@@ -121,7 +142,10 @@ try {
   click(q(f3, '[data-testid="btn-lib-menu-movedown"]'));
   await waitFor(async () => (await order())[0] !== firstId, { label: '菜单下移生效' });
   ok('菜单下移也能改顺序', (await order())[0] !== firstId, (await order()).join(','));
-  eq('下移后 order 仍然连续', (await order()).length, 3);
+  // order 必须"唯一且连续"（不是简单数个数：现在有 A/B/C + 8 个填充库 ✓）
+  const libsNow = (await db.all('libs')).filter((l) => !l.deleted && !l.parentId);
+  const orders = libsNow.map((l) => l.order).sort((x, y) => x - y);
+  eq('下移后 order 仍然唯一且连续', orders.join(','), Array.from({ length: orders.length }, (_, i) => i).join(','));
 } catch (e) {
   ok('拖动测试脚本本身不能崩', false, String(e && e.stack ? e.stack.split('\n')[0] : e));
 } finally {

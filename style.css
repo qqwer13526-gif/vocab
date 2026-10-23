@@ -626,6 +626,16 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 
 .libs { display: grid; gap: 12px; }
 
+/* 方案 A（v57）：把滚动条视觉宽度收成 0。
+   Android / 桌面浏览器上确实会消失 ✓；iOS 对 **body 的**系统滚动指示条不认这条 ✗（那是系统画的） */
+html {
+  scrollbar-width: none;
+}
+html::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 /* ---------------- 长按拖动排序（v56） ---------------- */
 /* 长按不该选中文字或弹系统菜单（iOS 上的长按 callout 会打断拖动 ✗） */
 .lib-row,

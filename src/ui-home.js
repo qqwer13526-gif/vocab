@@ -225,22 +225,25 @@ export async function renderHome() {
 
   // v56：长按拖动排序（只动「我的词库」这一段；固定入口不支持拖 ✓）
   attachDragOrder(list, {
+    // ⚠️ 只写库，**不要**调 renderHome()：重渲染会让落位"闪一下"，滚动位置也会跳 ✗
+    //    DOM 顺序已经由 dragorder 原地挪好了（节点身份不变）✓
     onCommit: async (ids, parentId) => {
       await putMany('libs', orderRowsFor(data.libs, parentId, ids));
-      await renderHome();
     }
   });
 
   /** 同层移动一位（无障碍与兜底路径：拖不动的人用菜单也能排 ✓） */
   async function moveLib(lib, dir) {
+    // 拖动落位后不再重渲染 → 这里的 data 可能是旧的，必须重新读一遍 ✗
+    const fresh = await loadAll();
     const pid = lib.parentId || null;
-    const siblings = data.libs.filter((l) => (l.parentId || null) === pid);
+    const siblings = fresh.libs.filter((l) => (l.parentId || null) === pid);
     const idx = siblings.findIndex((l) => l.id === lib.id);
     const to = idx + dir;
     if (idx < 0 || to < 0 || to >= siblings.length) return; // 已经在头/尾
     const ids = siblings.map((l) => l.id);
     ids.splice(to, 0, ids.splice(idx, 1)[0]);
-    await putMany('libs', orderRowsFor(data.libs, pid, ids));
+    await putMany('libs', orderRowsFor(fresh.libs, pid, ids));
     await renderHome();
   }
   // 整页入场由 app.js 在渲染完之后统一做（staggerPage）—— 切页时每一张卡依次落进来
