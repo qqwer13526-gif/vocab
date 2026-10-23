@@ -625,6 +625,31 @@ body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
 }
 
 .libs { display: grid; gap: 12px; }
+
+/* ---------------- 长按拖动排序（v56） ---------------- */
+/* 长按不该选中文字或弹系统菜单（iOS 上的长按 callout 会打断拖动 ✗） */
+.lib-row,
+.lib-row * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.libs.is-reordering .lib-row {
+  /* 拖动期间其它卡用 transition 让位（被拖的那张自己不吃 transition，保持 1:1 跟手 ✓） */
+  will-change: transform;
+}
+.lib-row.is-dragged {
+  z-index: 20;
+  position: relative;
+  transform-origin: center;
+  scale: 1.03;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 26%), 0 2px 6px rgb(0 0 0 / 14%);
+  /* 拿起时的那一下"抓起来"的反馈 */
+  transition: box-shadow 160ms ease-out;
+}
+.libs.is-reordering .lib-row:not(.is-dragged) {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 .lib-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

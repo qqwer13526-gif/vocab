@@ -27,6 +27,8 @@ const PATHS = {
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
   list: ['M4 6h16', 'M4 12h16', 'M4 18h10'],
   plus: ['M12 5v14', 'M5 12h14'],
+  arrowUp: ['M12 19V5', 'M5 12l7-7 7 7'],
+  arrowDown: ['M12 5v14', 'M19 12l-7 7-7-7'],
   pencil: ['M4 20h4L18 10l-4-4L4 16v4z', 'M13 7l4 4'],
   trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3']
 };

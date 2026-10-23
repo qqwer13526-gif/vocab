@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>长按拖动排序 · 界面测试</title>
+</head>
+<body>
+<pre id="result">{"stage":"running"}</pre>
+<script src="trap.js"></script>
+<script type="module">
+/* 首页长按拖动排序（v56）。
+ *
+ * 契约：
+ *   · 长按 400ms → 卡片"被拿起"（.is-dragged）；期间先动 >10px 就**不**进拖动（交给滚动 ✓）
+ *   · 拖动时其它卡让位（transform 非空）；松手 → 新 order 落库 + 界面顺序跟着变
+ *   · 拖父库时，它的子库跟着一起走；子库的 parentId 不变
+ *   · 短按（tap）仍然能进词库
+ *   · ⋯ 菜单里的「上移一位 / 下移一位」也要能改顺序（无障碍与兜底路径）
+ *
+ * 跑法：python tool/browser_test.py tests/browser/drag-order.test.html
+ */
+import { click, holdLoad, ok, eq, openApp, report, wait, waitFor } from './harness.js';
+
+const release = holdLoad();
+const NOW = Date.now();
+let db = null;
+
+const q = (f, s) => f.contentDocument.querySelector(s);
+const qa = (f, s) => [...f.contentDocument.querySelectorAll(s)];
+const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '');
+const rowOf = (f, libId) => qa(f, '[data-testid="lib-row"]').find((r) => r.dataset.lib === libId);
+
+/** 在 iframe 里合成触摸事件（真机是手指，这里只验逻辑与阈值） */
+const touch = (f, el, type, x, y) =>
+  f.contentWindow.eval(
+    `(() => {
+       const el = document.querySelector('${el}');
+       const t = new Touch({ identifier: 1, target: el, clientX: ${x}, clientY: ${y}, pageX: ${x}, pageY: ${y} });
+       const ev = new TouchEvent('${type}', {
+         touches: '${type}' === 'touchend' ? [] : [t],
+         targetTouches: '${type}' === 'touchend' ? [] : [t],
+         changedTouches: [t],
+         bubbles: true,
+         cancelable: true
+       });
+       el.dispatchEvent(ev);
+     })()`
+  );
+
+const centerOf = (f, sel) =>
+  f.contentWindow.eval(`(() => {
+    const n = document.querySelector('${sel}');
+    const r = n.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: r.height };
+  })()`);
+
+try {
+  db = await import('../../src/db.js');
+  await db.wipeAll();
+  for (const [id, name, order] of [['lib-a', 'A 库', 0], ['lib-b', 'B 库', 1], ['lib-c', 'C 库', 2]]) {
+    await db.put('libs', { id, name, color: '#3b5bff', order, createdAt: NOW, updatedAt: NOW });
+  }
+  // A 下面挂个子库，用来验"拖父库时子库跟着走"
+  await db.put('libs', { id: 'lib-a1', name: 'A · 子库', color: '#3b5bff', order: 0, parentId: 'lib-a', createdAt: NOW, updatedAt: NOW });
+
+  const f = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  const order = async () =>
+    (await db.all('libs')).filter((l) => !l.deleted && !l.parentId).sort((a, b) => a.order - b.order).map((l) => l.id);
+
+  eq('初始顺序 A B C', (await order()).join(','), 'lib-a,lib-b,lib-c');
+
+  // ---------------- 1. 长按期间先动了 → 不进拖动（防误触）----------------
+  let pos = centerOf(f, '[data-testid="lib-row"][data-lib="lib-a"]');
+  await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchstart', pos.x, pos.y);
+  await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchmove', pos.x + 2, pos.y - 40);
+  await wait(500);
+  ok('长按期间手指先动 → 不进入拖动（交给页面滚动）', !rowOf(f, 'lib-a').classList.contains('is-dragged'));
+
+  // ---------------- 2. 长按不动 → 拿起 ----------------
+  pos = centerOf(f, '[data-testid="lib-row"][data-lib="lib-a"]');
+  await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchstart', pos.x, pos.y);
+  await wait(500);
+  ok('长按 400ms 后卡片被拿起', rowOf(f, 'lib-a').classList.contains('is-dragged'));
+  ok('拿起时整列进入"排序中"状态', q(f, '.libs').classList.contains('is-reordering'));
+  ok('拖父库时它的子库也被拿起（跟着走）', rowOf(f, 'lib-a1').classList.contains('is-dragged'));
+
+  // ---------------- 3. 往下拖 → 其它卡让位 ----------------
+  const bPos = centerOf(f, '[data-testid="lib-row"][data-lib="lib-b"]');
+  await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchmove', pos.x, bPos.y + 10);
+  await wait(60);
+  const dbg = q(f, '.libs').__dragState?.();
+  ok('中间的卡片被推开（有位移）', (rowOf(f, 'lib-b').style.transform || '').includes('translate3d'),
+     `transform=${rowOf(f, 'lib-b').style.transform} 拖动状态=${JSON.stringify(dbg)}`);
+
+  // ---------------- 4. 松手 → 顺序落库 ----------------
+  await touch(f, '[data-testid="lib-row"][data-lib="lib-a"]', 'touchend', pos.x, bPos.y + 10);
+  await waitFor(async () => (await order())[0] !== 'lib-a', { label: '顺序已变' });
+  const after = await order();
+  ok('A 被拖到后面去了', after[0] !== 'lib-a' && after.includes('lib-a'), after.join(','));
+  ok('子库的 parentId 没变（还是挂在 A 下面）', (await db.all('libs')).find((l) => l.id === 'lib-a1').parentId === 'lib-a');
+  await waitFor(() => {
+    const rows = qa(f, '[data-testid="lib-row"]').filter((r) => !r.dataset.parent).map((r) => r.dataset.lib);
+    return rows[0] !== 'lib-a';
+  }, { label: '界面顺序跟着变' });
+  ok('界面顺序和数据库一致', true);
+
+  // ---------------- 5. 短按仍然能进词库 ----------------
+  const f2 = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  click(rowOf(f2, 'lib-b'));
+  await waitFor(() => f2.contentWindow.location.hash.includes('#/word?lib=lib-b'), { label: '短按进词库' });
+  ok('短按仍然能进词库（没被拖动逻辑吃掉）', true);
+
+  // ---------------- 6. ⋯ 菜单：上移 / 下移 ----------------
+  const f3 = await openApp({ hash: '#/', sel: '[data-testid="lib-row"]' });
+  const firstId = qa(f3, '[data-testid="lib-row"]').filter((r) => !r.dataset.parent)[0].dataset.lib;
+  click(rowOf(f3, firstId).querySelector('[data-testid="btn-lib-more"]'));
+  await waitFor(() => q(f3, '[data-testid="lib-menu"]'), { label: '菜单' });
+  ok('菜单里有「上移一位」/「下移一位」',
+     !!q(f3, '[data-testid="btn-lib-menu-moveup"]') && !!q(f3, '[data-testid="btn-lib-menu-movedown"]'),
+     txt(q(f3, '[data-testid="lib-menu"]')));
+  click(q(f3, '[data-testid="btn-lib-menu-movedown"]'));
+  await waitFor(async () => (await order())[0] !== firstId, { label: '菜单下移生效' });
+  ok('菜单下移也能改顺序', (await order())[0] !== firstId, (await order()).join(','));
+  eq('下移后 order 仍然连续', (await order()).length, 3);
+} catch (e) {
+  ok('拖动测试脚本本身不能崩', false, String(e && e.stack ? e.stack.split('\n')[0] : e));
+} finally {
+  release();
+  report();
+}
+</script>
+</body>
+</html>

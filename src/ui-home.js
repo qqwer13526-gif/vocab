@@ -13,7 +13,8 @@
  */
 
 import { $, el } from './app.js';
-import { put } from './db.js';
+import { put, putMany } from './db.js';
+import { attachDragOrder, orderRowsFor } from './dragorder.js';
 import { confirmThen } from './confirm.js';
 import { icon } from './icons.js';
 import {
@@ -104,6 +105,8 @@ export async function renderHome() {
             //    取菜单的前一个兄弟就是那一行 ✓
             run: (menu) => openNewLibForm(menu.previousElementSibling, data, lib.id)
           },
+          { testid: 'btn-lib-menu-moveup', icon: 'arrowUp', label: '上移一位', run: () => moveLib(lib, -1) },
+          { testid: 'btn-lib-menu-movedown', icon: 'arrowDown', label: '下移一位', run: () => moveLib(lib, 1) },
           { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, lib) },
           {
             testid: 'btn-lib-menu-delete',
@@ -159,6 +162,8 @@ export async function renderHome() {
                 await renderHome();
               }
             },
+            { testid: 'btn-lib-menu-moveup', icon: 'arrowUp', label: '上移一位', run: () => moveLib(kid, -1) },
+            { testid: 'btn-lib-menu-movedown', icon: 'arrowDown', label: '下移一位', run: () => moveLib(kid, 1) },
             { testid: 'btn-lib-menu-rename', icon: 'pencil', label: '重命名', run: (menu) => renameLib(menu, kid) },
             {
               testid: 'btn-lib-menu-delete',
@@ -217,6 +222,27 @@ export async function renderHome() {
   );
 
   view.replaceChildren(pinned, list);
+
+  // v56：长按拖动排序（只动「我的词库」这一段；固定入口不支持拖 ✓）
+  attachDragOrder(list, {
+    onCommit: async (ids, parentId) => {
+      await putMany('libs', orderRowsFor(data.libs, parentId, ids));
+      await renderHome();
+    }
+  });
+
+  /** 同层移动一位（无障碍与兜底路径：拖不动的人用菜单也能排 ✓） */
+  async function moveLib(lib, dir) {
+    const pid = lib.parentId || null;
+    const siblings = data.libs.filter((l) => (l.parentId || null) === pid);
+    const idx = siblings.findIndex((l) => l.id === lib.id);
+    const to = idx + dir;
+    if (idx < 0 || to < 0 || to >= siblings.length) return; // 已经在头/尾
+    const ids = siblings.map((l) => l.id);
+    ids.splice(to, 0, ids.splice(idx, 1)[0]);
+    await putMany('libs', orderRowsFor(data.libs, pid, ids));
+    await renderHome();
+  }
   // 整页入场由 app.js 在渲染完之后统一做（staggerPage）—— 切页时每一张卡依次落进来
   // 这里只负责让数字"滚"上去
 
