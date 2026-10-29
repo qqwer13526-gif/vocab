@@ -47,6 +47,18 @@ test('不是备份文件要说清楚，而不是报一堆 JSON 错', () => {
   assert.throws(() => parseBackup('{"kind":"vocab-pwa-backup"}'), /缺少词条/);
 });
 
+test('恢复前拒绝缺主键、重复拼写和损坏的可选表', () => {
+  assert.throws(() => parseBackup(JSON.stringify(buildBackup({ libs: [{ name: '缺 id' }] }))), /备份/);
+  assert.throws(() => parseBackup(JSON.stringify(buildBackup({ words: [
+    { id: 'a', termNorm: 'apple' }, { id: 'b', termNorm: 'apple' }
+  ] }))), /备份/);
+  assert.throws(() => parseBackup(JSON.stringify({ ...buildBackup(), notes: '损坏' })), /备份/);
+});
+
+test('拒绝无法理解的未来备份版本', () => {
+  assert.throws(() => parseBackup(JSON.stringify({ ...buildBackup(), version: BACKUP_VERSION + 1 })), /版本/);
+});
+
 test('缺 links/prog/meta 的老备份也能读（给空数组）', () => {
   const back = parseBackup(JSON.stringify({ kind: BACKUP_KIND, words: [], libs: [] }));
   assert.deepEqual([back.links, back.prog, back.meta], [[], [], []]);

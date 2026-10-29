@@ -142,6 +142,43 @@ export async function wipeAll() {
   return txDone(tx);
 }
 
+/** 恢复的读取、合并、清空和写入必须在一个事务里，失败时保留所有原数据。
+ * prepare 是同步函数：接收各表原始记录，返回要保存的完整快照。
+ */
+export async function restoreAll(prepare) {
+  const db = await openDB();
+  const tx = db.transaction(ALL_STORES, 'readwrite');
+  let error = null;
+  let counts = {};
+  const done = new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(counts);
+    tx.onabort = () => reject(error || tx.error || new Error('恢复事务被中止'));
+  });
+  const local = {};
+  let pending = ALL_STORES.length;
+  for (const name of ALL_STORES) {
+    const req = tx.objectStore(name).getAll();
+    req.onsuccess = () => {
+      local[name] = req.result;
+      if (--pending) return;
+      try {
+        const next = prepare(local);
+        for (const name of ALL_STORES) {
+          const store = tx.objectStore(name);
+          store.clear();
+          const rows = next[name] || [];
+          for (const row of rows) store.put(row);
+          counts[name] = rows.length;
+        }
+      } catch (e) {
+        error = e;
+        tx.abort();
+      }
+    };
+  }
+  return done;
+}
+
 /**
  * 硬删除（记录真的没了）。
  * 用途：练习里"回退上一题"时，要把那次作答**刚建出来**的 prog 记录彻底删掉 ——

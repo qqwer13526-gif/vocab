@@ -10,13 +10,37 @@
  * 文件读写与 IndexedDB 在浏览器测试页里测（tests/browser/settings.test.html）。
  */
 
-import { all, putMany, wipeAll } from './db.js';
+import { all, restoreAll, STORES as DB_STORES } from './db.js';
 
 export const BACKUP_KIND = 'vocab-pwa-backup';
 export const BACKUP_VERSION = 2;   // v53：多了 notes（笔记/提纲）。读 v1 老备份照旧 ✓
 
 /** 音标库是大文件（3.8MB），不进备份 —— 恢复后重新下载一次就行 */
 const SKIP_META = new Set(['phoneticDict', 'phoneticDictFallback']);
+const STORES = Object.keys(DB_STORES);
+const KEYS = Object.fromEntries(Object.entries(DB_STORES).map(([name, spec]) => [name, spec.keyPath]));
+
+/** 在任何删除/写入前检查主键和唯一索引，不把损坏的可选表默认为空。 */
+function validateRows(data) {
+  for (const store of STORES) {
+    if (!Array.isArray(data[store])) throw new Error(`备份中的 ${store} 不是有效的数据表`);
+    const seen = new Set();
+    const norms = new Set();
+    for (const row of data[store]) {
+      const key = row?.[KEYS[store]];
+      if (!row || typeof row !== 'object' || typeof key !== 'string' || !key || seen.has(key)) {
+        throw new Error(`备份中的 ${store} 缺少有效主键或主键重复`);
+      }
+      seen.add(key);
+      if (store === 'words' && row.termNorm != null) {
+        if (typeof row.termNorm !== 'string' || !row.termNorm || norms.has(row.termNorm)) {
+          throw new Error('备份中的单词拼写无效或重复');
+        }
+        norms.add(row.termNorm);
+      }
+    }
+  }
+}
 
 export function buildBackup({ words = [], libs = [], links = [], prog = [], notes = [], meta = [] } = {}, { now = Date.now() } = {}) {
   return {
@@ -43,16 +67,21 @@ export function parseBackup(text) {
   }
   if (!data || data.kind !== BACKUP_KIND) throw new Error('这不是本应用的备份文件');
   if (!Array.isArray(data.words) || !Array.isArray(data.libs)) throw new Error('备份文件缺少词条或词库数据');
-  return {
+  if (data.version != null && (!Number.isInteger(data.version) || data.version < 1 || data.version > BACKUP_VERSION)) {
+    throw new Error('不支持这个备份版本，请更新应用后再恢复');
+  }
+  const parsed = {
     words: data.words,
     libs: data.libs,
-    links: Array.isArray(data.links) ? data.links : [],
-    notes: Array.isArray(data.notes) ? data.notes : [],
-    prog: Array.isArray(data.prog) ? data.prog : [],
-    meta: Array.isArray(data.meta) ? data.meta : [],
+    links: data.links === undefined ? [] : data.links,
+    notes: data.notes === undefined ? [] : data.notes,
+    prog: data.prog === undefined ? [] : data.prog,
+    meta: data.meta === undefined ? [] : data.meta,
     exportedAt: data.exportedAt || '',
     counts: data.counts || null
   };
+  validateRows(parsed);
+  return parsed;
 }
 
 /** 按某个键合并：同键的按 updatedAt 取新的（用于"合并恢复"） */
@@ -69,13 +98,29 @@ export function mergeByKey(localRows = [], incomingRows = [], key) {
 
 // ---------------------------------------------------------------- 浏览器侧
 
-const STORES = ['words', 'libs', 'links', 'prog', 'meta'];
-const KEYS = { words: 'id', libs: 'id', links: 'id', prog: 'wordId', meta: 'key' };
-
 /** 把当前所有数据打成一个备份对象 */
 export async function collectBackup() {
-  const [words, libs, links, prog, meta] = await Promise.all(STORES.map((s) => all(s)));
-  return buildBackup({ words, libs, links, prog, meta });
+  const rows = await Promise.all(STORES.map((s) => all(s)));
+  return buildBackup(Object.fromEntries(STORES.map((s, i) => [s, rows[i]])));
+}
+
+/** 两台设备独立导入时 UUID 不同：按拼写沿用本机 id，并重映射关联和进度。
+ * 词条字段和进度仍遵循原来的 updatedAt 规则，较新的一份获胜。
+ */
+function mergeBackup(local, incoming) {
+  const byNorm = new Map(local.words.filter((w) => w.termNorm).map((w) => [w.termNorm, w.id]));
+  const ids = new Map(incoming.words.map((w) => [w.id, byNorm.get(w.termNorm) || w.id]));
+  const remap = (id) => ids.get(id) || id;
+  const mapped = {
+    ...incoming,
+    words: incoming.words.map((w) => ({ ...w, id: remap(w.id) })),
+    links: incoming.links.map((l) => {
+      const wordId = remap(l.wordId);
+      return { ...l, wordId, id: `${wordId}|${l.libId}` };
+    }),
+    prog: incoming.prog.map((p) => ({ ...p, wordId: remap(p.wordId) }))
+  };
+  return Object.fromEntries(STORES.map((s) => [s, mergeByKey(local[s], mapped[s], KEYS[s])]));
 }
 
 /** 导出成文件（iOS 上会走"存储到文件/分享"） */
@@ -101,26 +146,15 @@ export async function exportToFile() {
  */
 export async function importFromText(text, { mode = 'replace' } = {}) {
   const data = parseBackup(text);
-  const added = {};
-  if (mode === 'replace') {
-    // ⚠️ 必须在清空**之前**把音标库缓存捞出来，否则恢复完还得重新下载 3.8MB
-    const keepMeta = (await all('meta')).filter((m) => m && SKIP_META.has(m.key));
-    await wipeAll();
-    for (const store of STORES) {
-      if (store === 'meta') {
-        const rows = [...keepMeta, ...data.meta.filter((m) => m && !SKIP_META.has(m.key))];
-        added[store] = await putMany('meta', rows);
-      } else {
-        added[store] = await putMany(store, data[store] ?? []);
-      }
-    }
-  } else {
-    for (const store of STORES) {
-      const local = await all(store);
-      const merged = mergeByKey(local, data[store] ?? [], KEYS[store]);
-      added[store] = await putMany(store, merged);
-    }
-  }
+  if (!['replace', 'merge'].includes(mode)) throw new Error('未知的恢复方式');
+  const added = await restoreAll((local) => {
+    const next = mode === 'merge' ? mergeBackup(local, data) : {
+      ...data,
+      meta: [...local.meta.filter((m) => SKIP_META.has(m.key)), ...data.meta.filter((m) => !SKIP_META.has(m.key))]
+    };
+    validateRows(next);
+    return next;
+  });
   return { mode, counts: added, exportedAt: data.exportedAt };
 }
 

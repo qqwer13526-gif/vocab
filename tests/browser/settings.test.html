@@ -48,6 +48,85 @@ try {
   db = await import('../../src/db.js');
   bk = await import('../../src/backup.js');
 
+  // v58：真实导出/恢复链路，不能只测 buildBackup 的对象结构。
+  const tables = ['words', 'libs', 'links', 'prog', 'notes', 'meta'];
+  const snapshot = () => Promise.all(tables.map((s) => db.all(s)));
+  const expectReject = async (name, fn) => {
+    let failed = false;
+    try { await fn(); } catch { failed = true; }
+    ok(name, failed);
+  };
+  const n1 = { id: 'note-restore', libId: 'lib-a', title: '提纲', body: '正文', updatedAt: NOW };
+  await seed();
+  await db.put('notes', n1);
+  const full = await bk.collectBackup();
+  eq('真实导出包含笔记正文', full.notes, [n1]);
+  // 手工提供完整笔记，避免导出与恢复同时漏字段而互相掩盖。
+  const complete = { ...full, notes: [n1] };
+  await db.wipeAll();
+  await bk.importFromText(JSON.stringify(complete), { mode: 'replace' });
+  eq('覆盖恢复写回笔记', await db.all('notes'), [n1]);
+  await db.put('notes', { ...n1, title: '本机较新', updatedAt: NOW + 20 });
+  await bk.importFromText(JSON.stringify({ ...complete, notes: [n1, { ...n1, id: 'note-new' }] }), { mode: 'merge' });
+  eq('合并恢复保留较新的笔记', (await db.get('notes', n1.id))?.title, '本机较新');
+  ok('合并恢复写回新增笔记', !!await db.get('notes', 'note-new'));
+
+  const beforeInvalid = await snapshot();
+  const duplicate = { ...full.words[0], id: 'duplicate-id' };
+  await expectReject('异常备份被拒绝', () => bk.importFromText(JSON.stringify({ ...complete, words: [full.words[0], duplicate] })));
+  eq('异常备份不能清空原数据', await snapshot(), beforeInvalid);
+
+  // 模拟清空和写词后，后续表发生配额异常，检查整个恢复能否回滚。
+  const originalPut = IDBObjectStore.prototype.put;
+  for (const mode of ['replace', 'merge']) {
+    const before = await snapshot();
+    const incoming = { ...complete, words: [...complete.words, { ...full.words[0], id: 'new-word', term: 'newword', termNorm: 'newword' }] };
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'libs') throw new DOMException('模拟空间不足', 'QuotaExceededError');
+      return originalPut.apply(this, args);
+    };
+    try {
+      await expectReject(`${mode} 报告写入失败`, () => bk.importFromText(JSON.stringify(incoming), { mode }));
+    } finally { IDBObjectStore.prototype.put = originalPut; }
+    eq(`${mode} 写入中途失败全部回滚`, await snapshot(), before);
+  }
+
+  // 唯一索引失败发生在异步请求阶段，也必须等待事务回滚后再报告失败。
+  const beforeConstraint = await snapshot();
+  await expectReject('数据库异步索引冲突会失败', () => db.restoreAll((local) => ({
+    ...local, words: [...full.words, { ...full.words[0], id: 'conflicting-word' }]
+  })));
+  eq('异步索引失败也完整保留原数据', await snapshot(), beforeConstraint);
+
+  await seed();
+  const otherWord = { ...full.words.find((w) => w.id === 'w-absorb'), id: 'other-device', meanings: ['另一设备释义'], updatedAt: NOW + 10 };
+  const other = bk.buildBackup({
+    words: [otherWord], libs: [{ id: 'other-lib', name: '另一设备', updatedAt: NOW }],
+    links: [{ id: 'other-device|other-lib', wordId: 'other-device', libId: 'other-lib', updatedAt: NOW }],
+    prog: [{ wordId: 'other-device', box: 5, dueAt: NOW + 99999, updatedAt: NOW + 10 }]
+  });
+  try {
+    await bk.importFromText(JSON.stringify(other), { mode: 'merge' });
+    eq('跨设备同拼写只保留一个词', (await db.all('words')).filter((w) => w.termNorm === 'absorb').length, 1);
+    eq('跨设备合并沿用本机词 id', (await db.get('words', 'w-absorb')).meanings, ['另一设备释义']);
+    eq('跨设备进度映射到同一个词', (await db.get('prog', 'w-absorb')).box, 5);
+    ok('跨设备词库关联映射到同一个词', !!await db.get('links', 'w-absorb|other-lib'));
+    ok('不留下旧 wordId 进度', !await db.get('prog', 'other-device'));
+    await bk.importFromText(JSON.stringify(other), { mode: 'merge' });
+    eq('重复合并不重复添加关联', (await db.all('links')).filter((l) => l.libId === 'other-lib').length, 1);
+    await db.put('words', { ...otherWord, id: 'w-absorb', meanings: ['本机最新释义'], updatedAt: NOW + 30 });
+    await db.put('prog', { wordId: 'w-absorb', box: 6, updatedAt: NOW + 30 });
+    await bk.importFromText(JSON.stringify(other), { mode: 'merge' });
+    eq('跨设备合并不覆盖本机更新的词条', (await db.get('words', 'w-absorb')).meanings, ['本机最新释义']);
+    eq('跨设备合并不覆盖本机更新的进度', (await db.get('prog', 'w-absorb')).box, 6);
+  } catch (e) { ok('跨设备同拼写备份可以合并', false, String(e)); }
+
+  const legacy = { ...complete, version: 1 };
+  delete legacy.notes;
+  await bk.importFromText(JSON.stringify(legacy), { mode: 'replace' });
+  eq('v1 老备份仍可恢复词条', (await db.all('words')).length, full.words.length);
+  eq('v1 老备份不伪造笔记', await db.all('notes'), []);
+
   // ---------------- 1. 设置页显示状态 ----------------
   await seed();
   let frame = await openApp({ hash: '#/settings', sel: '[data-testid="settings-version"]' });

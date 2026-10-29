@@ -84,9 +84,19 @@ try {
   ok('预览能看到拆好的释义', rows[0].textContent.includes('吸收'), rows[0].textContent.replace(/\s+/g, ' '));
   ok('标题行/统计行没被算成词', !t(frame, '[data-testid="import-preview"]').includes('总词数'));
 
-  // 预览截断：专门造 7 行，看它是不是只显示 5 行
+  const mapping = q(frame, 'details.import-map');
+  ok('自动识别后列设置默认收起', !!mapping && !mapping.open);
+  if (mapping) {
+    click(mapping.querySelector('summary'));
+    ok('可以展开检查和修正列设置', mapping.open);
+    q(frame, '[data-testid="sel-term"]').focus();
+    eq('展开后列选择器可聚焦', frame.contentDocument.activeElement, q(frame, '[data-testid="sel-term"]'));
+    click(mapping.querySelector('summary'));
+  }
+  // 缩短预览不影响实际导入数量。
   await paste(frame, Array.from({ length: 7 }, (_, i) => `word${i}\t意思${i}`).join('\n'));
-  eq('预览最多 5 行', qa(frame, '[data-testid="import-preview"] tbody tr').length, 5);
+  eq('预览最多 3 行', qa(frame, '[data-testid="import-preview"] tbody tr').length, 3);
+  ok('预览以外的词仍计入导入', t(frame, '[data-testid="import-stats"]').includes('新词 7'));
   await paste(frame, realShape());
   eq('重新粘回真表形态，列还是认对的', q(frame, '[data-testid="sel-term"]').value, '1');
 
@@ -163,7 +173,7 @@ try {
   const before = await db.count('words');
   await paste(frame, big);
   ok('200 行都算成新词', t(frame, '[data-testid="import-stats"]').includes('新词 200'), t(frame, '[data-testid="import-stats"]'));
-  ok('预览仍然只画 5 行（不会卡）', qa(frame, '[data-testid="import-preview"] tbody tr').length === 5);
+  ok('预览仍然只画 3 行（不会卡）', qa(frame, '[data-testid="import-preview"] tbody tr').length === 3);
   ensureLib(frame);
   const t0 = Date.now();
   click(q(frame, '[data-testid="btn-import"]'));
@@ -231,6 +241,19 @@ try {
     const parentLabel = labels.find((l) => txt(l).includes('四级'));
     ok('父库那条没有缩进类', !parentLabel.classList.contains('is-child'));
   }
+
+  // v58：重新进入导入页也能复活已删词，且不拖累同批新词。
+  await seedLibs();
+  await db.put('words', { id: 'deleted-apple', term: 'apple', termNorm: 'apple', meanings: ['苹果'], deleted: true, updatedAt: NOW });
+  frame = await openApp({ hash: '#/import', sel: '[data-testid="import-text"]' });
+  await paste(frame, 'apple\t苹果\nbanana\t香蕉');
+  ensureLib(frame);
+  click(q(frame, '[data-testid="btn-import"]'));
+  await waitFor(() => /新增|失败/.test(t(frame, '[data-testid="import-result"]')), { label: '已删词重新导入的结果' });
+  ok('已删词重新导入成功', t(frame, '[data-testid="import-result"]').includes('新增'), t(frame, '[data-testid="import-result"]'));
+  eq('已删词保留原 id 并复活', (await db.get('words', 'deleted-apple')).deleted === true, false);
+  ok('同批新词也成功导入', (await db.all('words')).some((w) => w.termNorm === 'banana'));
+  ok('复活词加入所选词库', !!await db.get('links', `deleted-apple|${libA}`));
 
 } catch (e) {
   ok('界面测试脚本本身不能崩', false, (e && e.stack) || String(e));

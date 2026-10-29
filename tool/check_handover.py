@@ -1,6 +1,6 @@
 """交接自检：版本三处一致 + changelog 第一条 = 当前版本 + 关键文件在不在。
 
-跑法：python check_handover.py  （在仓库根目录）
+跑法：python tool/check_handover.py  （仓库根目录执行；内部路径计算不依赖工作目录）
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import json
 import pathlib
 import re
 
-R = pathlib.Path(__file__).resolve().parent
+R = pathlib.Path(__file__).resolve().parent.parent
 ok = True
 
 

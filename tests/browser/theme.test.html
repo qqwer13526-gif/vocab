@@ -155,9 +155,25 @@ try {
   pe('pointerup');
   await new Promise((r) => setTimeout(r, 60));
   const after = btn.getAnimations ? btn.getAnimations() : [];
-  ok('松手后有回弹动画（含超调那一段）',
-     !wanted || after.some((a) => a.effect.getKeyframes().some((k) => (k.transform || '').includes('1.02'))),
+  ok('松手平稳复位，普通点按不额外超调',
+     !wanted || (after.length > 0 && after.every((a) => !a.effect.getKeyframes().some((k) => (k.transform || '').includes('1.02')))),
      after.map((a) => a.effect.getKeyframes().map((k) => k.transform).join('|')).join(' ; '));
+  if (wanted) {
+    const win = frame.contentWindow;
+    const scale = () => new win.DOMMatrix(win.getComputedStyle(btn).transform).a;
+    pe('pointerdown');
+    btn.__pressAnim.pause();
+    btn.__pressAnim.currentTime = 35;
+    const before = scale();
+    pe('pointerup');
+    btn.__pressAnim.pause();
+    btn.__pressAnim.currentTime = 0;
+    ok('提前松手从当前缩放接续，没有跳到固定起点', Math.abs(scale() - before) < 0.0001);
+    pe('pointerdown');
+    frame.contentDocument.body.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 5, bubbles: true, isPrimary: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    ok('移出按钮后松手也复位并清理动画', !btn.__pressAnim && Math.abs(scale() - 1) < 0.001);
+  }
 
   // ---------------- 7b. 根画布也要上色（v40 修"滑动切换时四周一闪白边"）----------------
   {

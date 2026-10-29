@@ -2,7 +2,7 @@
  *
  * 主路径是"从 Excel 复制两列 → 粘进来"。真实词表的前三行是标题/统计/空行、
  * 表头在第 4 行、释义是英汉混排——这些都由 parse.js 处理，这里只管界面：
- *   粘贴/选文件 → 自动认列（可以手动改）→ 预览前 5 行 → 勾词库 → 预览统计 → 导入
+ *   粘贴/选文件 → 自动认列（展开可手动改）→ 预览前 3 行 → 勾词库 → 预览统计 → 导入
  */
 
 import { $, el } from './app.js';
@@ -13,7 +13,7 @@ import { PALETTE, loadAll, nextLibOrder } from './store.js';
 import { setAmbient } from './theme.js';
 import { readXlsx, rowsToTsv } from './xlsx.js';
 
-const PREVIEW_ROWS = 5;
+const PREVIEW_ROWS = 3;
 
 /** 文本解码：优先 UTF-8；出现替换字符就按 GBK 再来一次（Excel 老式 CSV 是 GBK） */
 function decodeText(buf) {
@@ -47,14 +47,14 @@ export async function renderImport() {
     plan: { create: [], merge: [], skip: 0 },
     mode: 'skip',
     libIds: new Set(),
-    existing: data.words
+    existing: await all('words') // 判重必须含软删除记录，才能复活而不撞唯一索引
   };
 
   // ---------------------------------------------------------------- 骨架
   const ta = el('textarea', {
     className: 'import-text',
     dataset: { testid: 'import-text' },
-    rows: '6',
+    rows: '4',
     spellcheck: 'false',
     'aria-label': '粘贴词表（单词和释义两列）',
     placeholder: '在 Excel 里选中单词和释义两列，Ctrl+C，粘到这里'
@@ -68,14 +68,14 @@ export async function renderImport() {
     'aria-label': '选择词表文件',
     hidden: true
   });
-  const fileBtn = el('button', { className: 'ghost', type: 'button', onclick: () => file.click() }, '选择文件…');
+  const fileBtn = el('button', { className: 'ghost', type: 'button', onclick: () => file.click() }, '选择 Excel / CSV 文件');
   const fileHint = el('div', { className: 'file-hint', dataset: { testid: 'file-hint' } },
-    '支持 .csv / .tsv / .txt，以及 Excel 的 .xlsx（直接选就行，应用自己会读）。老式的 .xls 请先「另存为 .xlsx」；也可以直接在 Excel 里选中单词和释义两列复制，粘到上面的框里。');
+    '支持 .xlsx、.csv、.tsv、.txt；旧版 .xls 请先另存为 .xlsx。');
   const hint = el('div', { className: 'import-hint', dataset: { testid: 'import-hint' } },
-    '在 Excel 里选中「单词」和「释义」两列 → Ctrl+C → 粘到上面的框里；也可以直接选 .csv / .tsv 文件。前三行的标题、统计、空行会自动跳过，表头和列会自动识别。');
+    '在 Excel 选中单词和释义两列，Ctrl+C 后粘贴。表头与列会自动识别。');
 
   const stats = el('div', { className: 'import-stats', dataset: { testid: 'import-stats' } }, '');
-  const result = el('div', { className: 'import-result', dataset: { testid: 'import-result' } });
+  const result = el('div', { className: 'import-result', role: 'status', 'aria-live': 'polite', dataset: { testid: 'import-result' } });
 
   // 列选择
   const mkSelect = (testid, withNone, label) => {
@@ -130,28 +130,34 @@ export async function renderImport() {
   const newLibBtn = el('button', { className: 'ghost', dataset: { testid: 'btn-import-newlib' }, type: 'button', onclick: () => { newLibForm.hidden = !newLibForm.hidden; } }, '新建词库');
 
   const work = el('div', { className: 'import-work', hidden: true }, [
-    el('div', { className: 'card import-map' }, [
-      el('div', { className: 'field-label' }, '哪一列是单词 / 释义'),
-      el('div', { className: 'map-row' }, [el('span', {}, '单词'), selTerm]),
-      el('div', { className: 'map-row' }, [el('span', {}, '释义'), selMean]),
-      el('div', { className: 'map-row' }, [el('span', {}, '词性'), selPos]),
-      el('div', { className: 'map-row' }, [el('span', {}, '例句/搭配'), selExample])
+    el('details', { className: 'card import-map' }, [
+      el('summary', { className: 'map-summary' }, [
+        el('span', {}, '检查列设置'),
+        el('span', { className: 'map-summary-hint' }, '已自动识别 · 可修改')
+      ]),
+      el('div', { className: 'map-fields' }, [
+        el('div', { className: 'map-row' }, [el('span', {}, '单词'), selTerm]),
+        el('div', { className: 'map-row' }, [el('span', {}, '释义'), selMean]),
+        el('div', { className: 'map-row' }, [el('span', {}, '词性'), selPos]),
+        el('div', { className: 'map-row' }, [el('span', {}, '例句/搭配'), selExample])
+      ])
     ]),
-    el('div', { className: 'card' }, [el('div', { className: 'field-label' }, '预览（前 5 行）'), preview]),
+    el('div', { className: 'card import-preview-card' }, [el('div', { className: 'field-label' }, '预览 · 前 3 行'), preview]),
     el('div', { className: 'card import-target' }, [
-      el('div', { className: 'field-label' }, '放进哪个词库（可以多选）'),
+      el('div', { className: 'field-label' }, '存入词库 · 可多选'),
       libBox,
       newLibBtn,
       newLibForm,
       el('div', { className: 'field-label' }, '遇到已经有的词'),
       dupWrap
     ]),
-    el('div', { className: 'import-actions' }, [stats, importBtn, result])
+    el('div', { className: 'card import-actions' }, [stats, importBtn, result])
   ]);
 
   view.replaceChildren(
     el('h2', { className: 'page-title' }, '导入词表'),
-    el('div', { className: 'card' }, [
+    el('div', { className: 'card import-source' }, [
+      el('div', { className: 'field-label' }, '粘贴词表，或从文件导入'),
       ta,
       el('div', { className: 'row-2' }, [fileBtn, el('span', { className: 'file-name', dataset: { testid: 'file-name' } }, '')]),
       file,
