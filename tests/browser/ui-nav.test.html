@@ -158,6 +158,15 @@ try {
   await waitFor(() => doc.body.dataset.view === 'word', { label: '去词条页' });
   eq('词条页时指示器回到"词库"格（0）', bar.style.getPropertyValue('--nav-i'), '0');
   ok('但词条页不给任何一格 aria-current', !doc.querySelector('#tabbar a[aria-current]'));
+  eq('词条列表隐藏主界面胶囊', win.getComputedStyle(bar).display, 'none');
+  win.scrollTo(0, 500);
+  await new Promise((r) => win.requestAnimationFrame(r));
+  eq('滚动词条列表时胶囊仍隐藏', win.getComputedStyle(bar).display, 'none');
+  ok('隐藏胶囊不占布局或保留可点击区域', bar.getClientRects().length === 0);
+
+  win.location.hash = '#/';
+  await waitFor(() => doc.body.dataset.view === 'home', { label: '返回主界面' });
+  ok('返回主界面后胶囊恢复', win.getComputedStyle(bar).display !== 'none');
 
   // 练习页不显示胶囊（沉浸式，避免误触退出）
   win.location.hash = '#/practice';

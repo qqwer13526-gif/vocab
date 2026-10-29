@@ -13,7 +13,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v59';
+const VERSION = 'v60';
 const CACHE = `vocab-${VERSION}`;
 
 // 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）

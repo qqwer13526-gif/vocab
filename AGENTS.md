@@ -120,6 +120,7 @@ $env:GH_TOKEN = ($lines | Where-Object { $_ -like 'password=*' }) -replace '^pas
 
 ## 六、当前状态（2026-10-29）
 
-- 当前版本 **v59**（界面与动效优化，含 v58 的 5 项 bug 修复）；发布与部署状态以 GitHub Release / Pages 为准。线上 <https://qqwer13526-gif.github.io/vocab/>，仓库 `qqwer13526-gif/vocab`
+- 当前版本 **v60**（修复词条页露出主界面胶囊；含 v59 界面优化和 v58 修复）；发布与部署状态以 GitHub Release / Pages 为准。线上 <https://qqwer13526-gif.github.io/vocab/>，仓库 `qqwer13526-gif/vocab`
 - 本次 `verify_all` 27 步全绿 ✓，单测 200 项 ✓；导入 59 项、主题/按压 42 项通过；验收说明见项目 `成果/v59_界面与动效验收说明.md`
 - 待办见项目目录 `对接说明.md` 的「待办」一节
+- 词条列表与编辑页必须隐藏 `#tabbar`；导航回归还需检查列表滚动中隐藏、返回首页恢复。v60 长列表检查见 `工作文件/ui-polish/v60_scroll_check.py`（项目根目录）。

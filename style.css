@@ -753,6 +753,8 @@ button.color[aria-pressed='true'] { border-color: var(--fg); }
 
 /* ---------------------------------------------------------------- 练习 */
 
+/* 词条是从词库进入的子页面，列表滚动时不能露出主界面导航。 */
+body[data-view='word'] #tabbar,
 body[data-view='practice'] #tabbar { display: none; }
 
 .prac-top {
