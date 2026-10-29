@@ -292,7 +292,13 @@ try {
   // ---------------- 15. v45：按需界面会被"空闲预热"（第一次切过去不再现下载+解析模块）----------------
   {
     const f = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
-    await waitFor(() => (f.contentDocument.body.dataset.warmed || '').includes('settings'), { label: '预热完成' });
+    // ⚠️ 四个界面是**并行**预热的，只等 settings 会读到"另两个还没好"的中间态 ✗
+    //    （这就是以前 ⑬ 偶发红的真因）→ 必须等到暖名单里有全部四个 ✓
+    const allWarm = () => {
+      const w = f.contentDocument.body.dataset.warmed || '';
+      return ['settings', 'import', 'word', 'practice'].every((n) => w.includes(n));
+    };
+    await waitFor(allWarm, { label: '四个界面都预热完成' });
     const warmed = f.contentDocument.body.dataset.warmed || '';
     for (const name of ['settings', 'import', 'word', 'practice']) {
       ok(`空闲时预热了 ${name}`, warmed.includes(name), warmed);
