@@ -20,6 +20,9 @@ import { speakWord, speechSettings, speechSupported, unlockSpeech } from './spee
 import { setAmbient } from './theme.js';
 import { showToast } from './toast.js';
 import { keepFocusVisible } from './viewport.js';
+import { groupWordIds } from './groups.js';
+import { openCollect } from './ui-groups.js';
+import { wireWordSelection } from './selection.js';
 
 const DIRS = [
   { key: 'en2zh', label: '英→中' },
@@ -41,6 +44,7 @@ const dirForWord = (wordId, mode) => (mode === 'mix' ? (hashStr(wordId) % 2 ? 'z
 export async function renderPractice(params = {}) {
   const view = $('#view-practice');
   if (!view) return;
+  view.disposeSelection?.();
 
   const libId = params.lib || null;
   const smartId = isSmartId(params.smart) ? params.smart : null;
@@ -82,6 +86,10 @@ export async function renderPractice(params = {}) {
         // 和智能库同一条规矩：最近标记的排前面
         .sort((a, b) => (data.progs[b]?.levelAt || 0) - (data.progs[a]?.levelAt || 0));
     }
+    if(libId && params.group){
+      const grouped=groupWordIds(data,libId,params.group);
+      wordIds=wordIds?wordIds.filter(id=>grouped.includes(id)):grouped;
+    }
 
     const q = wordIds
       ? buildQueue({ words: data.words, progs: data.progs, links: data.links, now: Date.now(), wordIds })
@@ -98,7 +106,7 @@ export async function renderPractice(params = {}) {
 
     // 「从这个词开始背」（v23）：把队列旋转到它开头；不在队列里也强制排第一
     let order = [...q.review, ...q.fresh];
-    if (params.from) order = queueFromOrder(order, params.from);
+    if (params.from && (!params.group || wordIds?.includes(params.from))) order = queueFromOrder(order, params.from);
     s.queue = order.map((id) => data.wordsById.get(id)).filter(Boolean);
     s.i = 0;
     s.answered = false;
@@ -230,7 +238,8 @@ export async function renderPractice(params = {}) {
     hidden: true,
     onclick: () => speakNow()
   }, icon('volume', { size: 22 }));
-  const promptRow = el('div', { className: 'prac-prompt-row' }, [prompt, speakBtn]);
+  const collectMenu=el('button',{className:'chip-btn collect-menu',type:'button',dataset:{testid:'collect-menu'},'aria-label':'将当前单词加入词库',onclick:()=>collectCurrent()},'⋯');
+  const promptRow = el('div', { className: 'prac-prompt-row' }, [prompt, collectMenu, speakBtn]);
 
   const card = el('div', { className: 'card prac-card' }, [
     promptRow,
@@ -435,6 +444,7 @@ export async function renderPractice(params = {}) {
     syncSlider();
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
+    if (libId && params.group) qs.set('group', params.group);
     if (smartId) qs.set('smart', smartId);
     if (s.mode !== 'en2zh') qs.set('dir', s.mode);
     qs.set('mode', s.review ? 'review' : 'quiz');
@@ -454,6 +464,7 @@ export async function renderPractice(params = {}) {
     // 只改地址栏，不触发 hashchange（否则整个界面会重建、这一轮就白练了）
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
+    if (libId && params.group) qs.set('group', params.group);
     if (mode !== 'en2zh') qs.set('dir', mode);
     history.replaceState(null, '', `#/practice${qs.toString() ? `?${qs}` : ''}`);
     if (!s.answered && s.queue.length) renderQuestion();
@@ -537,6 +548,7 @@ export async function renderPractice(params = {}) {
   }
 
   function renderQuestion() {
+    selection.reset();
     const w = s.queue[s.i];
     if (!w) return showNothing();
     s.answered = false;
@@ -614,7 +626,7 @@ export async function renderPractice(params = {}) {
   let drag = null;
   let spring = null;
   let cardX = 0; // 卡片当前的横向位移（松手动画和"抓住"都从这里接着走）
-  const canSwipe = () => s.review && !s.ended && !card.hidden;
+  const canSwipe = () => s.review && !s.ended && !card.hidden && !document.querySelector('dialog[open]') && (getSelection()?.isCollapsed !== false);
   const cardW = () => card.getBoundingClientRect().width || 320;
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -675,6 +687,8 @@ export async function renderPractice(params = {}) {
   }
 
   function onDown(e) {
+    // 词头、释义和例句优先交给 iOS 原生选字；卡片留白仍可横滑。
+    if(e.target.closest?.('.prac-prompt, .prac-answer'))return;
     if (dbg) {
       dbg.down++;
       dbg.grab = false;
@@ -1141,6 +1155,7 @@ export async function renderPractice(params = {}) {
     }
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
+    if (libId && params.group) qs.set('group', params.group);
     location.hash = `#/word${qs.toString() ? `?${qs}` : ''}`;
   }
 
@@ -1176,6 +1191,17 @@ export async function renderPractice(params = {}) {
     markAndNext(e.key === '1' ? 'unfamiliar' : 'known');
   });
 
+  function collectCurrent(){
+    const word=s.queue[s.i];
+    if(!word||s.ended)return;
+    selection.reset();
+    openCollect(word,{revealTerm:s.review||s.curDir==='en2zh'||!answerTerm.hidden});
+  }
+  const selection=wireWordSelection(view,card,()=>{
+    const word=s.queue[s.i];
+    return word&&!s.ended?{label:s.review||s.curDir==='en2zh'||!answerTerm.hidden?word.term:'当前题目'}:null;
+  },collectCurrent);
+  view.disposeSelection=selection.dispose;
   syncBackBtn(); // 一开始"上一题"是点不动的
   if (!s.queue.length) showNothing();
   else {

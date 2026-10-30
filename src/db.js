@@ -11,7 +11,7 @@
  */
 
 const DB_NAME = 'vocab';
-const DB_VERSION = 2;   // v53：新增 notes 表（笔记/提纲），老数据一条不动 ✓
+const DB_VERSION = 3;   // v61：库内分组及归属；升级不清空旧表
 
 export const STORES = {
   words: { keyPath: 'id', indexes: [['by_termNorm', 'termNorm', { unique: true }]] },
@@ -20,6 +20,8 @@ export const STORES = {
   prog: { keyPath: 'wordId', indexes: [['by_dueAt', 'dueAt']] },
   // 笔记 / 提纲（v53）：挂在词库上，**不进练习** —— 所以独立一张表，不混进 words
   notes: { keyPath: 'id', indexes: [['by_lib', 'libId'], ['by_order', 'order']] },
+  groups: { keyPath: 'id', indexes: [['by_lib', 'libId']] },
+  groupWords: { keyPath: 'id', indexes: [['by_lib', 'libId'], ['by_word', 'wordId']] },
   meta: { keyPath: 'key', indexes: [] }
 };
 
@@ -43,7 +45,10 @@ export function openDB() {
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      req.result.onversionchange = () => { req.result.close(); dbPromise = null; };
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('数据库被其它标签页占用，请关掉其它窗口再试'));
   });
@@ -174,6 +179,35 @@ export async function restoreAll(prepare) {
         error = e;
         tx.abort();
       }
+    };
+  }
+  return done;
+}
+
+/** 原子地读取指定表并写入修改行；prepare 必须同步，返回 { writes, value }。 */
+export async function updateStores(names, prepare) {
+  const db = await openDB();
+  const tx = db.transaction(names, 'readwrite');
+  let error = null;
+  let value;
+  const done = new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(value);
+    tx.onabort = () => reject(error || tx.error || new Error('操作未完成'));
+  });
+  const rows = {};
+  let pending = names.length;
+  for (const name of names) {
+    const req = tx.objectStore(name).getAll();
+    req.onsuccess = () => {
+      rows[name] = req.result;
+      if (--pending) return;
+      try {
+        const next = prepare(rows);
+        value = next.value;
+        for (const [table, records] of Object.entries(next.writes || {})) {
+          for (const row of records) tx.objectStore(table).put(row);
+        }
+      } catch (e) { error = e; tx.abort(); }
     };
   }
   return done;

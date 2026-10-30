@@ -29,7 +29,7 @@ try {
   await db.wipeAll();
 
   // ---------- 1. 表与索引 ----------
-  eq('建出 6 张表（v53 起多了 notes）', (await db.storeNames()).sort(), ['libs', 'links', 'meta', 'notes', 'prog', 'words']);
+  eq('建出 8 张表（含库内分组）', (await db.storeNames()).sort(), ['groupWords', 'groups', 'libs', 'links', 'meta', 'notes', 'prog', 'words']);
   ok('words 有 by_termNorm', (await db.indexNames('words')).includes('by_termNorm'));
   const li = await db.indexNames('links');
   ok('links 有 by_word 和 by_lib', li.includes('by_word') && li.includes('by_lib'), JSON.stringify(li));

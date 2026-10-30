@@ -1,0 +1,101 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>分组与选词收集</title>
+<body><pre id="result">{"stage":"running"}</pre><script src="trap.js"></script><script type="module">
+import {ok,eq,threw,holdLoad,report,openApp,click,waitFor,type} from './harness.js';
+const release=holdLoad();const now=Date.now();
+try{
+  // 真实从旧版 v2 数据库升级，不能清掉既有词条和学习记录。
+  const legacy=await new Promise((resolve,reject)=>{const req=indexedDB.open('vocab',2);req.onupgradeneeded=()=>{
+    for(const [name,key] of [['words','id'],['libs','id'],['links','id'],['prog','wordId'],['notes','id'],['meta','key']])req.result.createObjectStore(name,{keyPath:key});
+  };req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
+  await new Promise((resolve,reject)=>{const tx=legacy.transaction(['words','libs','links','prog'],'readwrite');
+    for(const [id,term] of [['w1','absorb'],['w2','stiff'],['w3','rigid']])tx.objectStore('words').put({id,term,termNorm:term,meanings:['释义'],createdAt:now,updatedAt:now});
+    for(const lib of [{id:'a',name:'四级',order:0},{id:'b',name:'考试重点',order:1},{id:'child',name:'子库',parentId:'a',order:2}])tx.objectStore('libs').put({...lib,updatedAt:now});
+    for(const [w,l] of [['w1','a'],['w2','a'],['w3','child']])tx.objectStore('links').put({id:`${w}|${l}`,wordId:w,libId:l,updatedAt:now});
+    tx.objectStore('prog').put({wordId:'w1',box:4,streak:3,updatedAt:now});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+  });legacy.close();
+  const db=await import('../../src/db.js');const g=await import('../../src/groups.js');const {loadAll}=await import('../../src/store.js');
+  eq('升级后保留三个原有单词',(await db.all('words')).length,3);
+  eq('升级后保留学习记录',(await db.get('prog','w1')).box,4);
+  ok('升级建立分组与库内归属两张表',(await db.storeNames()).includes('groupWords'));
+  const ga=await g.createGroup('a','易混词');const gb=await g.createGroup('b','重点');const gc=await g.createGroup('child','子组');
+  await threw('同库分组不能重名',()=>g.createGroup('a','易混词'));
+  await g.assignGroup('a',['w1','w3'],ga.id);
+  await g.assignGroup('child',['w3'],gc.id);
+  const unchanged=await db.all('groupWords');
+  await threw('批量中有失效词时整批拒绝',()=>g.assignGroup('a',['w1','missing'],null));
+  eq('失败的批量操作不部分改组',await db.all('groupWords'),unchanged);
+  eq('父库可分组子库中的词',g.groupWordIds(await loadAll(),'a',ga.id),['w1','w3']);
+  await threw('不能把单词放入其他库的分组',()=>g.assignGroup('a',['w2'],gb.id));
+  const snap=await g.collectWord('w1',[{libId:'b',groupId:gb.id}]);
+  ok('收集新增目标库关联',!!await db.get('links','w1|b'));
+  eq('收集写入指定分组',(await db.get('groupWords','b|w1')).groupId,gb.id);
+  eq('原库关联保留',(await db.get('links','w1|a')).deleted,undefined);
+  eq('收集不修改学习记录',(await db.get('prog','w1')).box,4);
+  await g.undoGroupChange(snap);
+  ok('撤销收集移除新增关联',(await db.get('links','w1|b')).deleted);
+  await g.renameGroup(ga.id,'第一组');
+  eq('分组可以改名',(await db.get('groups',ga.id)).name,'第一组');
+  const deleted=await g.deleteGroup(ga.id);
+  eq('删除分组后词回到未分组',g.groupWordIds(await loadAll(),'a','ungrouped').length,3);
+  await g.undoGroupChange(deleted);
+  eq('撤销删除恢复原分组',g.groupWordIds(await loadAll(),'a',ga.id).length,2);
+  const change=await g.assignGroup('a',['w1'],null);
+  await g.assignGroup('a',['w1'],ga.id);
+  await g.undoGroupChange(change);
+  eq('旧撤销不覆盖较新的分组操作',(await db.get('groupWords','a|w1')).groupId,ga.id);
+  const bk=await import('../../src/backup.js');const backup=await bk.collectBackup();
+  const snapshot=()=>Promise.all(Object.keys(db.STORES).map(s=>db.all(s)));
+  const beforeFailure=await snapshot();
+  const nativePut=IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put=function(...args){if(this.name==='groupWords')throw new DOMException('测试分组写入失败','QuotaExceededError');return nativePut.apply(this,args)};
+  try{await threw('恢复分组写入失败时拒绝',()=>bk.importFromText(JSON.stringify(backup)));}finally{IDBObjectStore.prototype.put=nativePut;}
+  eq('分组恢复失败回滚全部八张表',await snapshot(),beforeFailure);
+  await db.wipeAll();await bk.importFromText(JSON.stringify(backup));
+  eq('真实备份恢复分组',(await db.get('groups',ga.id)).name,'第一组');
+  eq('真实备份恢复库内归属',(await db.get('groupWords','a|w1')).groupId,ga.id);
+  const other=bk.buildBackup({words:[{id:'remote-w1',term:'absorb',termNorm:'absorb',meanings:['远端'],updatedAt:now+10}],libs:[{id:'remote-lib',name:'远端',updatedAt:now}],groups:[{id:'remote-g',libId:'remote-lib',name:'远端组',updatedAt:now}],groupWords:[{id:'remote-lib|remote-w1',libId:'remote-lib',wordId:'remote-w1',groupId:'remote-g',updatedAt:now}]});
+  await bk.importFromText(JSON.stringify(other),{mode:'merge'});
+  eq('跨设备备份合并映射分组中的 wordId',(await db.get('groupWords','remote-lib|w1')).wordId,'w1');
+  ok('不留下旧 wordId 分组记录',!await db.get('groupWords','remote-lib|remote-w1'));
+  const sameName=bk.buildBackup({words:other.words,libs:[{id:'a',name:'四级',updatedAt:now}],groups:[{id:'other-group-id',libId:'a',name:'第一组',updatedAt:now+10}],groupWords:[{id:'a|remote-w1',libId:'a',wordId:'remote-w1',groupId:'other-group-id',updatedAt:now+10}]});
+  await bk.importFromText(JSON.stringify(sameName),{mode:'merge'});
+  eq('跨设备同库同名分组只保留一个',(await db.all('groups')).filter(r=>r.libId==='a'&&r.name==='第一组'&&!r.deleted).length,1);
+  eq('同名组的词归属映射到本机分组',(await db.get('groupWords','a|w1')).groupId,ga.id);
+  await g.renameGroup(ga.id,'第一组');
+  // 界面断言继续覆盖按组练习、收集与批量整理。
+  let frame=await openApp({hash:'#/word?lib=a',sel:'[data-testid="group-controls"]'});
+  const q=s=>frame.contentDocument.querySelector(s);const qa=s=>[...frame.contentDocument.querySelectorAll(s)];
+  click(q(`[data-group="${ga.id}"]`));
+  eq('分组筛选只显示本组的两个词',qa('[data-testid="word-row"]').length,2);
+  eq('熟记生疏筛选计数按当前分组计算',q('[data-level="all"]').textContent,'全部 2');
+  click(q('[data-testid="practice-group"]'));
+  await waitFor(()=>q('[data-testid="practice-prompt"]')&&!q('#view-practice').hidden);
+  eq('分组练习包含两个词',q('[data-testid="progress-text"]').textContent,'第 1/2');
+  click(q('[data-testid="btn-mode-review"]'));
+  const current=q('[data-testid="practice-prompt"]').textContent;
+  const prompt=q('[data-testid="practice-prompt"]');
+  const range=frame.contentDocument.createRange();range.selectNodeContents(prompt);
+  const sel=frame.contentWindow.getSelection();sel.removeAllRanges();sel.addRange(range);
+  await waitFor(()=>q('[data-testid="collect-bar"]')&&!q('[data-testid="collect-bar"]').hidden);
+  eq('英文词头允许原生选字',frame.contentWindow.getComputedStyle(prompt).webkitUserSelect,'text');
+  sel.removeAllRanges();
+  await new Promise(r=>setTimeout(r,30));
+  ok('系统收起选区后入口保留，避免按钮点击中途消失',!q('[data-testid="collect-bar"]').hidden);
+  click(q('[data-testid="collect-open"]'));
+  await waitFor(()=>q('[data-testid="collect-dialog"]'));
+  eq('打开收集后仍是同一个词',q('[data-testid="practice-prompt"]').textContent,current);
+  ok('面板明确显示当前保存的单词',q('[data-testid="collect-dialog"]').textContent.includes(current));
+  click(q('[data-testid="sheet-close"]'));
+  eq('关闭面板后仍是同一题',q('[data-testid="progress-text"]').textContent,'第 1/2');
+  frame=await openApp({hash:'#/word?lib=a',sel:'[data-testid="group-controls"]'});
+  click(q('[data-testid="organize-words"]'));
+  click(qa('[data-testid="group-word-check"]')[0]);
+  click(q('[data-testid="move-word-group"]'));
+  await waitFor(()=>q('[data-testid="assign-group-dialog"]'));
+  click(q(`[data-assign-group="${ga.id}"]`));
+  click(q('[data-testid="confirm-assign-group"]'));
+  await waitFor(()=>!q('[data-testid="assign-group-dialog"]'));
+  ok('批量整理完成且保留词条',(await db.all('words')).filter(w=>!w.deleted).length===3);
+}catch(e){ok('分组与收集流程不能崩溃',false,e.stack||String(e))}
+report();release();
+</script></body></html>

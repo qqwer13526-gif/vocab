@@ -118,9 +118,11 @@ $env:GH_TOKEN = ($lines | Where-Object { $_ -like 'password=*' }) -replace '^pas
 
 ---
 
-## 六、当前状态（2026-10-29）
+## 六、当前状态（2026-10-30）
 
-- 当前版本 **v60**（修复词条页露出主界面胶囊；含 v59 界面优化和 v58 修复）；发布与部署状态以 GitHub Release / Pages 为准。线上 <https://qqwer13526-gif.github.io/vocab/>，仓库 `qqwer13526-gif/vocab`
-- 本次 `verify_all` 27 步全绿 ✓，单测 200 项 ✓；导入 59 项、主题/按压 42 项通过；验收说明见项目 `成果/v59_界面与动效验收说明.md`
+- 当前版本 **v61** 已实现原生选区收集与库内分组；发布状态以 GitHub Release / Pages 为准。线上 <https://qqwer13526-gif.github.io/vocab/>，仓库 `qqwer13526-gif/vocab`
+- 最终 `verify_all` 28 步全绿 ✓，逻辑单测 202 项 ✓；日志在项目 `工作文件/选词与分组预览/v61-final-verify-all.txt`，验收见 `成果/v61_功能验收说明.md`。
+- DB_VERSION=3，八表；备份格式=3，兼容 v1/v2。src/groups.js、selection.js、sheet.js、ui-groups.js 属按需界面链，均登记 DEFERRED。
+- 选词保留 iOS 原生行为，文字区域不启动卡片横滑；不要全局禁用选择或在系统菜单中伪造新增按钮。收集不清空当前题/输入，也不提前揭晓中→英答案。
 - 待办见项目目录 `对接说明.md` 的「待办」一节
 - 词条列表与编辑页必须隐藏 `#tabbar`；导航回归还需检查列表滚动中隐藏、返回首页恢复。v60 长列表检查见 `工作文件/ui-polish/v60_scroll_check.py`（项目根目录）。

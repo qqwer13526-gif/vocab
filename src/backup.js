@@ -13,7 +13,7 @@
 import { all, restoreAll, STORES as DB_STORES } from './db.js';
 
 export const BACKUP_KIND = 'vocab-pwa-backup';
-export const BACKUP_VERSION = 2;   // v53：多了 notes（笔记/提纲）。读 v1 老备份照旧 ✓
+export const BACKUP_VERSION = 3;   // v61：包含分组，仍可读取 v1/v2
 
 /** 音标库是大文件（3.8MB），不进备份 —— 恢复后重新下载一次就行 */
 const SKIP_META = new Set(['phoneticDict', 'phoneticDictFallback']);
@@ -32,6 +32,8 @@ function validateRows(data) {
         throw new Error(`备份中的 ${store} 缺少有效主键或主键重复`);
       }
       seen.add(key);
+      if(store==='groups' && (typeof row.libId!=='string'||!row.libId||typeof row.name!=='string'||!row.name.trim()))throw new Error('备份中的分组数据无效');
+      if(store==='groupWords' && (typeof row.libId!=='string'||!row.libId||typeof row.wordId!=='string'||!row.wordId||row.id!==`${row.libId}|${row.wordId}`||(row.groupId!=null&&typeof row.groupId!=='string')))throw new Error('备份中的分组归属无效');
       if (store === 'words' && row.termNorm != null) {
         if (typeof row.termNorm !== 'string' || !row.termNorm || norms.has(row.termNorm)) {
           throw new Error('备份中的单词拼写无效或重复');
@@ -42,17 +44,19 @@ function validateRows(data) {
   }
 }
 
-export function buildBackup({ words = [], libs = [], links = [], prog = [], notes = [], meta = [] } = {}, { now = Date.now() } = {}) {
+export function buildBackup({ words = [], libs = [], links = [], prog = [], notes = [], groups = [], groupWords = [], meta = [] } = {}, { now = Date.now() } = {}) {
   return {
     kind: BACKUP_KIND,
     version: BACKUP_VERSION,
     exportedAt: new Date(now).toISOString(),
-    counts: { words: words.length, libs: libs.length, links: links.length, prog: prog.length, notes: notes.length },
+    counts: { words: words.length, libs: libs.length, links: links.length, prog: prog.length, notes: notes.length, groups:groups.length, groupWords:groupWords.length },
     words,
     libs,
     links,
     prog,
     notes,
+    groups,
+    groupWords,
     meta: meta.filter((m) => m && !SKIP_META.has(m.key))
   };
 }
@@ -75,6 +79,8 @@ export function parseBackup(text) {
     libs: data.libs,
     links: data.links === undefined ? [] : data.links,
     notes: data.notes === undefined ? [] : data.notes,
+    groups: data.groups === undefined ? [] : data.groups,
+    groupWords: data.groupWords === undefined ? [] : data.groupWords,
     prog: data.prog === undefined ? [] : data.prog,
     meta: data.meta === undefined ? [] : data.meta,
     exportedAt: data.exportedAt || '',
@@ -111,14 +117,23 @@ function mergeBackup(local, incoming) {
   const byNorm = new Map(local.words.filter((w) => w.termNorm).map((w) => [w.termNorm, w.id]));
   const ids = new Map(incoming.words.map((w) => [w.id, byNorm.get(w.termNorm) || w.id]));
   const remap = (id) => ids.get(id) || id;
+  // 两台设备在同一个库里独立建立同名分组时，沿用本机分组，归属一起映射。
+  const knownGroups = new Set(local.groups.map(g => g.id));
+  const groupNames = new Map(local.groups.filter(g => !g.deleted).map(g => [JSON.stringify([g.libId,g.name]),g.id]));
+  const groupIds = new Map(incoming.groups.map(g => [g.id,knownGroups.has(g.id)?g.id:groupNames.get(JSON.stringify([g.libId,g.name]))||g.id]));
   const mapped = {
     ...incoming,
     words: incoming.words.map((w) => ({ ...w, id: remap(w.id) })),
+    groups: incoming.groups.map(g => ({...g,id:groupIds.get(g.id)})),
     links: incoming.links.map((l) => {
       const wordId = remap(l.wordId);
       return { ...l, wordId, id: `${wordId}|${l.libId}` };
     }),
-    prog: incoming.prog.map((p) => ({ ...p, wordId: remap(p.wordId) }))
+    prog: incoming.prog.map((p) => ({ ...p, wordId: remap(p.wordId) })),
+    groupWords: incoming.groupWords.map((r) => {
+      const wordId = remap(r.wordId);
+      return { ...r, wordId, groupId:groupIds.get(r.groupId)||r.groupId, id: `${r.libId}|${wordId}` };
+    })
   };
   return Object.fromEntries(STORES.map((s) => [s, mergeByKey(local[s], mapped[s], KEYS[s])]));
 }

@@ -19,6 +19,8 @@ import { notesCard, notesOf } from './ui-notes.js';
 import { attachSwipe, closeOpenSwipe } from './swipe.js';
 import { childLibs, deleteWordCascade, libWordIds, loadAll, nextLibOrder, PALETTE, parentOf, undoDeleteWord } from './store.js';
 import { showToast } from './toast.js';
+import { groupsFor, groupWordIds } from './groups.js';
+import { openAssignGroup, openGroupName, openManageGroups } from './ui-groups.js';
 
 export async function renderWord(params = {}) {
   const view = $('#view-word');
@@ -39,6 +41,9 @@ async function renderList(view, params, data) {
   const notes = libId && !smart ? await notesOf(libId) : [];
   const parentLib = libId ? parentOf(data, libId) : null;
   let subLibId = null;
+  let chosenGroup = params.group || 'all';
+  let organizing = false;
+  const selectedWords = new Set();
   setAmbient(smart?.color || lib?.color); // 氛围光：进哪个库就染哪个色（总词库用品牌色）
   const ids = smart ? smartWordIds(data, smart.id) : libId ? libWordIds(data, libId) : data.words.map((w) => w.id);
   const words = ids
@@ -55,8 +60,8 @@ async function renderList(view, params, data) {
     'aria-label': '搜索词条'
   });
   const list = el('div', { className: 'word-list' });
-  const practiceHref = (extra = '') =>
-    `#/practice?${[libId ? `lib=${encodeURIComponent(libId)}` : '', extra].filter(Boolean).join('&')}`;
+  const practiceHref = (extra = '', useGroup = true) =>
+    `#/practice?${[libId ? `lib=${encodeURIComponent(libId)}` : '', useGroup && libId && chosenGroup !== 'all' ? `group=${encodeURIComponent(chosenGroup)}` : '', extra].filter(Boolean).join('&')}`;
   const count = el('div', { className: 'word-count' });
   const status = el('div', { className: 'word-status', dataset: { testid: 'word-status' } }, '');
 
@@ -140,6 +145,7 @@ async function renderList(view, params, data) {
   function syncUrl() {
     const qs = new URLSearchParams();
     if (libId) qs.set('lib', libId);
+    if (libId && chosenGroup !== 'all') qs.set('group', chosenGroup);
     if (levelFilter !== 'all') qs.set('level', levelFilter);
     history.replaceState(null, '', `#/word${qs.toString() ? `?${qs}` : ''}`);
   }
@@ -147,6 +153,8 @@ async function renderList(view, params, data) {
   /** 搜索/筛选全清（空状态里的"清空条件"按钮用，也顺手把 URL 还原） */
   function clearFilters() {
     search.value = '';
+    chosenGroup = 'all';
+    if(groupControls)for(const b of groupControls.querySelectorAll('[data-group]'))b.setAttribute('aria-pressed',String(b.dataset.group==='all'));
     levelFilter = 'all';
     for (const b of chips.children) b.setAttribute('aria-pressed', String(b.dataset.level === 'all'));
     syncUrl();
@@ -157,6 +165,39 @@ async function renderList(view, params, data) {
   // 还差多少个词没音标 → 显示"补齐音标"按钮（已经查过、库里确实没有的不再算）
   const missing = await countMissing(words);
   const tools = el('div', { className: 'word-tools-row' });
+  const refreshGroups = async () => renderList(view, { ...params, group:chosenGroup }, await loadAll());
+  const groupControls = lib && !smart ? el('section',{className:'card group-controls',dataset:{testid:'group-controls'}}) : null;
+  const groupBatch = el('div',{className:'group-batch',hidden:true});
+  const groupCount = el('strong',{});
+  const moveSelected = el('button',{className:'primary',type:'button',dataset:{testid:'move-word-group'},onclick:()=>openAssignGroup(libId,[...selectedWords],refreshGroups)},'调整分组');
+  groupBatch.append(groupCount,moveSelected);
+  function updateBatch(){groupCount.textContent=`已选 ${selectedWords.size} 个词`;moveSelected.disabled=!selectedWords.size;}
+  if(groupControls){
+    const organize=el('button',{className:'ghost',type:'button',dataset:{testid:'organize-words'},onclick:()=>{
+      organizing=!organizing;selectedWords.clear();organize.textContent=organizing?'完成':'整理';groupBatch.hidden=!organizing;updateBatch();paint();
+    }},'整理');
+    const groupChips=el('div',{className:'level-filter group-filter','aria-label':'分组筛选'});
+    for(const g of [{id:'all',name:'全部'},{id:'ungrouped',name:'未分组'},...groupsFor(data,libId)]){
+      const button=el('button',{className:'chip',type:'button',dataset:{group:g.id},'aria-pressed':String(chosenGroup===g.id),onclick:()=>{
+        chosenGroup=g.id;for(const b of groupChips.children)b.setAttribute('aria-pressed',String(b===button));syncUrl();paint();
+      }},`${g.name} ${groupWordIds(data,libId,g.id).length}`);groupChips.append(button);
+    }
+    const practice=el('button',{className:'ghost',type:'button',dataset:{testid:'practice-group'},onclick:()=>{
+      location.hash=practiceHref('mode=review');
+    }},'练这一组');
+    const label=el('span',{className:'group-scope-label'});
+    groupControls.append(el('div',{className:'group-section-head'},[
+      el('strong',{},'库内分组'),organize
+    ]),groupChips,el('div',{className:'group-tools'},[
+      el('button',{className:'ghost',type:'button',onclick:()=>openGroupName(libId,null,async g=>{chosenGroup=g.id;await refreshGroups();})},'＋ 新建分组'),
+      el('button',{className:'ghost',type:'button',onclick:()=>openManageGroups(libId,refreshGroups)},'管理分组'),practice
+    ]),label);
+    groupControls.update=()=>{
+      label.textContent=chosenGroup==='all'?'当前显示整个词库':chosenGroup==='ungrouped'?'当前显示未分组的单词':`当前分组：${groupsFor(data,libId).find(g=>g.id===chosenGroup)?.name||'已失效'}`;
+      practice.textContent=chosenGroup==='all'?'练整库':'练这一组';
+      practice.disabled=!groupWordIds(data,libId,chosenGroup).length;
+    };
+  }
   if (missing > 0) {
     const btn = el('button', {
       className: 'ghost',
@@ -194,15 +235,28 @@ async function renderList(view, params, data) {
   function paint() {
     const query = search.value.trim();
     const nq = normTerm(query);
-    const searched = nq
-      ? words.filter((w) => w.termNorm.includes(nq) || w.meanings.join(' ').toLowerCase().includes(query.toLowerCase()))
-      : words;
-    let filtered = levelFilter === 'all' ? searched : searched.filter((w) => (levelOf(w) || 'none') === levelFilter);
+    let scope = words;
     // v52：父库页选了某个子库 → 只留那个子库的词
     if (subLibId) {
       const inSub = new Set(libWordIds(data, subLibId));
-      filtered = filtered.filter((w) => inSub.has(w.id));
+      scope = scope.filter((w) => inSub.has(w.id));
     }
+    if(groupControls){
+      const inGroup=new Set(groupWordIds(data,libId,chosenGroup));
+      scope=scope.filter(w=>inGroup.has(w.id));
+      groupControls.update();
+      if(builtin)builtin.hidden=chosenGroup!=='all';
+      const notesBlock=view.querySelector('[data-testid="notes-card"]');
+      if(notesBlock)notesBlock.hidden=chosenGroup!=='all';
+    }
+    const scopedCounts={all:scope.length,known:0,unfamiliar:0,none:0};
+    for(const w of scope)scopedCounts[levelOf(w)||'none']++;
+    for(const button of chips.children){
+      const key=button.dataset.level;
+      button.textContent=`${{all:'全部',known:'熟记',unfamiliar:'生疏',none:'未标'}[key]} ${scopedCounts[key]}`;
+    }
+    const searched=nq?scope.filter(w=>w.termNorm.includes(nq)||w.meanings.join(' ').toLowerCase().includes(query.toLowerCase())):scope;
+    const filtered=levelFilter==='all'?searched:searched.filter(w=>(levelOf(w)||'none')===levelFilter);
 
     count.textContent = `${filtered.length} 个词${query || levelFilter !== 'all' ? `（共 ${words.length}）` : ''}`;
     list.replaceChildren();
@@ -211,7 +265,7 @@ async function renderList(view, params, data) {
     if (!filtered.length) {
       // 空状态要给出"下一步做什么"，而不是只说没东西：
       // 有筛选条件 → 一键清掉；库本身是空的 → 直接去导入。
-      const hasFilter = !!nq || levelFilter !== 'all';
+      const hasFilter = !!nq || levelFilter !== 'all' || chosenGroup !== 'all';
       list.append(
         el('div', { className: 'card empty', dataset: { testid: 'word-empty' } }, [
           el('div', { className: 'empty-title' }, hasFilter ? '没有匹配的词条' : '这个词库还是空的'),
@@ -286,11 +340,19 @@ async function renderList(view, params, data) {
 
   function rowFor(w) {
     const lv = levelOf(w) || 'none';
+    if(organizing){
+      const check=el('input',{type:'checkbox',checked:selectedWords.has(w.id),dataset:{testid:'group-word-check'},'aria-label':`选择「${w.term}」`,onchange:()=>{
+        check.checked?selectedWords.add(w.id):selectedWords.delete(w.id);updateBatch();
+      }});
+      return el('label',{className:'card word-row group-select-row'},[check,el('div',{className:'word-row-main'},[
+        el('strong',{},w.term),el('span',{className:'word-mean'},w.meanings.join('；'))
+      ])]);
+    }
     const startPractice = () => {
       location.hash = practiceHref(`from=${encodeURIComponent(w.id)}`);
     };
     const openEditor = () => {
-      location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}`;
+      location.hash = `#/word?id=${encodeURIComponent(w.id)}${libId ? `&lib=${encodeURIComponent(libId)}` : ''}${libId&&chosenGroup!=='all'?`&group=${encodeURIComponent(chosenGroup)}`:''}`;
     };
     // v24 的交互（用户定的）：
     //   点行的空白处（释义、音标那一块）→ 从这个词开始练
@@ -379,7 +441,7 @@ async function renderList(view, params, data) {
           dataset: { testid: 'btn-practice-lib' },
           type: 'button',
           onclick: () => {
-            location.hash = practiceHref();
+            location.hash = practiceHref('', false);
           }
         }, `练整库（${counts.all} 词）`)
       ]);
@@ -387,7 +449,7 @@ async function renderList(view, params, data) {
   /** 一行内置入口：点这一行 = 直接专项练这一档（想看这批词就用下面的筛选条） */
   function smartEntry(level, label, n) {
     const go = () => {
-      location.hash = practiceHref(`level=${level}`);
+      location.hash = practiceHref(`level=${level}`, false);
     };
     return el('div', { className: 'builtin-row', dataset: { testid: `builtin-${level}` } }, [
       el('span', { className: 'lib-dot', style: { background: level === 'unfamiliar' ? 'var(--bad)' : 'var(--ok)' } }),
@@ -427,10 +489,12 @@ async function renderList(view, params, data) {
         : null,
       el('h2', { className: 'page-title' }, smart ? smart.name : lib ? lib.name : '全部词条')
     ].filter(Boolean)),
+    groupControls,
     builtin,
     libId && !smart ? notesCard(libId, notes) : null,
     el('div', { className: 'card word-tools' }, [search, count, subChips, chips, tools, status].filter(Boolean)),
-    list
+    list,
+    groupControls ? groupBatch : null
   ].filter(Boolean));
   paint();
 }
@@ -439,7 +503,7 @@ async function renderList(view, params, data) {
 async function renderEditor(view, params, data) {
   const w = data.wordsById.get(params.id);
   const libId = params.lib || null;
-  const backHash = `#/word${libId ? `?lib=${encodeURIComponent(libId)}` : ''}`;
+  const backHash = `#/word${libId ? `?lib=${encodeURIComponent(libId)}` : ''}${libId&&params.group?`&group=${encodeURIComponent(params.group)}`:''}`;
 
   if (!w) {
     view.replaceChildren(

@@ -11,11 +11,11 @@ export const PALETTE = ['#3b5bff', '#ff9f0a', '#34c759', '#ff375f', '#af52de', '
 
 /** 一次把要用的都读出来（软删除的已经滤掉） */
 export async function loadAll() {
-  const [words, libs, links, progs] = await Promise.all([
+  const [words, libs, links, progs, groups, groupWords] = await Promise.all([
     all('words'),
     all('libs'),
     all('links'),
-    all('prog')
+    all('prog'), all('groups'), all('groupWords')
   ]);
   const liveWords = words.filter((w) => !w.deleted);
   return {
@@ -23,6 +23,8 @@ export async function loadAll() {
     wordsById: new Map(liveWords.map((w) => [w.id, w])),
     libs: libs.filter((l) => !l.deleted).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name)),
     links: links.filter((l) => !l.deleted),
+    groups: groups.filter((g) => !g.deleted),
+    groupWords: groupWords.filter((g) => !g.deleted),
     progs: Object.fromEntries(progs.map((p) => [p.wordId, p]))
   };
 }

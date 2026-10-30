@@ -118,7 +118,13 @@ try {
   await waitFor(() => animLog().length > 0, { label: '第二个库重新播入场' });
   const anims = animLog();
   const rowAnims = anims.filter((a) => a.cls.includes('word-row'));
-  eq(wantAnim ? '换库后词条行重新播入场动画' : '减弱动效下换库也不播', rowAnims.length > 0, wantAnim);
+  const visibleRows=qa(frame,'[data-testid="word-row"]').filter(n=>n.getBoundingClientRect().top<frame.contentWindow.innerHeight);
+  if(visibleRows.length){
+    eq(wantAnim ? '换库后屏内词条行重新播入场动画' : '减弱动效下换库也不播', rowAnims.length > 0, wantAnim);
+  }else{
+    eq('词条在首屏之外时不创建行入场动画',rowAnims.length,0);
+    ok('首屏分组控件参与换页入场',!wantAnim||anims.some(a=>a.cls.includes('group-controls')));
+  }
   if (wantAnim && rowAnims.length >= 2) {
     // 整页入场是按文档顺序排的：这一页排在列表行前面的是「生疏/熟记」卡片，所以第一行不是 0 延迟
     const ds = rowAnims.map((a) => a.delay);

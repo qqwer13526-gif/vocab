@@ -30,6 +30,7 @@ STEPS: list[tuple[str, str, list[str], str]] = [
     ("⑥ 界面：导入", "ui-import", [PY, "tool/browser_test.py", "tests/browser/ui-import.test.html"], "ui"),
     ("⑦ 界面：词条", "ui-word", [PY, "tool/browser_test.py", "tests/browser/ui-word.test.html"], "ui"),
     ("⑦a2 界面：笔记 / 提纲（阅读区 / 编辑 / 删除撤销 / 备份含笔记）", "notes", [PY, "tool/browser_test.py", "tests/browser/notes.test.html"], "ui"),
+    ("⑦a3 库内分组 / 原生选词收集 / 旧数据升级 / 分组备份", "groups", [PY, "tool/browser_test.py", "tests/browser/groups.test.html"], "ui"),
     ("⑦b 界面：底部导航（三项 / aria-current / 点按尺寸 / 练习页隐藏）", "ui-nav", [PY, "tool/browser_test.py", "tests/browser/ui-nav.test.html"], "ui"),
     ("⑦c 界面：删除词库（两步确认 / 只删库不删词 / 撤销）", "ui-lib-delete", [PY, "tool/browser_test.py", "tests/browser/ui-lib-delete.test.html"], "ui"),
     ("⑦d 界面：词条左滑删除（纵向不误伤 / 删除撤销 / 一次只开一行）", "word-swipe", [PY, "tool/browser_test.py", "tests/browser/word-swipe.test.html"], "ui"),

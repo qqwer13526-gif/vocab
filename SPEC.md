@@ -23,7 +23,7 @@
 - 云同步（**第二阶段**，见 §9）
 - 上架 App Store
 
-## 3. 数据模型（IndexedDB，库名 `vocab`，version 1）
+## 3. 数据模型（IndexedDB，库名 `vocab`，version 3）
 
 | store | keyPath | 字段 | 索引 |
 |---|---|---|---|
@@ -32,6 +32,21 @@
 | `links` | `id` = `${wordId}\|${libId}` | `id` `wordId` `libId` `addedAt` `updatedAt` `deleted?` | `by_word` `by_lib` |
 | `prog` | `wordId` | `wordId` `box`(1–6) `dueAt` `streak` `lapses` `lastDir`(`en2zh`\|`zh2en`\|null) `level`(`known`\|`unfamiliar`\|null) `levelAt` `updatedAt` | `by_dueAt` |
 | `meta` | `key` | `key` `value` | — |
+| `notes` | `id` | 词库笔记，含 `libId`、正文、排序、更新时间 | `by_lib`、`by_order` |
+| `groups` | `id` | `libId`、`name`、`order`、`createdAt`、`updatedAt`、`deleted?` | `by_lib` |
+| `groupWords` | `id` = `libId\|wordId` | `libId`、`wordId`、`groupId`（null 表示未分组）、`updatedAt`、`deleted?` | `by_lib`、`by_word` |
+
+### v61：原生选词收集与库内分组
+
+- 练习词头、释义、例句保留原生选字，不注入或仿制 iOS 系统菜单；这些文字区域不启动横滑判定，卡片留白仍支持手势。
+- 选中当前卡片文字后，页面底部提供当前词的「加入词库」入口。系统取消选区时入口保留，避免点按钮时中途消失；手动关闭、换题、离开路由时清理。右上角菜单可直接加入。
+- 收集面板支持多个目标词库、现场新建词库及分组。只添加目标归属，原词库、输入答案、当前题和学习进度保留；中→英未揭晓时面板不显示英文答案。
+- 每个普通词库及子词库分别管理自己的分组，同词在不同库的分组独立；总词库和智能库不建立分组。
+- 同库单词最多属于一个组；父库分组可以收录从子库汇总的词，不为分组额外创建父库关联。删除分组后显示为未分组，单词与学习记录保留。
+- 支持新建、重命名、删除、批量整理、分组筛选和按组练习。筛选计数按当前范围计算，练整库仍包含全部组和未分组。
+- 归属与收集原子写入；撤销仅还原仍与本次写入一致的记录，不覆盖后续操作。
+- 数据库 v2 升到 v3 时只添加表。备份格式 v3 包含分组及归属，读取 v1/v2 默认空组；跨设备按拼写映射词 ID，同库同名分组映射到本机分组。恢复失败回滚全部八表。
+- 四个新模块登记 SW DEFERRED；新增分组浏览器套件，完整验证为 28 步。
 
 **不变量**
 1. `termNorm` = 归一化后的词（小写、去首尾空白、全角转半角、压缩内部空格）→ **同词只存一条**

@@ -49,7 +49,7 @@ try {
   bk = await import('../../src/backup.js');
 
   // v58：真实导出/恢复链路，不能只测 buildBackup 的对象结构。
-  const tables = ['words', 'libs', 'links', 'prog', 'notes', 'meta'];
+  const tables = ['words', 'libs', 'links', 'prog', 'notes', 'meta', 'groups', 'groupWords'];
   const snapshot = () => Promise.all(tables.map((s) => db.all(s)));
   const expectReject = async (name, fn) => {
     let failed = false;
@@ -59,6 +59,8 @@ try {
   const n1 = { id: 'note-restore', libId: 'lib-a', title: '提纲', body: '正文', updatedAt: NOW };
   await seed();
   await db.put('notes', n1);
+  await db.put('groups',{id:'backup-group',libId:'lib-a',name:'分组',updatedAt:NOW});
+  await db.put('groupWords',{id:'lib-a|w-absorb',libId:'lib-a',wordId:'w-absorb',groupId:'backup-group',updatedAt:NOW});
   const full = await bk.collectBackup();
   eq('真实导出包含笔记正文', full.notes, [n1]);
   // 手工提供完整笔记，避免导出与恢复同时漏字段而互相掩盖。
