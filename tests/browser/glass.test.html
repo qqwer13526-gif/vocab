@@ -57,10 +57,11 @@ async function seed() {
   return lib;
 }
 
-try {
-  db = await import('../../src/db.js');
-  const lib = await seed();
+db = await import('../../src/db.js');
+const lib = await seed();
 
+// The glass and stagger timing fixtures below require motion effects to be enabled.
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) try {
   // ---------------- 1. 玻璃在（保留 v21 的材质）----------------
   let frame = await openApp({ hash: '#/', sel: '[data-testid="tab-home"]' });
   const bar = q(frame, '#tabbar');
@@ -348,11 +349,9 @@ try {
     const frames = JSON.parse(frame.contentWindow.eval('JSON.stringify(window.__frames || [])'));
     // 只看"还在动"的那一段（前 40 帧）
     const early = frames.slice(0, 40);
-    // ⚠️ 已知未定位的小毛病：约 1/3 的运行里会出现**恰好 1 帧**"可见视图空着"（采样器已排除
-    //    "画好但不可见"的原子换页中间态）。它极其短暂（<16ms），真机上没有用户可感的症状，
-    //    但没定位到根因之前不假装它不存在：这里容忍 1 帧，并要求把诊断信息带出来（下次一出现就指名道姓）。
-    const blanks = early.filter((f) => f['kids'] === 0);
-    ok('切页过程中空白帧不超过 1 帧（0 是目标）', blanks.length <= 1,
+    // 不允许可见视图为空，也不允许所有视图都被隐藏。
+    const blanks = early.filter((f) => f['kids'] <= 0);
+    ok('切页过程中没有内容空白帧', blanks.length === 0,
        blanks.length
          ? `${blanks.length} 帧：t=${blanks[0]['t']} 视图=${blanks[0]['id']} cls="${blanks[0]['cls']}" | ${blanks[0]['views']}`
          : '0 帧');
@@ -443,6 +442,139 @@ try {
   }
 
 
+
+// Explicitly pause destination rendering across frames. A normal IndexedDB read can
+// resolve between two frame samples and hide a broken handoff from the timing test.
+try {
+  const f = await openApp({ hash: '#/', sel: '#view-home [data-testid="lib-row"]' });
+  const w = f.contentWindow;
+  const d = f.contentDocument;
+  const modules = new Promise((resolve) => d.addEventListener('test:modules', (e) => resolve(e.detail), { once: true }));
+  const script = d.createElement('script');
+  script.type = 'module';
+  script.textContent = `
+    import * as app from './src/app.js';
+    import { renderWord } from './src/ui-word.js';
+    document.dispatchEvent(new CustomEvent('test:modules', { detail: { app, renderWord } }));
+  `;
+  d.head.append(script);
+  const { app, renderWord } = await modules;
+  let started = false;
+  let unblock;
+  const pending = new Promise((resolve) => { unblock = resolve; });
+  app.register('word', async (params) => {
+    started = true;
+    await pending;
+    await renderWord(params);
+  });
+  try {
+    q(f, '#view-home [data-testid="lib-row"] button.lib-name').click();
+    await waitFor(() => started, { label: '词库渲染已开始' });
+    const home = d.querySelector('#view-home');
+    const word = d.querySelector('#view-word');
+    ok('目标页尚未画好时旧页维持可见', !home.hidden && w.getComputedStyle(home).opacity === '1');
+    ok('准备中的词库页可以量尺寸且不接收焦点', word.inert && w.getComputedStyle(word).opacity === '0' && word.offsetWidth > 0);
+    eq('换页等待期间导航仍对应可见页面', d.body.dataset.view, 'home');
+  } finally {
+    unblock();
+  }
+  await waitFor(() => d.body.dataset.ready === '1' && !q(f, '#view-word').inert, { label: '词库画完并可交互' });
+  ok('提交后只剩目标页可见，词条页没有主导航胶囊',
+    q(f, '#view-home').hidden && !q(f, '#view-word').hidden && css(f, q(f, '#tabbar'), 'display') === 'none');
+} catch (e) {
+  ok('异步切页测试不崩', false, (e && e.stack) || String(e));
+}
+
+try {
+  const f = await openApp({ hash: '#/', sel: '#view-home [data-testid="lib-row"]' });
+  const w = f.contentWindow;
+  const d = f.contentDocument;
+  const main = q(f, '#app');
+  const home = q(f, '#view-home');
+  const word = q(f, '#view-word');
+  const ready = (name) => d.body.dataset.view === name && d.body.dataset.ready === '1';
+  const previewing = () => main.classList.contains('is-back-swiping');
+  const waitFrame = () => new Promise((resolve) => w.requestAnimationFrame(() => w.requestAnimationFrame(resolve)));
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const pointer = (target, type, x, y) => target.dispatchEvent(new w.PointerEvent(type, {
+    bubbles: true, pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: x, clientY: y
+  }));
+  const reduced = w.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  await waitFor(() => ready('home'), { label: '可交互的首页' });
+  home.style.minHeight = '1700px';
+  w.scrollTo(0, 120);
+  await waitFrame();
+  const savedScroll = w.scrollY;
+  q(f, '#view-home [data-testid="lib-row"] button.lib-name').click();
+  await waitFor(() => ready('word'), { label: '可交互的词库详情' });
+  const head = q(f, '#view-word .word-head');
+  const historyLength = w.history.length;
+
+  for (const [label, target, x, dx, dy] of [
+    ['屏幕左边缘', head, 12, 180, 0],
+    ['屏幕右边缘', head, d.documentElement.clientWidth - 8, 160, 0],
+    ['纵向拖动', head, 105, 170, 230],
+    ['向左拖动', head, 260, -160, 0],
+    ['标题文字', head.querySelector('h2'), 105, 150, 0],
+    ['搜索输入', q(f, '.word-search'), 105, 150, 0],
+    ['词条操作区', q(f, '.word-row'), 105, 150, 0]
+  ]) {
+    pointer(target, 'pointerdown', x, 50);
+    pointer(target, 'pointermove', x + dx, 50 + dy);
+    pointer(target, 'pointerup', x + dx, 50 + dy);
+    await waitFrame();
+    ok(`${label}不启动应用内返回`, ready('word') && !previewing() && !word.style.transform);
+  }
+
+  const selection = w.getSelection();
+  selection.selectAllChildren(head.querySelector('h2'));
+  pointer(head, 'pointerdown', 105, 50);
+  pointer(head, 'pointermove', 265, 50);
+  pointer(head, 'pointerup', 265, 50);
+  await waitFrame();
+  ok('已有文字选区时横滑不会抢走选区或返回', !selection.isCollapsed && ready('word') && !previewing());
+  selection.removeAllRanges();
+
+  pointer(head, 'pointerdown', 105, 50);
+  pointer(head, 'pointermove', 160, 50);
+  await waitFrame();
+  if (reduced) {
+    ok('减弱动效时只识别手势，拖动中不移动页面', !previewing() && !word.style.transform);
+  } else {
+    ok('拖动中详情页跟手，露出首页且首页不可点', previewing() && home.inert && !home.hidden
+       && Math.abs(new w.DOMMatrixReadOnly(css(f, word, 'transform')).m41 - 55) < 1);
+    ok('过渡背景为当前主题底色且不会产生页面横向滚动',
+      w.getComputedStyle(word, '::before').backgroundColor === css(f, d.body, 'background-color')
+      && d.documentElement.scrollWidth === d.documentElement.clientWidth);
+  }
+  await delay(100); // 手指停住再松手，测试距离判定而非速度投射。
+  pointer(head, 'pointerup', 160, 50);
+  await waitFor(() => !previewing(), { label: '短拖回弹结束' });
+  ok('短拖取消，清除位移并且仍在词库详情', ready('word') && home.hidden && !word.style.transform);
+
+  // 中途被浏览器取消时，即使位移够大也不能提交。
+  pointer(word, 'pointerdown', 100, 110);
+  pointer(word, 'pointermove', 285, 110);
+  pointer(word, 'pointercancel', 285, 110);
+  await waitFor(() => !previewing(), { label: '手势取消后收起预览' });
+  ok('系统取消后仍在当前词库，底部导航维持隐藏', ready('word') && css(f, q(f, '#tabbar'), 'display') === 'none');
+
+  pointer(head, 'pointerdown', 105, 50);
+  pointer(head, 'pointermove', 295, 50);
+  await waitFrame();
+  await delay(100);
+  pointer(head, 'pointerup', 295, 50);
+  await waitFor(() => ready('home'), { label: '完成滑动返回' });
+  ok('滑回后保留原来的浏览历史和首页滚动位置，过渡层全部收起',
+    w.location.hash === '#/' && w.history.length === historyLength && savedScroll > 0 && w.scrollY === savedScroll
+    && word.hidden && !home.hidden && !home.inert && !previewing() && !word.style.transform);
+  ok('落定后首页可见，底部胶囊恢复', css(f, q(f, '#tabbar'), 'display') !== 'none');
+  w.history.forward();
+  await waitFor(() => ready('word'), { label: '浏览器前进恢复原词库' });
+  eq('浏览器前进恢复同一词库', w.location.hash, '#/word?lib=lib-glass');
+} catch (e) {
+  ok('应用内滑回测试不崩', false, (e && e.stack) || String(e));
+}
 
 report();
 release();

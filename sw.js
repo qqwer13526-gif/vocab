@@ -13,7 +13,7 @@
  * ⚠️ version.json **不要**放进 ASSETS：应用要用 no-store 取它来发现新版本，缓存住就没用了。
  * ⚠️ ASSETS + DEFERRED 必须覆盖 src 下每个模块；tool/verify_sw.py 会逐个检查。
  */
-const VERSION = 'v61';
+const VERSION = 'v62';
 const CACHE = `vocab-${VERSION}`;
 
 // 首屏必需的（首页要用的那条链 + 外壳 + 字体图标）
@@ -27,6 +27,7 @@ const ASSETS = [
   './apple-touch-icon.png',
   './fonts/InstrumentSerif-Regular.ttf',
   './src/app.js',
+  './src/back-swipe.js',
   './src/version.js',
   './src/viewport.js',
   './src/theme.js',   // app.js 静态 import：主题要在第一帧前就位，不能按需

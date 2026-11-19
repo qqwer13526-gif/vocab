@@ -263,26 +263,21 @@ body {
 }
 
 #app {
+  --app-top: calc(var(--safe-t) + 20px);
+  --app-gutter: 16px;
   position: relative; /* .view.is-swapping 是绝对定位的，锚在它上面 */
   max-width: 720px;
   margin: 0 auto;
   /* 底部留白要把"键盘高度"算进去（--kb-inset 由 src/viewport.js 维护） */
-  padding: calc(var(--safe-t) + 20px) 16px calc(92px + var(--safe-b) + var(--kb-inset, 0px));
+  padding: var(--app-top) var(--app-gutter) calc(92px + var(--safe-b) + var(--kb-inset, 0px));
 }
 
 .view[hidden] { display: none; }
-/* 原子换页：新视图先"画好但不可见"。
-   ⚠️ 这里必须用 visibility 而不是 display:none —— 有些界面要量 getBoundingClientRect
-   （练习页的翻词滑片就是），display:none 会让量出来全是 0。 */
+/* 目标页在文档流外使用正常宽度，渲染期间可以量尺寸。 */
 .view.is-swapping {
-  /* 脱离文档流（旧页不会因为多了一个视图而跳动）+ 宽度照旧（量出来是对的）+ 看不见。
-     ⚠️ 不能只靠 [hidden]（display:none）：渲染期间界面要量尺寸，量出全是 0 会出真 bug。
-     ⚠️ 用 opacity 而不是 visibility（v37）：visibility:hidden 的内容不绘制 →
-        整页绘制会全砸在"对调那一帧"上，手机上就是那一下卡顿。 */
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: var(--app-top);
+  inset-inline: var(--app-gutter);
   opacity: 0;
   pointer-events: none;
 }
@@ -560,7 +555,7 @@ body[data-keyboard='open'] #tabbar { transform: translateY(160%); opacity: 0; po
   font: inherit;
   font-weight: 600;
 }
-body[data-update='ready'] #app { padding-top: calc(var(--safe-t) + 62px); }
+body[data-update='ready'] #app { --app-top: calc(var(--safe-t) + 62px); }
 
 /* ---------------------------------------------------------------- 设置 */
 
@@ -1122,6 +1117,27 @@ body[data-view='practice'] #tabbar { display: none; }
 
 .word-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .word-head .page-title { margin: 0; }
+#view-word:has(> .word-head[data-back-swipe]) { touch-action: pan-y pinch-zoom; }
+#app.is-back-swiping { overflow: clip; }
+.is-back-swiping > #view-home {
+  position: absolute;
+  top: calc(var(--app-top) + var(--back-home-offset));
+  inset-inline: var(--app-gutter);
+  pointer-events: none;
+}
+.is-back-swiping > #view-word {
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+}
+.is-back-swiping > #view-word::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: calc(-1 * var(--app-top)) calc(-1 * var(--app-gutter)) -100dvh;
+  background: var(--bg);
+  pointer-events: none;
+}
 .word-tools { display: grid; gap: 8px; margin-bottom: 12px; }
 .word-search {
   width: 100%;

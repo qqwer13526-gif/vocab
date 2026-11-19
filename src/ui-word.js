@@ -476,7 +476,7 @@ async function renderList(view, params, data) {
   // builtin 可能是 null（智能库自己的页面不需要）—— 必须过滤掉再传：
   // replaceChildren(null) 会在页面上真的渲染出字符串 "null"（踩过的老坑）
   view.replaceChildren(...[
-    el('div', { className: 'word-head' }, [
+    el('div', { className: 'word-head', dataset: { backSwipe: '' } }, [
       el('button', { className: 'prac-quit', type: 'button', 'aria-label': '回首页', onclick: () => { location.hash = '#/'; } }, [icon('chevronLeft', { size: 20 })]),
       parentLib
         ? el('button', {

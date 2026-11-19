@@ -27,6 +27,7 @@ import { wireNavGlass } from './glass.js';
 import { bumpMotionGen, staggerPage } from './motion.js';
 import { APP_VERSION, VERSION_URL } from './version.js';
 import { setupViewport } from './viewport.js';
+import { wireBackSwipe } from './back-swipe.js';
 
 const VIEWS = {
   home: '#view-home',
@@ -100,31 +101,14 @@ function markFirstPaint() {
 
 let current = { name: null, params: {} };
 export const currentRoute = () => current;
+let visibleView;
+let homeScroll = 0;
+let renderRequest = 0;
+let switchTimer;
+let backSwipe;
+const rendering = new Map();
 
-export function show(name, params = {}) {
-  if (!VIEWS[name]) name = 'home';
-  const view = $(VIEWS[name]);
-  const prev = current.name && current.name !== name ? $(VIEWS[current.name]) : null;
-  // 原子换页：新视图先"画好但不可见"，等渲染完再和旧页在同一帧里对调。
-  // 以前是"旧页立刻 hidden → 等新页异步渲染"，中间会空一帧（实测 ~8ms），看着就是抖一下。
-  // ⚠️ 用 visibility 而不是 display:none —— 有些界面要量 getBoundingClientRect（练习页的滑片），
-  //    display:none 会让量出来全是 0。
-  if (view) {
-    // 让新视图**参与布局但看不见**（.is-swapping = 脱离文档流 + opacity:0）：
-    // 渲染期间界面要量尺寸（练习页的折叠判断、键盘避让），display:none 会量出 0 —— 踩过。
-    // ⚠️ 用 opacity 而不是 visibility：visibility:hidden 的内容不绘制，整页绘制会全砸在对调那一帧。
-    view.hidden = false;
-    if (prev) {
-      view.classList.add('is-swapping');
-      view.inert = true; // 不可见期间别让键盘焦点跑进去
-    }
-  }
-  for (const [k, sel] of Object.entries(VIEWS)) {
-    const v = $(sel);
-    if (!v) continue;
-    if (k !== name) v.hidden = true;
-  }
-  current = { name, params };
+function commitNav(name) {
   document.body.dataset.view = name;
   // 底部导航：语义上的"当前项"（aria-current）只给真正对应的那一格；
   // 视觉上的指示器（白药丸）在 word/practice 这种子界面里停在它所属的那一格。
@@ -141,59 +125,77 @@ export function show(name, params = {}) {
     bar.style.setProperty('--nav-count', String(tabs.length || 3));
     bar.style.setProperty('--nav-i', String(idx));
   }
-  delete document.body.dataset.ready;
-  if (!RENDER[name] && !LAZY[name]) return;
-  // 渲染函数可以是异步的（要读 IndexedDB），也可能要先按需把界面模块 import 进来；
-  // 渲染完打一个 ready 标记，验证脚本靠它，骨架也在这一刻撤掉
-  Promise.resolve()
-    .then(async () => {
-      const fn = RENDER[name] || (await LAZY[name]());
-      if (fn) await fn(params);
-    })
-    .catch((err) => console.error('[route] 渲染失败', name, err))
-    .finally(() => {
-      // 这一帧要做的三件事（顺序有意义）：
-      //   ① 滚动归零 —— staggerPage 要按"新页在顶部的样子"判断哪些卡片在屏内
-      //   ② 起入场 —— 此时新页还不可见（.is-swapping = 脱离文档流 + opacity:0），
-      //      所以建层/绘制的成本摊在渲染期间，不挤在对调那一帧
-      //   ③ 对调 —— 撤掉不可见、藏旧页（同一帧只画最终状态，用户看不到中间态）
-      const commitView = () => {
-        // v51：不再"按导航类型跳过入场"（v50 那样会把"点返回"也一起砍掉 ✗ ——
-        // 点返回并不冻结页面，入场完全看得见）。现在一律播，只由 motion.js 的冻结看门狗
-        // 在**实测到冻结**时把它们落定（见 motion.js 的 armSuspensionWatch）。
-        routeIsHistory = false;
-        // 切页窗口内先关掉底栏模糊（见 style.css 里 body[data-switching] 那条注释）
-        try {
-          document.body.dataset.switching = '1';
-          clearTimeout(commitView.__t);
-          commitView.__t = setTimeout(() => { delete document.body.dataset.switching; }, 450);
-        } catch {
-          /* 无所谓 */
-        }
-        window.scrollTo(0, 0);
-        if (name !== 'practice') staggerPage(view, { scope: `page:${name}` });
-        perfMark('entry');
-        if (view) {
-          view.hidden = false;
-          if (prev && prev !== view) prev.hidden = true;
-          view.classList.remove('is-swapping');
-          view.inert = false;
-        }
-        perfMark('swap');
-      };
+}
 
-      commitView();
-      document.body.dataset.ready = '1';
+export function show(name, params = {}) {
+  if (!Object.hasOwn(VIEWS, name)) name = 'home';
+  const view = $(VIEWS[name]);
+  const prev = visibleView;
+  const request = ++renderRequest;
+  const returningBySwipe = name === 'home' && backSwipe?.returning();
+  const keepPreview = returningBySwipe && backSwipe.previewing();
+  if (!returningBySwipe) backSwipe?.reset();
+  current = { name, params };
+  delete document.body.dataset.ready;
+  if (!prev) commitNav(name); // 首屏骨架期间也标明初始路由。
+
+  // 正在显示的页面继续占据文档流。目标页可以量尺寸，但在完成前不可见、不可聚焦。
+  for (const selector of Object.values(VIEWS)) {
+    const section = $(selector);
+    const staged = section === view && !!prev && prev !== view;
+    section.hidden = section !== prev && section !== view;
+    section.classList.toggle('is-swapping', staged && !keepPreview);
+    section.inert = staged;
+  }
+
+  // 同一 section 的渲染串行，避免快速切回时旧请求覆盖最新 DOM。
+  const pending = (rendering.get(name) || Promise.resolve())
+    .then(async () => {
+      if (request !== renderRequest) return;
+      const fn = RENDER[name] || (await LAZY[name]());
+      if (request === renderRequest) await fn(params);
+    })
+    .catch((err) => console.error('[route] 渲染失败', name, err));
+  rendering.set(name, pending);
+  return pending.then(() => {
+    if (rendering.get(name) === pending) rendering.delete(name);
+    if (request !== renderRequest) return;
+
+    document.body.dataset.switching = '1';
+    clearTimeout(switchTimer);
+    switchTimer = setTimeout(() => { delete document.body.dataset.switching; }, 450);
+    if (prev?.id === 'view-home' && view !== prev) homeScroll = window.scrollY;
+    backSwipe?.reset();
+    if (prev && prev !== view) prev.hidden = true;
+    view.hidden = false;
+    view.classList.remove('is-swapping');
+    view.inert = false;
+    visibleView = view;
+    commitNav(name);
+    window.scrollTo(0, returningBySwipe ? homeScroll : 0);
+    // 一次拖动已经提供了入场反馈。交接时直接显示落定的首页。
+    if (name !== 'practice' && !returningBySwipe) staggerPage(view, { scope: `page:${name}` });
+    perfMark('entry');
+    perfMark('swap');
+    document.body.dataset.ready = '1';
+    if (!bootRecorded) {
       markFirstPaint();
-  // 首屏画完之后再预热（别和首屏抢带宽/主线程）
-  if (typeof requestIdleCallback === 'function') requestIdleCallback(warmLazyViews, { timeout: 3000 });
-  else setTimeout(warmLazyViews, 1500);
-    });
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(warmLazyViews, { timeout: 3000 });
+      else setTimeout(warmLazyViews, 1500);
+    }
+  });
 }
 
 export function go(hash) {
   if (location.hash === hash) show(...Object.values(parseHash()));
   else location.hash = hash;
+}
+
+/** 标记从首页打开的词库页，应用内滑回可以返回准确的历史条目。 */
+export function openWordFromHome(hash) {
+  if (visibleView?.id !== 'view-home' || parseHash().name !== 'home') return go(hash);
+  history.pushState({ vocabFromHome: true }, '', hash);
+  route();
 }
 
 function parseHash() {
@@ -207,7 +209,7 @@ function parseHash() {
 export function route() {
   const { name, params } = parseHash();
   // 这次是"历史导航"（返回/前进/边缘滑动）还是"点导航"？
-  routeIsHistory = popstateSeen && history.length === histLen;
+  const routeIsHistory = popstateSeen && history.length === histLen;
   popstateSeen = false;
   histLen = history.length;
   try {
@@ -239,21 +241,9 @@ function perfMark(name) {
   if (typeof window !== 'undefined' && window.__perfMark) window.__perfMark(name);
 }
 
-/* 历史导航（返回/前进/边缘滑动）的判据，以及它为什么要特殊对待（v50）。
-   判据：`popstate 触发` **且** `history.length 与上次相同`。
-   ⚠️ 只用 popstate 不行 —— Chromium 里程序化改 hash 也触发它（踩过：点导航也被当成返回）。
-   规范上 push 一个历史项会让 length +1，返回/前进不会。
-
-   为什么历史导航**不播入场**（这里是第三个方案，前两个都错）：
-     ① 延迟入场动画 → fill:backwards 让卡片在延迟期间保持 opacity:0 → 新页一出现全是隐形 ✗
-     ② 延迟整页对调 → 过渡结束时露出的是实时 DOM，那时它还是旧页 → 先看到旧页再跳 ✗
-     ③ 不播入场（现在）—— 因为真机数据证明：**每一次边缘滑动都会把页面冻住约 485ms**
-        （系统挂起明细 4 条 485~489ms，而只切成功 1 次 → 连取消的滑动也各冻一次）
-        在冻结期间创建的动画，等冻结结束时间轴早已走完 → 用户只会看到"落定"或"一片空白"。
-        原生 App 从返回手势回来时也不会重播入场，所以这不播是符合直觉的行为 ✓ */
+// 仅用于诊断。Chromium 程序化改 hash 也可能触发 popstate。
 let popstateSeen = false;
 let histLen = typeof history !== 'undefined' ? history.length : 0;
-let routeIsHistory = false;
 
 let swReg = null;
 let lastCheck = 0;
@@ -647,6 +637,12 @@ function boot() {
   }
   applyTheme(loadTheme()); // 主题：内联脚本已在第一帧前写过 data-theme，这里做状态栏/持久化的收口
   watchSystemTheme();
+  backSwipe = wireBackSwipe($('#app'), {
+    canStart: () => visibleView?.id === 'view-word' && document.body.dataset.ready === '1'
+      && !current.params.id && history.state?.vocabFromHome === true && parseHash().name === 'word',
+    homeScroll: () => homeScroll,
+    onReturn: () => history.back()
+  });
   wirePressFeedback(); // 全局按压反馈：按下 0.96、松手轻微超调（减弱动效下自动不动）
   wireNavGlass(); // 底部胶囊的"液态"行为：高光随滚动位移 + 压着卡片时玻璃更浓
   setAmbient(undefined, { immediate: true }); // 氛围光先落品牌色，进词库页/练习页会被换成库色

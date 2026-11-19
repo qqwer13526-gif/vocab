@@ -12,7 +12,7 @@
  *   - 删库只删"库 + 归属关系"，词一个都不删
  */
 
-import { $, el } from './app.js';
+import { $, el, openWordFromHome } from './app.js';
 import { put, putMany } from './db.js';
 import { attachDragOrder, orderRowsFor } from './dragorder.js';
 import { confirmThen } from './confirm.js';
@@ -317,8 +317,8 @@ export async function renderHome() {
 
     // 整行可点 = 进词库页（v23）：拇指不用精准点中名字。⋯ 会 stopPropagation，点它不会顺带进库。
     const open = () => {
-      if (testid === 'all-lib-row') location.hash = '#/word';
-      else if (lib) location.hash = `#/word?lib=${encodeURIComponent(lib)}`;
+      if (testid === 'all-lib-row') openWordFromHome('#/word');
+      else if (lib) openWordFromHome(`#/word?lib=${encodeURIComponent(lib)}`);
     };
     const row = el('div', {
       className: 'card lib-row' + (testid === 'all-lib-row' ? ' all-lib-row' : '') + (smart ? ' smart-row' : '') + (childOf ? ' is-child' : ''),
